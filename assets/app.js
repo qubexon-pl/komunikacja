@@ -1071,9 +1071,9 @@ document.getElementById('settingsForm').addEventListener('submit', e=>{
    ============================================================ */
 /* ---------- Podstrony: autobusy, PKS, pociągi ---------- */
 const VIEWS={
-  ztm:{path:'/autobusy', tab:'Autobusy', title:'Autobusy w Rzeszowie', plan:'Jak dojechać autobusem', search:'Szukaj linii, kierunku lub nr pojazdu…'},
-  pks:{path:'/pks', tab:'PKS', title:'PKS — linie podmiejskie', plan:'Jak dojechać PKS-em', search:'Szukaj linii, kierunku lub nr pojazdu…'},
-  kolej:{path:'/pociagi', tab:'Pociągi', title:'Pociągi w okolicy Rzeszowa', plan:'Jak dojechać pociągiem', search:'Szukaj pociągu lub kierunku…'}
+  ztm:{path:'/autobusy', tab:'Autobusy', title:'Autobusy w Rzeszowie', plan:'Jak dojechać autobusem', place:'Ulica z numerem lub przystanek', search:'Szukaj linii, kierunku lub nr pojazdu…'},
+  pks:{path:'/pks', tab:'PKS', title:'PKS — linie podmiejskie', plan:'Jak dojechać PKS-em', place:'Ulica z numerem lub przystanek', search:'Szukaj linii, kierunku lub nr pojazdu…'},
+  kolej:{path:'/pociagi', tab:'Pociągi', title:'Pociągi w okolicy Rzeszowa', plan:'Jak dojechać pociągiem', place:'Ulica z numerem lub stacja', search:'Szukaj pociągu lub kierunku…'}
 };
 function viewFromPath(){ return Object.keys(VIEWS).find(k=>VIEWS[k].path===location.pathname)||'ztm'; }
 function fitView(){
@@ -1085,7 +1085,7 @@ function setView(view, push){
   if(push) history.pushState(null,'',V.path);
   if(S.focus) resetFocus();
   clearRouteLayer(); S.selected=null; S.follow=false;
-  S.agency=view; S.query=''; S.plan=null;
+  S.agency=view; S.query=''; S.plan=null; S.placeChoice={}; planReq++;
   document.body.dataset.view=view;
   document.title=`${V.tab} · Rzeszów Live`;
   document.getElementById('heroTitle').textContent=V.title;
@@ -1094,7 +1094,7 @@ function setView(view, push){
   document.querySelectorAll('.view-tab').forEach(a=>{ const on=a.dataset.view===view; a.classList.toggle('active',on); if(on) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
   let n=0; document.querySelectorAll('.sec-num').forEach(e=>{ if(e.offsetParent) e.textContent=String(++n).padStart(2,'0'); });
   document.getElementById('planResults').innerHTML=''; document.getElementById('planErr').textContent='';
-  const saved=store('rzbus.plan.'+view); plFrom.value=saved?.from||''; plTo.value=saved?.to||'';
+  const saved=store('rzbus.plan.'+view); plFrom.value=saved?.from||''; plTo.value=saved?.to||''; plFrom.placeholder=plTo.placeholder=V.place;
   refreshStopList();
   renderMarkers(); renderStats(); renderLateList(); renderLineNotice(); renderLinesGrid(); renderTrainsOnMap(); renderBoard();
   fitView();
@@ -1363,22 +1363,26 @@ function mkLeg(d, j, L){
   return {tid:d.tid, t:d.t, st:d.st, i:d.idx, j, base:d.base, short:r.short, color:lineColor(r.short,r.color,r.agency), head:d.t.headsign||GT.stopGroupOf.get(d.st[d.st.length-1].stop)||'',
     from:GT.stopGroupOf.get(d.st[d.idx].stop), to:GT.stopGroupOf.get(d.st[j].stop), dep:d.dep, arr:d.base+d.st[j].arr, L, predDep:L?L.pred:d.dep, predArr:d.base+d.st[j].arr+(L&&L.delay!=null?delay:0)};
 }
-function planTrips(fromName, toName, atTs){
+function planTrips(origin, dest, atTs){
   const t0=performance.now();
-  const dest=GT.groups.get(toName); const destIds=new Set(dest.ids);
+  const fromNames=new Set(origin.names);
+  const destIds=new Set(dest.names.flatMap(n=>GT.groups.get(n)?.ids||[]));
+  const walkTo=sid=>dest.walk.get(GT.stopGroupOf.get(sid))||0;
+  const walkFrom=d=>origin.walk.get(GT.stopGroupOf.get(d.st[d.idx].stop))||0;
   const destIdx=new Map(); for(const sid of destIds) for(const [tid,idx] of GT.byStop.get(sid)||[]){ let a=destIdx.get(tid); if(!a){a=[];destIdx.set(tid,a);} a.push(idx); }
-  const firstDestAfter=(tid,i)=>{ const a=destIdx.get(tid); if(!a) return null; let m=null; for(const j of a) if(j>i && (m==null||j<m)) m=j; return m; };
-  const deps=departuresFrom(fromName, atTs-45*60, atTs+3*3600, tripInView).map(d=>Object.assign(d,{L:liveFor(d.tid,d.st,d.idx,d.base)})).filter(d=>d.L.state!=='passed' && d.L.pred>=atTs-30 && (d.L.state!=='sched' || d.dep>=atTs-60)).sort((a,b)=>a.L.pred-b.L.pred);
+  const firstDestAfter=(tid,i)=>{ const a=destIdx.get(tid); if(!a) return null; const st=GT.stopTimes.get(tid); let m=null, best=Infinity; for(const j of a) if(j>i){ const door=st[j].arr+walkTo(st[j].stop); if(door<best || (door===best && j<m)){ best=door; m=j; } } return m; };
+  const deps=origin.names.flatMap(n=>departuresFrom(n, atTs-45*60, atTs+3*3600, tripInView)).map(d=>Object.assign(d,{L:liveFor(d.tid,d.st,d.idx,d.base)})).filter(d=>{ const w=walkFrom(d); return d.L.state!=='passed' && d.L.pred>=atTs+w-30 && (d.L.state!=='sched' || d.dep>=atTs+w-60); }).sort((a,b)=>a.L.pred-b.L.pred);
   const out=[]; const seen=new Set();
-  for(const d of deps){ const j=firstDestAfter(d.tid,d.idx); if(j==null) continue; if(seen.has(d.tid)) continue; seen.add(d.tid); out.push({legs:[mkLeg(d,j,d.L)]}); }
-  const direct=out.length;
-  if(direct<4){
+  const byTrip=new Map(); // ten sam kurs z kilku przystanków: wsiadamy tam, gdzie najbliżej
+  for(const d of deps){ const j=firstDestAfter(d.tid,d.idx); if(j==null) continue; const cur=byTrip.get(d.tid); if(!cur || walkFrom(d)<walkFrom(cur.d)) byTrip.set(d.tid,{d,j}); }
+  for(const {d,j} of byTrip.values()) out.push({legs:[mkLeg(d,j,d.L)]});
+  if(out.length<4){
     for(const d of deps.slice(0,40)){
       if(performance.now()-t0>700) break;
       if(firstDestAfter(d.tid,d.idx)!=null) continue;
       const delay1 = d.L.delay||0; let best=null;
       for(let k=d.idx+1;k<d.st.length && k<=d.idx+40;k++){
-        const X=GT.stopGroupOf.get(d.st[k].stop); if(!X||X===fromName) continue;
+        const X=GT.stopGroupOf.get(d.st[k].stop); if(!X||fromNames.has(X)) continue;
         const arr1=d.base+d.st[k].arr+Math.max(0,delay1);
         const sec=departuresFrom(X, arr1+60, arr1+45*60, (t,st2,i2)=> tripInView(t) && t.route!==d.t.route && firstDestAfter(t.id,i2)!=null, [-1,0,1]);
         for(const s2 of sec){ const L2=liveFor(s2.tid,s2.st,s2.idx,s2.base); if(L2.state==='passed' || L2.pred < arr1+60) continue;
@@ -1388,28 +1392,35 @@ function planTrips(fromName, toName, atTs){
       if(best){ const key=best.legs.map(l=>l.tid).join('>'); if(!seen.has(key)){ seen.add(key); out.push({legs:best.legs}); } }
     }
   }
-  for(const o of out){ o.dep=o.legs[0].predDep; o.arr=o.legs[o.legs.length-1].predArr; }
+  for(const o of out){ const last=o.legs[o.legs.length-1]; o.dep=o.legs[0].predDep; o.arr=last.predArr; o.walkFrom=origin.walk.get(o.legs[0].from)||0; o.walkTo=dest.walk.get(last.to)||0; }
   // usuń połączenia z przesiadką gorsze od bezpośredniego, które wyjeżdża później a przyjeżdża wcześniej
   const res=out.filter(o=>!out.some(p=>p!==o && p.dep>=o.dep && p.arr<=o.arr && p.legs.length<o.legs.length));
   for(const o of res) o.legs.forEach((l,k)=>{ l.lineColor=l.color; l.color=LEG_COLORS[k%LEG_COLORS.length]; });
-  return res.sort((a,b)=>a.arr-b.arr || a.legs.length-b.legs.length).slice(0,7).sort((a,b)=>a.dep-b.dep);
+  return res.sort((a,b)=>(a.arr+a.walkTo)-(b.arr+b.walkTo) || a.legs.length-b.legs.length).slice(0,7).sort((a,b)=>a.dep-b.dep);
+}
+function walkText(m){ return `${m>=1000?(m/1000).toFixed(1).replace('.',',')+' km':m+' m'} · ok. ${Math.max(1,Math.round(m/60))} min pieszo`; }
+function walkStep(m, text){ return m ? `<div class="walk-step"><span aria-hidden="true">🚶</span> ${text} <span class="text-soft">(${walkText(m)})</span></div>` : ''; }
+function placeSummary(P){
+  const row=(title,p)=>p.isStop?'':`<div><b>${title}:</b> ${esc(p.label)} → najbliżej <b>${esc(p.nearest.name)}</b> <span class="text-soft">(${walkText(p.nearest.dist)})</span>${p.approximate?' <span class="txt-red">nie znaleziono tego numeru, użyto całej ulicy</span>':''}</div>`;
+  const rows=row('Skąd',P.origin)+row('Dokąd',P.dest);
+  return rows?`<div class="place-summary">${rows}<div class="small text-soft">Czas dojścia jest szacunkowy. Wyniki uwzględniają też inne przystanki w pobliżu.</div></div>`:'';
 }
 function renderPlan(results){
   const el=document.getElementById('planResults'); const P=S.plan;
-  if(!results.length){ el.innerHTML=`<div class="empty-note">Brak połączeń z <b>${esc(P.from)}</b> do <b>${esc(P.to)}</b> w ciągu 3 godzin (bezpośrednio lub z jedną przesiadką).</div>`; return; }
-  el.innerHTML = `<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span><span class="text-soft">${P.at?'odjazd od '+fmtClock(P.at):'odjazdy od teraz'} · ${results.length} połączeń</span></div>` +
+  if(!results.length){ el.innerHTML=placeSummary(P)+`<div class="empty-note">Brak połączeń z <b>${esc(P.from)}</b> do <b>${esc(P.to)}</b> w ciągu 3 godzin (bezpośrednio lub z jedną przesiadką).</div>`; return; }
+  el.innerHTML = placeSummary(P)+`<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span><span class="text-soft">${P.at?'odjazd od '+fmtClock(P.at):'odjazdy od teraz'} · ${results.length} połączeń</span></div>` +
    results.map((o,ix)=>{ const l0=o.legs[0]; const dur=Math.round((o.arr-o.dep)/60);
     const legsH=o.legs.map((l,k)=>`<div class="leg">
         <span class="leg-line" style="background:${l.color}">${esc(l.short)}</span>
         <div class="leg-body"><div><b>${fmtClock(l.predDep)}</b> ${esc(l.from)} <span class="text-soft">→</span> <b>${fmtClock(l.predArr)}</b> ${esc(l.to)}</div>
         <div class="leg-meta">kierunek ${esc(l.head)} · ${l.j-l.i} przyst.${l.predDep!==l.dep?` · rozkł. ${fmtClock(l.dep)}`:''} ${liveChip(l.L)}</div></div></div>${k<o.legs.length-1?`<div class="transfer">↳ przesiadka: ${esc(l.to)} · ${Math.max(0,Math.round((o.legs[k+1].predDep-l.predArr)/60))} min na przesiadkę</div>`:''}`).join('');
     return `<div class="plan-card" data-ix="${ix}">
-      <div class="pc-time"><div class="pc-dep ${l0.L&&l0.L.delay!=null&&statusOf(l0.L.delay)==='late'?'txt-red':''}">${fmtClock(o.dep)}</div><div class="pc-in">${inMin(o.dep)}</div></div>
+      <div class="pc-time"><div class="pc-dep ${l0.L&&l0.L.delay!=null&&statusOf(l0.L.delay)==='late'?'txt-red':''}">${fmtClock(o.dep)}</div><div class="pc-in">${o.walkFrom?'wyjdź '+fmtClock(o.dep-o.walkFrom):inMin(o.dep)}</div></div>
       <div class="pc-main">
         <div class="pc-lines">${o.legs.map(l=>`<span class="leg-line" style="background:${l.color}">${esc(l.short)}</span>`).join('<span class="pc-arrow">›</span>')}
           <span class="pc-sum">przyjazd ${fmtClock(o.arr)} · ${dur} min · ${o.legs.length===1?'bez przesiadek':'1 przesiadka'}</span></div>
         <div class="pc-status">${liveChip(l0.L)}${l0.L&&l0.L.v?` <span class="text-soft small">pojazd ${esc(l0.L.v.label)}${l0.L.v.stopName?' · teraz: '+esc(l0.L.v.stopName):''}</span>`:''}</div>
-        <div class="pc-legs">${legsH}</div>
+        <div class="pc-legs">${walkStep(o.walkFrom,`Idź na przystanek ${esc(l0.from)}`)}${legsH}${walkStep(o.walkTo,`Z przystanku ${esc(o.legs[o.legs.length-1].to)} dojdź do celu`)}</div>
       </div>
       <div class="pc-actions"><button class="btn-ghost" data-show="${ix}">Na mapie</button>${l0.L&&l0.L.v?`<button class="btn-ghost" data-bus="${esc(l0.L.v.id)}">Autobus</button>`:''}</div>
     </div>`; }).join('');
@@ -1417,29 +1428,78 @@ function renderPlan(results){
 }
 function runPlan(scroll){
   const P=S.plan; if(!P) return;
-  if(S.agency==='kolej'){ renderTrainPlan(planTrainTrips(P.from, P.to, P.at||nowSec())); if(scroll) document.getElementById('planResults').scrollIntoView({behavior:'smooth', block:'nearest'}); return; }
+  if(S.agency==='kolej'){ renderTrainPlan(planTrainRoutes(P.origin, P.dest, P.at||nowSec())); if(scroll) document.getElementById('planResults').scrollIntoView({behavior:'smooth', block:'nearest'}); return; }
   if(!GT.loaded){ document.getElementById('planResults').innerHTML='<div class="empty-note">Rozkład jazdy jeszcze się wczytuje — wyniki pojawią się automatycznie.</div>'; return; }
   const at = P.at || nowSec();
-  renderPlan(planTrips(P.from, P.to, at));
+  renderPlan(planTrips(P.origin, P.dest, at));
   if(scroll) document.getElementById('planResults').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
-document.getElementById('planForm').addEventListener('submit', e=>{
+/* ---------- Ulica → najbliższe przystanki ---------- */
+function nearbyStops(place){
+  const train=S.agency==='kolej';
+  const all=train ? Object.values(RAIL_ST).map(s=>({name:s[0],lat:s[1],lon:s[2]})) : [...GT.groups.values()].filter(g=>groupInView(g.name));
+  const near=all.map(g=>({name:g.name, dist:Math.round(Math.min(...place.points.map(p=>hav(p,[g.lat,g.lon]))))})).filter(x=>x.dist<=(train?30000:3000)).sort((a,b)=>a.dist-b.dist);
+  if(train) return near.slice(0,3);
+  const close=near.filter(x=>x.dist<=800); // przystanki są parami w obu kierunkach, więc najbliższy nie zawsze jedzie tam, gdzie trzeba
+  return (close.length>=3 ? close : near.slice(0,3)).slice(0,8);
+}
+function stopPlace(name){ return {label:name, names:[name], walk:new Map(), isStop:true}; }
+function streetPlace(place, approximate){
+  const stops=nearbyStops(place);
+  return {label:place.label, place, approximate:!!approximate, names:stops.map(x=>x.name), walk:new Map(stops.map(x=>[x.name,x.dist])), nearest:stops[0]};
+}
+async function geocodeStreet(q){
+  const r=await fetch('/api/geocode?q='+encodeURIComponent(q));
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+async function resolvePlace(text, field, train){
+  const q=(text||'').trim(), what=train?'stacji':'przystanku', title=field==='from'?'Skąd':'Dokąd';
+  if(!q) return {error:`Wpisz ulicę lub nazwę ${what} w polu „${title}”.`};
+  const names=train ? railStationNames() : [...GT.groups.keys()].filter(groupInView);
+  const exact=names.find(n=>n.toLowerCase()===q.toLowerCase());
+  if(exact) return stopPlace(exact);
+  const chosen=S.placeChoice[field];
+  if(chosen && chosen.q===q) return streetPlace(chosen.place, chosen.approximate);
+  const partialStop=()=>{ const n=(train?resolveStation:resolveStop)(q); return n?stopPlace(n):null; };
+  let data;
+  try{ data=await geocodeStreet(q); }
+  catch(e){ console.warn('Wyszukiwanie ulic', e); return partialStop() || {error:`Wyszukiwarka ulic jest chwilowo niedostępna. W polu „${title}” wpisz nazwę ${what}.`}; }
+  const usable=data.places.filter(p=>nearbyStops(p).length);
+  if(usable.length===1) return streetPlace(usable[0], data.approximate);
+  if(usable.length>1) return {choose:usable, approximate:data.approximate, field, q};
+  if(data.places.length) return {error:`„${q}” istnieje, ale w pobliżu nie ma ${train?'stacji':'przystanku tej kategorii'}.`};
+  return partialStop() || {error:`Nie znaleziono ulicy ani ${what} „${q}” (pole „${title}”). Sprawdź pisownię.`};
+}
+function renderPlaceChoice(r){
+  S.placeOptions=r;
+  document.getElementById('planResults').innerHTML=`<div class="place-choice"><div class="plan-head"><span>„${esc(r.q)}”: której lokalizacji szukasz? (${r.field==='from'?'Skąd':'Dokąd'})</span></div>
+    ${r.choose.map((p,i)=>`<button type="button" class="btn-ghost" data-place="${i}">${esc(p.label)}</button>`).join('')}</div>`;
+}
+let planReq=0;
+document.getElementById('planForm').addEventListener('submit', async e=>{
   e.preventDefault();
   const err=document.getElementById('planErr'); err.textContent='';
   const train=S.agency==='kolej';
   if(!train && !GT.loaded){ err.textContent='Rozkład jazdy jeszcze się wczytuje — spróbuj za chwilę.'; return; }
-  const find=train?resolveStation:resolveStop;
-  const f=find(plFrom.value), t=find(plTo.value);
-  if(!f){ err.textContent=`Nie znaleziono ${train?'stacji':'przystanku'} „Skąd”.`; return; }
-  if(!t){ err.textContent=`Nie znaleziono ${train?'stacji':'przystanku'} „Dokąd”.`; return; }
-  if(f===t){ err.textContent=`${train?'Stacja początkowa i docelowa są takie same.':'Przystanek początkowy i docelowy są takie same.'}`; return; }
-  plFrom.value=f; plTo.value=t;
-  let at=null; if(plTime.value){ const [h,m]=plTime.value.split(':').map(Number); at=todayMidnight()+h*3600+m*60; if(at<nowSec()-3600) at+=86400; }
-  S.plan={from:f, to:t, at}; store('rzbus.plan.'+S.agency, {from:f,to:t});
-  runPlan(true);
+  const req=++planReq, go=e.currentTarget.querySelector('.pl-go'), view=S.agency;
+  go.disabled=true; document.getElementById('planHint').textContent='Sprawdzam adresy…';
+  try{
+    const origin=await resolvePlace(plFrom.value,'from',train);
+    const dest=origin.error||origin.choose ? null : await resolvePlace(plTo.value,'to',train);
+    if(req!==planReq || view!==S.agency) return;
+    const stopped=[origin,dest].find(x=>x && (x.error||x.choose));
+    if(stopped){ S.plan=null; document.getElementById('planResults').innerHTML=''; if(stopped.error) err.textContent=stopped.error; else renderPlaceChoice(stopped); return; }
+    if(origin.label===dest.label){ err.textContent='Miejsce początkowe i docelowe są takie same.'; return; }
+    plFrom.value=origin.label; plTo.value=dest.label;
+    for(const [field,p] of [['from',origin],['to',dest]]) if(p.place) S.placeChoice[field]={q:p.label, place:p.place, approximate:p.approximate};
+    let at=null; if(plTime.value){ const [h,m]=plTime.value.split(':').map(Number); at=todayMidnight()+h*3600+m*60; if(at<nowSec()-3600) at+=86400; }
+    S.plan={from:origin.label, to:dest.label, origin, dest, at}; store('rzbus.plan.'+S.agency, {from:origin.label,to:dest.label});
+    runPlan(true);
+  }finally{ if(req===planReq){ go.disabled=false; refreshStopList(); } }
 });
 const [plFrom,plTo,plTime]=['plFrom','plTo','plTime'].map(id=>document.getElementById(id));
-document.getElementById('plSwap').addEventListener('click', ()=>{ const a=plFrom.value; plFrom.value=plTo.value; plTo.value=a; });
+document.getElementById('plSwap').addEventListener('click', ()=>{ const a=plFrom.value; plFrom.value=plTo.value; plTo.value=a; S.placeChoice={from:S.placeChoice.to, to:S.placeChoice.from}; });
 document.getElementById('plGeo').addEventListener('click', ()=>{
   const err=document.getElementById('planErr'); err.textContent='';
   if(S.agency!=='kolej' && !GT.loaded){ err.textContent='Rozkład jeszcze się wczytuje.'; return; }
@@ -1450,6 +1510,7 @@ document.getElementById('plGeo').addEventListener('click', ()=>{
 });
 document.getElementById('planResults').addEventListener('click', e=>{
   const tr=e.target.closest('[data-train]'); if(tr){ openTrain(tr.dataset.train); return; }
+  const pl=e.target.closest('[data-place]'); if(pl){ const r=S.placeOptions; S.placeChoice[r.field]={q:r.q, place:r.choose[+pl.dataset.place], approximate:r.approximate}; document.getElementById('planForm').requestSubmit(); return; }
   const b=e.target.closest('[data-bus]'); if(b){ const v=S.vehicles.get(b.dataset.bus); if(v){ document.getElementById('map-sec').scrollIntoView({behavior:'smooth'}); map.setView([v.lat,v.lon],16); openBus(v.id);} return; }
   const s=e.target.closest('[data-show]'); if(!s) return;
   const o=S.planResults[+s.dataset.show]; if(o) showPlanFocus(o);
@@ -1871,17 +1932,29 @@ function planTrainTrips(from, to, at){
   }
   return out.sort((x,y)=>x.dep-y.dep).slice(0,7);
 }
+function planTrainRoutes(origin, dest, at){
+  const best=new Map();
+  for(const from of origin.names) for(const to of dest.names){
+    if(from===to) continue;
+    const walkFrom=origin.walk.get(from)||0, walkTo=dest.walk.get(to)||0;
+    for(const r of planTrainTrips(from, to, at+walkFrom)){
+      const cur=best.get(r.t.key);
+      if(!cur || walkFrom+walkTo<cur.walkFrom+cur.walkTo) best.set(r.t.key, Object.assign(r,{from,to,walkFrom,walkTo}));
+    }
+  }
+  return [...best.values()].sort((x,y)=>x.dep-y.dep).slice(0,7);
+}
 function renderTrainPlan(results){
   const el=document.getElementById('planResults'); const P=S.plan;
-  const note=TR.mode==='demo' ? '<div class="small text-soft mb-2">Przykładowe dane — prawdziwe połączenia pojawią się po dodaniu klucza PKP PLK w Ustawieniach.</div>' : '';
+  const note=placeSummary(P)+(TR.mode==='demo' ? '<div class="small text-soft mb-2">Przykładowe dane — prawdziwe połączenia pojawią się po dodaniu klucza PKP PLK w Ustawieniach.</div>' : '');
   if(!results.length){ el.innerHTML=note+`<div class="empty-note">Brak bezpośrednich pociągów z <b>${esc(P.from)}</b> do <b>${esc(P.to)}</b> w ciągu 6 godzin.</div>`; return; }
   el.innerHTML = note+`<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span><span class="text-soft">${P.at?'odjazd od '+fmtClock(P.at):'odjazdy od teraz'} · ${results.length} połączeń</span></div>` +
-    results.map(({t,a,dep,arr})=>`<div class="plan-card">
-      <div class="pc-time"><div class="pc-dep ${a.delay!=null&&statusOf(a.delay*60)==='late'?'txt-red':''}">${fmtClock(dep)}</div><div class="pc-in">${inMin(dep)}</div></div>
+    results.map(({t,a,dep,arr,from,to,walkFrom,walkTo})=>`<div class="plan-card">
+      <div class="pc-time"><div class="pc-dep ${a.delay!=null&&statusOf(a.delay*60)==='late'?'txt-red':''}">${fmtClock(dep)}</div><div class="pc-in">${walkFrom?'wyjdź '+fmtClock(dep-walkFrom):inMin(dep)}</div></div>
       <div class="pc-main">
         <div class="pc-lines"><span class="leg-line" style="background:#181818">${esc(t.cat||'POC')}</span><span class="pc-sum">przyjazd ${fmtClock(arr)} · ${Math.round((arr-dep)/60)} min · bez przesiadek</span></div>
         <div class="pc-status">${trainDelayChip(a.delay,false)}${a.pl?` <span class="text-soft small">peron ${esc(a.pl)}${a.tr?' · tor '+esc(a.tr):''}</span>`:''}</div>
-        <div class="pc-legs"><div class="leg-meta">${esc(t.label)}${t.name?' „'+esc(t.name)+'”':''} · kierunek ${esc(t.to)}${TR.carriers.get(t.carrier)?' · '+esc(TR.carriers.get(t.carrier)):''}</div></div>
+        <div class="pc-legs">${walkStep(walkFrom,`Idź na stację ${esc(from)}`)}<div class="leg-meta">${esc(t.label)}${t.name?' „'+esc(t.name)+'”':''} · kierunek ${esc(t.to)}${TR.carriers.get(t.carrier)?' · '+esc(TR.carriers.get(t.carrier)):''}</div>${walkStep(walkTo,`Ze stacji ${esc(to)} dojdź do celu`)}</div>
       </div>
       <div class="pc-actions"><button class="btn-ghost" data-train="${esc(t.key)}">Szczegóły</button></div>
     </div>`).join('');

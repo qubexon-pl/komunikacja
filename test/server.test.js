@@ -253,6 +253,37 @@ test("account deletion requires an authenticated same-origin confirmation", asyn
   assert.match(confirm.headers.get("set-cookie"), /Max-Age=0/);
 });
 
+test("street search needs a session, validates input, and hides provider failures", async (t) => {
+  const http = require("node:http");
+  const { createServer } = require("../src/server");
+  const queries = [];
+  const server = createServer({
+    database: {},
+    auth: { resolveSession: async (token) => (token === "ok" ? { id: "1" } : null) },
+    geocode: async (query) => {
+      queries.push(query);
+      if (query === "awaria") throw new Error("down");
+      return { places: [{ label: "Lwowska, Rzeszów", locality: "Rzeszów", points: [[50, 22]] }], approximate: false };
+    },
+  });
+  assert.ok(server instanceof http.Server);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/geocode`;
+  const headers = { Cookie: "rzbus_session=ok" };
+
+  assert.equal((await fetch(`${base}?q=Lwowska`)).status, 401);
+  assert.equal((await fetch(`${base}?q=a`, { headers })).status, 400);
+  assert.equal((await fetch(`${base}?q=${"x".repeat(121)}`, { headers })).status, 400);
+  const found = await fetch(`${base}?q=Lwowska`, { headers });
+  assert.equal(found.status, 200);
+  assert.equal((await found.json()).places[0].label, "Lwowska, Rzeszów");
+  const failed = await fetch(`${base}?q=awaria`, { headers });
+  assert.equal(failed.status, 502);
+  assert.doesNotMatch(await failed.text(), /down/);
+  assert.deepEqual(queries, ["Lwowska", "awaria"]);
+});
+
 test("Google sign-in is hidden when provider credentials are absent", async (t) => {
   const baseUrl = await startServer(t, {});
   const response = await fetch(`${baseUrl}/api/auth/config`);

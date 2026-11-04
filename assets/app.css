@@ -517,3 +517,9 @@ body[data-view="kolej"] .not-kolej,body:not([data-view="kolej"]) .only-kolej,bod
   .view-tab{flex:1; text-align:center}
   .map-filters{position:static}
 }
+
+/* ---- ulice w „Jak dojechać” ---- */
+.place-summary{display:grid; gap:4px; border-left:3px solid var(--red); padding:10px 14px; margin-bottom:12px; background:var(--soft); font-size:.9rem}
+.place-choice{display:flex; flex-wrap:wrap; gap:8px}
+.place-choice .plan-head{width:100%}
+.walk-step{padding:4px 0; font-size:.86rem}
