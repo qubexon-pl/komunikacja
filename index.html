@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rzeszów · Autobusy na żywo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="topbar-inner">
+    <span class="brand">RZESZÓW<b>/</b>LIVE</span>
+    <div class="nav-links">
+      <a class="nav-link-btn hide-sm" href="#plan-sec">Jak dojechać</a>
+      <a class="nav-link-btn hide-sm" href="#trains-sec">Pociągi</a>
+      <a class="nav-link-btn hide-sm" href="#lines-sec">Linie</a>
+      <button class="nav-link-btn" id="alertsBtn" style="display:none"><span class="txt">Komunikaty</span> <span class="badge-num" id="alertsCount">0</span></button>
+      <button class="nav-link-btn" id="refreshBtn" title="Odśwież teraz"><span class="ico">↻</span><span class="txt"> Odśwież</span></button>
+      <button class="nav-link-btn" id="themeBtn" title="Motyw"><span class="txt">Motyw</span></button>
+      <button class="nav-link-btn" id="settingsBtn">Ustawienia</button>
+      <span class="nav-link-btn" id="currentUser" aria-live="polite"></span>
+      <button class="nav-link-btn" id="deleteAccountBtn" type="button">Usuń konto</button>
+      <button class="nav-link-btn" id="logoutBtn" type="button">Wyloguj</button>
+    </div>
+  </div>
+</nav>
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-left">
+      <span class="kicker loading" id="liveKicker"><span class="dot"></span><span id="liveText">Łączenie…</span></span>
+      <h1>Autobusy<br>w Rzeszowie</h1>
+      <p>Autobusy miejskie ZTM, podmiejskie PKS i pociągi w okolicy Rzeszowa — na żywo. Te, które spóźniają się względem rozkładu, są oznaczone na <strong>czerwono</strong>.</p>
+      <a class="discover" href="#map-sec">Odkryj mapę <span>→</span></a>
+    </div>
+    <div class="hero-right">
+    <div class="wx" id="wx"></div>
+    <div class="countdown">
+      <div class="cd-label">Następna aktualizacja za</div>
+      <div class="cd-boxes">
+        <div><span class="cd-num" id="cdM">00</span><span class="cd-unit">MM</span></div>
+        <span class="cd-sep">:</span>
+        <div><span class="cd-num" id="cdS">00</span><span class="cd-unit">SS</span></div>
+      </div>
+      <div class="cd-foot" id="cdFoot">Ostatni odczyt —</div>
+    </div>
+    </div>
+  </div>
+</header>
+
+<main class="shell">
+  <div class="stats-band">
+    <div class="stat-card" data-filter="all"><div class="lbl">Na trasie</div><div class="num" id="stAll">–</div></div>
+    <div class="stat-card" data-filter="ontime"><div class="lbl">Punktualne</div><div class="num" id="stOk">–</div></div>
+    <div class="stat-card is-red" data-filter="late"><div class="lbl">Spóźnione</div><div class="num" id="stLate">–</div></div>
+    <div class="stat-card" data-filter="late"><div class="lbl">Maks. opóźnienie</div><div class="num" id="stMax">–</div></div>
+    <div class="stat-card" data-agency="kolej"><div class="lbl">Pociągi w okolicy</div><div class="num" id="stTrains">–</div></div>
+  </div>
+
+  <div class="sec-head" id="map-sec"><span class="sec-num">01</span><h2>Mapa na żywo</h2><span class="sec-rule"></span></div>
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <button class="pill-btn active" data-filter="all">Wszystkie</button>
+    <button class="pill-btn" data-filter="late">Spóźnione</button>
+    <button class="pill-btn" data-filter="ontime">Na czas</button>
+    <span class="pill-sep"></span>
+    <button class="pill-btn ag-btn active" data-agency="all">Wszystko</button>
+    <button class="pill-btn ag-btn" data-agency="ztm">ZTM</button>
+    <button class="pill-btn ag-btn" data-agency="pks">PKS</button>
+    <button class="pill-btn ag-btn" data-agency="kolej">Pociągi</button>
+    <input class="search-input flex-grow-1" id="lineSearch" placeholder="Szukaj linii, kierunku lub nr pojazdu…" style="max-width:340px">
+  </div>
+  <div class="line-notice d-none" id="lineNotice"></div>
+
+  <div class="row g-3">
+    <div class="col-lg-8 col-xl-9">
+      <div class="card-soft" id="mapWrap">
+        <div id="map"></div>
+        <div class="map-tools">
+          <button class="map-tool" id="fitBtn" title="Pokaż wszystkie">⤢</button>
+          <button class="map-tool" id="centerBtn" title="Centrum Rzeszowa">⌖</button>
+          <button class="map-tool" id="resetViewBtn" title="Reset widoku — wszystkie linie">↺</button>
+        </div>
+        <div class="focus-bar d-none" id="focusBar"></div>
+        <div class="tile-note d-none" id="tileNote">Podkład ulic zablokowany w tym podglądzie — trasy i przystanki rysowane z rozkładu. Otwórz plik w przeglądarce, by zobaczyć pełną mapę.</div>
+        <div class="map-loader" id="mapLoader"><span class="mini-spin"></span><span id="loaderText">Łączenie z ZTM…</span></div>
+      </div>
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2 px-1">
+        <div class="legend">
+          <span><i style="background:var(--rose)"></i>Spóźniony ≥ <span class="thrLbl">3</span> min</span>
+          <span><i style="background:var(--amber)"></i>Lekko spóźniony</span>
+          <span><i style="background:var(--teal)"></i>Na czas</span>
+          <span><i style="background:var(--sky)"></i>Przed czasem</span>
+          <span><i style="background:var(--slate)"></i>Brak danych</span>
+        </div>
+        <div class="legend d-none" id="trafficLegend"><span>Ruch:</span><span><i class="tl" style="background:#16a34a"></i>płynny</span><span><i class="tl" style="background:#f97316"></i>wolniej</span><span><i class="tl" style="background:#b91c1c"></i>korek</span></div>
+        <div class="footer-note" id="updatedLbl"></div>
+      </div>
+    </div>
+    <div class="col-lg-4 col-xl-3">
+      <div class="sec-head sec-head-sm"><span class="sec-num">02</span><h2>Najbardziej spóźnione</h2><span class="sec-rule"></span><span class="chip late" id="lateCountChip">0</span>
+      </div>
+      <div class="d-grid gap-2" id="lateList"></div>
+    </div>
+  </div>
+
+  <div class="sec-head" id="plan-sec" style="margin-top:64px"><span class="sec-num">03</span><h2>Jak dojechać</h2><span class="sec-rule"></span></div>
+  <form id="planForm" class="planner" autocomplete="off">
+    <div class="pl-field"><label for="plFrom">Skąd</label><div class="pl-inp"><input id="plFrom" list="stopNames" placeholder="Przystanek początkowy"><button type="button" class="pl-map" data-pick="from" title="Wybierz przystanek na mapie"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button><button type="button" id="plGeo" title="Najbliższy przystanek">◎</button></div></div>
+    <button type="button" class="pl-swap" id="plSwap" title="Zamień kierunek">⇄</button>
+    <div class="pl-field"><label for="plTo">Dokąd</label><div class="pl-inp"><input id="plTo" list="stopNames" placeholder="Przystanek docelowy"><button type="button" class="pl-map" data-pick="to" title="Wybierz przystanek na mapie"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button></div></div>
+    <div class="pl-field pl-time"><label for="plTime">Odjazd</label><div class="pl-inp"><input id="plTime" type="time" title="Puste = teraz"></div></div>
+    <button class="btn-grad pl-go" type="submit">Szukaj połączeń</button>
+  </form>
+  <div class="d-flex justify-content-between flex-wrap gap-2 mt-2"><div class="txt-red small fw-semibold" id="planErr"></div><div class="small text-soft" id="planHint"></div></div>
+  <datalist id="stopNames"></datalist>
+  <div id="planResults" class="mt-3"></div>
+
+  <div class="sec-head" id="trains-sec" style="margin-top:64px"><span class="sec-num">04</span><h2>Pociągi</h2><span class="sec-rule"></span></div>
+  <div class="tr-bar">
+    <div class="pl-field" style="border:1px solid var(--line); min-width:260px"><label for="trStation">Stacja</label><div class="pl-inp"><select id="trStation" class="tr-select"></select></div></div>
+    <div class="d-flex align-items-end"><button class="pill-btn active" data-trtab="dep">Odjazdy</button><button class="pill-btn" data-trtab="arr">Przyjazdy</button></div>
+    <div class="small text-soft ms-auto align-self-end" id="trInfo"></div>
+  </div>
+  <div id="trainBoard" class="mt-3"></div>
+
+  <div class="sec-head" id="lines-sec" style="margin-top:64px"><span class="sec-num">05</span><h2>Linie i przystanki</h2><span class="sec-rule"></span></div>
+  <div id="linesGrid" class="lines-grid"></div>
+
+  <p class="footer-note mt-5 mb-0" id="attribution">
+    Dane rozkładowe: <a href="https://otwartedane.erzeszow.pl/dataset/rozklad-jazdy-transxchange" target="_blank" rel="noopener">ZTM Rzeszów</a> (GTFS: <a href="https://mkuran.pl/gtfs/" target="_blank" rel="noopener">mkuran.pl</a>) ·
+    pozycje na żywo: GTFS-Realtime ZTM Rzeszów (<a href="https://www.mpkrzeszow.pl/otwartedane/" target="_blank" rel="noopener">otwarte dane</a>) ·
+    podkład mapy: Esri / © OpenStreetMap (wg wyboru w ustawieniach). Gmina Miasto Rzeszów nie ponosi odpowiedzialności za sposób wykorzystania danych.
+  </p>
+</main>
+
+<!-- Vehicle modal -->
+<div class="modal fade" id="busModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-hero" id="busHero"></div>
+      <div class="modal-body p-3 p-md-4" id="busBody"></div>
+      <div class="modal-footer border-0 pt-0 px-3 px-md-4 pb-3 d-flex gap-2 justify-content-between">
+        <div class="d-flex gap-2 flex-wrap">
+          <button class="btn-ghost" id="routeBtn">〰 Pokaż trasę</button>
+          <button class="btn-ghost" id="followBtn">◎ Śledź pojazd</button>
+          <button class="btn-ghost" id="busLineBtn">Rozkład linii</button>
+        </div>
+        <button class="btn-grad" data-bs-dismiss="modal">Zamknij</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Stop picker modal -->
+<div class="modal fade" id="pickModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content">
+      <div class="modal-hero" id="pickHero">
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+        <span class="kicker"><span class="dot"></span><span id="pickKicker">Wybierz przystanek</span></span>
+        <h4 id="pickTitle">Skąd jedziesz?</h4>
+      </div>
+      <div class="pick-tools">
+        <input id="pickSearch" list="stopNames" placeholder="Szukaj przystanku po nazwie…" autocomplete="off">
+        <button class="btn-ghost" id="pickLocate" type="button">◎ Zlokalizuj mnie</button>
+      </div>
+      <div class="pick-map-wrap">
+        <div id="pickMap"></div>
+        <div class="pick-info" id="pickInfo"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Train modal -->
+<div class="modal fade" id="trainModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-hero" id="trainHero"></div>
+      <div class="modal-body p-3 p-md-4" id="trainBody"></div>
+      <div class="modal-footer border-0 pt-0 px-3 px-md-4 pb-3"><button class="btn-grad" data-bs-dismiss="modal">Zamknij</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Line modal -->
+<div class="modal fade" id="lineModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-hero" id="lineHero"></div>
+      <div class="modal-body p-3 p-md-4" id="lineBody"></div>
+      <div class="modal-footer border-0 pt-0 px-3 px-md-4 pb-3 d-flex gap-2 justify-content-between">
+        <button class="btn-ghost" id="lineMapBtn">Pokaż linię na mapie</button>
+        <button class="btn-grad" data-bs-dismiss="modal">Zamknij</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Alerts modal -->
+<div class="modal fade" id="alertsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-hero" style="--h1:var(--amber);--h2:#f97316;--h3:var(--rose)">
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+        <span class="kicker">ZTM Rzeszów</span><h4>Komunikaty i utrudnienia</h4>
+      </div>
+      <div class="modal-body p-3 p-md-4" id="alertsBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-hero">
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+        <span class="kicker">Konfiguracja</span><h4>Źródła danych i progi</h4>
+      </div>
+      <div class="modal-body p-3 p-md-4">
+        <form id="settingsForm">
+          <div class="mb-3">
+            <label class="form-label" for="sThr">Próg „spóźniony” (na czerwono): <span id="sThrLbl">3</span> min</label>
+            <input type="range" class="form-range" min="1" max="10" step="1" id="sThr">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="sRefresh">Odświeżanie co: <span id="sRefreshLbl">20</span> s</label>
+            <input type="range" class="form-range" min="10" max="60" step="5" id="sRefresh">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="sTiles">Podkład mapy</label>
+            <select class="form-select" id="sTiles">
+              <option value="esri">Esri — ulice (darmowy, bez klucza)</option>
+              <option value="osm">OpenStreetMap</option>
+              <option value="hot">OpenStreetMap HOT</option>
+              <option value="sat">Esri — zdjęcia satelitarne</option>
+              <option value="carto">CARTO Voyager (może wymagać klucza)</option>
+              <option value="google">Google Maps + natężenie ruchu (własny klucz API)</option>
+            </select>
+            <div id="gBox" class="mt-2">
+              <input class="form-control" id="sGkey" placeholder="Klucz API Google Maps (AIza…)" spellcheck="false" autocomplete="off">
+              <div class="form-check form-switch mt-2">
+                <input class="form-check-input" type="checkbox" id="sTraffic">
+                <label class="form-check-label" for="sTraffic">Pokaż natężenie ruchu na drogach</label>
+              </div>
+              <div class="form-text text-soft">Klucz utworzysz w Google Cloud Console (włącz „Maps JavaScript API”). Wymaga konta rozliczeniowego; przy prywatnym użyciu zwykle mieści się w darmowym limicie. Klucz jest zapisywany tylko w tej przeglądarce.</div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="sRt">GTFS-Realtime (pozycje + opóźnienia), jeden URL na linię — próbowane po kolei</label>
+            <textarea class="form-control" id="sRt" rows="3" spellcheck="false"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="sStatic">GTFS rozkład jazdy (.zip), jeden URL na linię</label>
+            <textarea class="form-control" id="sStatic" rows="3" spellcheck="false"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="sProxy">Pośrednik CORS</label>
+            <select class="form-select" id="sProxy">
+              <option value="auto">Automatycznie (najpierw bezpośrednio, potem publiczne proxy)</option>
+              <option value="direct">Tylko bezpośrednio</option>
+              <option value="custom">Własny prefiks proxy</option>
+            </select>
+            <input class="form-control mt-2" id="sProxyCustom" placeholder="np. https://moj-proxy.example/?url=" spellcheck="false">
+            <div class="form-text text-soft">Przeglądarka pobiera dane prosto z serwerów ZTM/MPK. Jeśli serwer nie zezwala na CORS, aplikacja użyje proxy.</div>
+          </div>
+          <div class="set-group">
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="sPks">
+              <label class="form-check-label" for="sPks"><b>PKS Rzeszów</b> — linie podmiejskie na mapie i w wyszukiwarce</label>
+            </div>
+            <label class="form-label" for="sPksRt">PKS · GTFS-Realtime (jeden URL na linię)</label>
+            <textarea class="form-control mb-2" id="sPksRt" rows="2" spellcheck="false"></textarea>
+            <label class="form-label" for="sPksStatic">PKS · rozkład GTFS .zip (jeden URL na linię)</label>
+            <textarea class="form-control" id="sPksStatic" rows="2" spellcheck="false"></textarea>
+            <div class="form-text text-soft">Domyślne adresy są najbardziej prawdopodobne, ale niepotwierdzone. Dokładne linki („Pobierz plik”) znajdziesz na kmrzeszow.live/otwartedane — wklej je tutaj.</div>
+          </div>
+          <div class="set-group">
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="sTrains">
+              <label class="form-check-label" for="sTrains"><b>Pociągi</b> — odjazdy ze stacji w Rzeszowie i pociągi na mapie</label>
+            </div>
+            <label class="form-label" for="sPlk">Klucz API „Otwarte Dane Kolejowe” PKP PLK</label>
+            <input class="form-control" id="sPlk" placeholder="wklej klucz (bezpłatny)" spellcheck="false" autocomplete="off">
+            <div class="form-text text-soft">Darmowy klucz po rejestracji na pdp-api.plk-sa.pl (pakiet Basic: 100 zapytań/h — aplikacja zużywa ok. 30/h). Klucz zostaje tylko w tej przeglądarce. Bez klucza zobaczysz przykładowe dane.</div>
+          </div>
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="sWeather">
+            <label class="form-check-label" for="sWeather"><b>Pogoda</b> (Open-Meteo, bez klucza)</label>
+          </div>
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="sDemo">
+            <label class="form-check-label" for="sDemo">Wymuś tryb demo (symulowane autobusy)</label>
+          </div>
+          <div class="d-flex gap-2 justify-content-end">
+            <button type="button" class="btn-ghost" id="resetSettings">Domyślne</button>
+            <button type="submit" class="btn-grad">Zapisz i przeładuj</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Account deletion modal -->
+<div class="modal fade" id="deleteAccountModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-hero" style="--h1:#b91c1c;--h2:#991b1b;--h3:#7f1d1d">
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+        <span class="kicker">Ustawienia konta</span><h4>Usuń konto</h4>
+      </div>
+      <div class="modal-body p-3 p-md-4">
+        <p>Usunięcie konta jest trwałe. Wyślemy kod potwierdzający na adres przypisany do konta.</p>
+        <div class="alert d-none mb-3" id="deleteAccountMessage" role="alert" aria-live="polite"></div>
+        <div id="deleteAccountCodeStep" hidden>
+          <label class="form-label" for="deleteAccountCode">Kod z e-maila</label>
+          <input class="form-control mb-3" id="deleteAccountCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000">
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="confirmAccountDeletion">
+            <label class="form-check-label" for="confirmAccountDeletion">Rozumiem, że usunięcie konta jest trwałe.</label>
+          </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2">
+          <button type="button" class="btn-ghost" data-bs-dismiss="modal">Anuluj</button>
+          <button type="button" class="btn-grad" id="requestDeleteCodeBtn">Wyślij kod</button>
+          <button type="button" class="btn-grad" id="confirmDeleteAccountBtn" hidden>Usuń konto</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/protobufjs@7.4.0/dist/protobuf.min.js"></script>
+<script src="/assets/app.js"></script>
+</body>
+</html>
