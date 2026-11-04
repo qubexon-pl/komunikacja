@@ -6,6 +6,10 @@ Three-tier web application for Rzeszów public transport:
 2. **Backend** — `src/server.js` serves the UI, requires sign-in for transit features, and exposes authentication, health, and GTFS APIs.
 3. **Database** — Azure SQL stores user accounts, provider identities, hashed sessions, and the static GTFS timetable in normalized relational tables. Live vehicle positions remain transient and are refreshed from the public GTFS-Realtime feeds.
 
+## Pages
+
+The app has one page per transport category: `/autobusy` (ZTM, also served at `/`), `/pks`, and `/pociagi`. Each has its own map, statistics, late list, search, and journey planner. Bus and PKS planners use only that category's stops and lines; the train planner finds direct connections from the PKP PLK data. Tabs switch pages without reloading the timetable. Weather refreshes every 45 minutes.
+
 ## Database design
 
 The schema in [`database/schema.sql`](./database/schema.sql) separates agencies, routes, stops, services, service calendars, service exceptions, trips, stop times, shapes, shape points, and feed import metadata. Account data is separated into users, local credentials, external identities, sessions, and short-lived email challenges; pending registrations are stored separately and do not create an account before email verification. Composite primary and foreign keys keep IDs scoped to their agency and enforce the timetable relationships. The source URL is represented in storage only by a SHA-256 hash.
@@ -39,7 +43,9 @@ The Azure SQL server firewall must allow the client or hosting environment. Do n
 
 The app supports verified email/password registration and Google sign-in. New local accounts are created only after the user enters the emailed verification code. Password-reset codes expire after 10 minutes and changing a password revokes existing sessions. Account deletion requires a signed-in session and an emailed confirmation code; it removes the account's credentials, provider identities, and sessions. Google accounts require a Google-verified email. Shared GTFS imports are restricted to administrator accounts.
 
-Email codes are sent through SendGrid. The database stores only an HMAC of each short-lived code, and code attempts and resend frequency are limited. Azure Communication Services Email was not selected for new deployments because Microsoft has announced its retirement by September 30, 2028; its Azure-managed domains also have fixed sending limits. To enable registration, recovery, and account deletion:
+Email codes are sent through any SMTP account, or through SendGrid. For a free setup, turn on 2-Step Verification for a Gmail account, create an App Password, and set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_USER` and `SMTP_FROM` to the address, and `SMTP_PASS` to the App Password. SMTP is used instead of SendGrid when both are configured.
+
+The database stores only an HMAC of each short-lived code, and code attempts and resend frequency are limited. Azure Communication Services Email was not selected for new deployments because Microsoft has announced its retirement by September 30, 2028; its Azure-managed domains also have fixed sending limits. To enable registration, recovery, and account deletion:
 
 1. Create a SendGrid account, enable two-factor authentication, and authenticate a sender identity/domain. This repository does not create the provider account or verify a domain. Single Sender Verification is suitable for testing; domain authentication is recommended for production.
 2. Create a restricted API key with only **Mail Send** access, then set `SENDGRID_API_KEY` and `SENDGRID_FROM_EMAIL`. Keep the API key in `.env` for local development or a secret store such as Azure Key Vault when hosted.

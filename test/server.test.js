@@ -79,6 +79,15 @@ test("static server exposes the frontend but not project files", async (t) => {
   assert.equal(protectedPage.status, 200);
   assert.match(protectedPage.headers.get("content-type"), /text\/html/);
 
+  for (const page of ["/autobusy", "/pks", "/pociagi"]) {
+    const signedOut = await fetch(`${baseUrl}${page}`, { redirect: "manual" });
+    assert.equal(signedOut.status, 302);
+    assert.equal(signedOut.headers.get("location"), `/login?returnTo=${encodeURIComponent(page)}`);
+    const signedIn = await fetch(`${baseUrl}${page}`, { headers: { Cookie: "rzbus_session=test-session" } });
+    assert.equal(signedIn.status, 200);
+    assert.match(signedIn.headers.get("content-type"), /text\/html/);
+  }
+
   const loginScript = await fetch(`${baseUrl}/assets/login.js`);
   assert.equal(loginScript.status, 200);
 

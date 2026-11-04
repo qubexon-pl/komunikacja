@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const net = require("node:net");
 const test = require("node:test");
 const {
   AuthError,
@@ -9,6 +10,7 @@ const {
   isEmailConfigured,
   normalizeEmail,
   safeReturnTo,
+  sendSmtpEmail,
   verifyPassword,
 } = require("../src/auth");
 
@@ -56,6 +58,54 @@ test("console email delivery is opt-in and never enabled in production", () => {
   assert.equal(isEmailConfigured({ AUTH_EMAIL_CONSOLE: "true" }), false);
   assert.equal(isEmailConfigured({ AUTH_CODE_PEPPER: pepper }), false);
   assert.equal(isEmailConfigured({ AUTH_EMAIL_CONSOLE: "true", NODE_ENV: "production", AUTH_CODE_PEPPER: pepper }), false);
+});
+
+test("SMTP settings enable email only when complete", () => {
+  const smtp = {
+    SMTP_HOST: "smtp.example.com",
+    SMTP_USER: "rider@example.com",
+    SMTP_PASS: "app-password",
+    SMTP_FROM: "rider@example.com",
+    AUTH_CODE_PEPPER: "0123456789abcdef0123456789abcdef",
+  };
+  assert.equal(isEmailConfigured(smtp), true);
+  assert.equal(isEmailConfigured({ ...smtp, SMTP_PASS: " " }), false);
+});
+
+test("SMTP delivery logs in and sends the code", async (t) => {
+  const received = [];
+  const server = net.createServer((socket) => {
+    let inData = false;
+    socket.write("220 test\r\n");
+    socket.on("error", () => {});
+    socket.on("data", (chunk) => {
+      for (const line of chunk.toString().split("\r\n").filter(Boolean)) {
+        received.push(line);
+        if (inData) {
+          if (line === ".") { inData = false; socket.write("250 queued\r\n"); }
+        } else if (/^EHLO/i.test(line)) socket.write("250-test\r\n250 AUTH PLAIN\r\n");
+        else if (/^AUTH/i.test(line)) socket.write("235 ok\r\n");
+        else if (/^DATA/i.test(line)) { inData = true; socket.write("354 go\r\n"); }
+        else if (/^QUIT/i.test(line)) socket.end("221 bye\r\n");
+        else socket.write("250 ok\r\n");
+      }
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+
+  await sendSmtpEmail({
+    SMTP_HOST: "127.0.0.1",
+    SMTP_PORT: String(server.address().port),
+    SMTP_USER: "sender@example.com",
+    SMTP_PASS: "app-password",
+    SMTP_FROM: "sender@example.com",
+  }, { to: "rider@example.com", subject: "Kod", text: "Kod: 123456" });
+
+  const log = received.join("\n");
+  assert.match(log, /AUTH PLAIN/);
+  assert.match(log, /RCPT TO:<rider@example\.com>/);
+  assert.match(log, /Kod: 123456/);
 });
 
 test("return paths cannot redirect users off-site", () => {

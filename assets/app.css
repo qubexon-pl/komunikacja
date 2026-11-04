@@ -469,3 +469,51 @@ html{scroll-padding-top:70px; scroll-behavior:smooth}
 .wx-tip.wet{border-left-color:#F2B200} .wx-tip.hard{border-left-color:var(--red); color:#fff}
 .wx-err{color:#8F8F8F; font-size:.8rem}
 @media(max-width:700px){ .wx{border-left:0; border-top:1px solid #333; padding:20px 0 0; width:100%; max-width:none} .hero-right{width:100%} }
+
+/* ---- czytelniejsze znaczniki i układ ---- */
+html{scroll-padding-top:120px}
+.bus-body{min-width:36px; height:28px; justify-content:center; padding:0 7px; background:#181818; color:#fff; font-size:15px; font-weight:800; letter-spacing:0; border-bottom:5px solid var(--c)}
+.bus-body::after{bottom:-11px; border-top-color:var(--c)}
+.bus-pin .dir{top:-7px; right:calc(50% - 34px)}
+.bus-pin.late .bus-body{animation:none}
+.bus-pin.is-pks .bus-body{background:#1F5E3B}
+.bus-pin.in-leg .bus-body,.bus-pin.is-train .bus-body{min-width:0; background:var(--c); color:var(--t,#fff); font-size:11.5px; border-bottom:1.5px solid #fff}
+.bus-pin.in-leg .bus-body::after,.bus-pin.is-train .bus-body::after{bottom:-6px; border-top-color:#fff}
+.hero{padding:16px 24px 15px}
+.hero-inner{align-items:center; gap:24px}
+.hero h1{font-size:clamp(1.4rem,2.4vw,2rem); margin:6px 0 0}
+.hero p,.discover,.wx-hours,.cd-unit{display:none}
+.hero-right{align-items:center; gap:24px}
+.cd-label{margin-bottom:4px}
+.cd-boxes{align-items:center; gap:4px}
+.cd-num{font-size:1.7rem}
+.cd-sep{font-size:1.4rem}
+.cd-foot{margin-top:4px}
+.wx-temp{font-size:1.8rem}
+.wx-ico{font-size:1.4rem}
+.wx-tip{margin-top:6px}
+@media(min-width:701px){ .countdown,.wx{min-width:0; padding-left:24px} }
+.stats-band{margin-bottom:22px}
+.stat-card{padding:10px 18px}
+.stat-card .num{font-size:1.6rem; margin-top:2px}
+.map-filters{position:sticky; top:56px; z-index:1010; padding:8px 0; margin-bottom:8px !important; background:var(--bg)}
+.search-input{max-width:420px; font-size:1rem; border-bottom:2px solid var(--ink)}
+#lateList{max-height:clamp(440px,76vh,900px); overflow:auto}
+.set-card{padding:9px 0; gap:10px}
+.line-badge{min-width:40px; height:36px}
+.set-body strong{font-size:.92rem}
+.set-body .meta{display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+/* ---- podstrony: autobusy, PKS, pociągi ---- */
+body[data-view="kolej"] .not-kolej,body:not([data-view="kolej"]) .only-kolej,body[data-view="kolej"] .pl-map{display:none !important}
+.view-tabs{display:flex; gap:2px; margin:0 auto 0 12px}
+.view-tab{padding:8px 14px; color:#BDBDBD; font-size:.74rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; text-decoration:none; white-space:nowrap}
+.view-tab:hover{color:#fff; background:#222}
+.view-tab.active{color:#fff; background:var(--red)}
+@media(min-width:701px){ .stats-band{grid-template-columns:repeat(4,1fr)} }
+@media(max-width:700px){
+  .topbar-inner{flex-wrap:wrap; height:auto; padding:8px 16px; gap:6px 16px}
+  .view-tabs{order:3; width:100%; margin:0}
+  .view-tab{flex:1; text-align:center}
+  .map-filters{position:static}
+}

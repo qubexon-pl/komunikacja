@@ -22,6 +22,7 @@ const MAX_AUTH_BODY_BYTES = 16 * 1024;
 const MAX_FEED_BYTES = 50 * 1024 * 1024;
 const SESSION_COOKIE = "rzbus_session";
 const OAUTH_COOKIE = "rzbus_oauth_state";
+const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi"]);
 const authAttempts = new Map();
 const GTFS_SOURCE_PATHS = new Map([
   ["mkuran.pl", new Set(["/gtfs/rzeszow.zip"])],
@@ -147,8 +148,9 @@ function authRedirect(res, pathname, search = "") {
 
 function serveStatic(res, pathname, root) {
   const isLoginPage = pathname === "/login";
+  const isAppPage = APP_PAGES.has(pathname);
   const isLoginAsset = pathname === "/assets/login.css" || pathname === "/assets/login.js";
-  if (pathname !== "/" && !isLoginPage && !pathname.startsWith("/assets/")) {
+  if (!isAppPage && !isLoginPage && !pathname.startsWith("/assets/")) {
     json(res, 404, { error: "Not found." });
     return;
   }
@@ -156,13 +158,13 @@ function serveStatic(res, pathname, root) {
     json(res, 404, { error: "Not found." });
     return;
   }
-  const requestedPath = pathname === "/" ? "/index.html" : isLoginPage ? "/login.html" : pathname;
+  const requestedPath = isAppPage ? "/index.html" : isLoginPage ? "/login.html" : pathname;
   const filePath = path.resolve(root, `.${requestedPath}`);
   if (!filePath.startsWith(`${root}${path.sep}`)) {
     json(res, 403, { error: "Forbidden." });
     return;
   }
-  if (!isLoginPage && pathname !== "/" && !filePath.startsWith(`${path.resolve(root, "assets")}${path.sep}`)) {
+  if (!isLoginPage && !isAppPage && !filePath.startsWith(`${path.resolve(root, "assets")}${path.sep}`)) {
     json(res, 404, { error: "Not found." });
     return;
   }

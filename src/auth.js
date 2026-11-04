@@ -79,11 +79,30 @@ function isConsoleEmailEnabled(env = process.env) {
   return env.AUTH_EMAIL_CONSOLE === "true" && env.NODE_ENV !== "production";
 }
 
+function isSmtpConfigured(env = process.env) {
+  return Boolean(env.SMTP_HOST?.trim() && env.SMTP_USER?.trim() && env.SMTP_PASS?.trim() && env.SMTP_FROM?.trim());
+}
+
 function isEmailConfigured(env = process.env) {
   return Boolean(
-    (isConsoleEmailEnabled(env) || (env.SENDGRID_API_KEY?.trim() && env.SENDGRID_FROM_EMAIL?.trim()))
+    (isConsoleEmailEnabled(env) || isSmtpConfigured(env) || (env.SENDGRID_API_KEY?.trim() && env.SENDGRID_FROM_EMAIL?.trim()))
     && env.AUTH_CODE_PEPPER?.length >= 32,
   );
+}
+
+async function sendSmtpEmail(env, { to, subject, text }) {
+  const nodemailer = require("nodemailer");
+  const port = Number(env.SMTP_PORT?.trim() || 465);
+  const transport = nodemailer.createTransport({
+    host: env.SMTP_HOST.trim(),
+    port,
+    secure: port === 465,
+    auth: { user: env.SMTP_USER.trim(), pass: env.SMTP_PASS.trim() },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
+  });
+  await transport.sendMail({ from: env.SMTP_FROM.trim(), to, subject, text });
 }
 
 function codeHash(purpose, email, code, pepper) {
@@ -118,7 +137,13 @@ function createAuthService(pool, {
     console.log(`[AUTH_EMAIL_CONSOLE] To: ${to}\nSubject: ${subject}\n${text}`);
   }
 
-  const deliverEmail = sendEmailOverride || (isConsoleEmailEnabled(emailConfig) ? logEmailToConsole : sendSendGridEmail);
+  function defaultDelivery() {
+    if (isConsoleEmailEnabled(emailConfig)) return logEmailToConsole;
+    if (isSmtpConfigured(emailConfig)) return (message) => sendSmtpEmail(emailConfig, message);
+    return sendSendGridEmail;
+  }
+
+  const deliverEmail = sendEmailOverride || defaultDelivery();
 
   function requireEmailConfiguration() {
     if (!isEmailConfigured(emailConfig)) {
@@ -588,5 +613,6 @@ module.exports = {
   isEmailConfigured,
   normalizeEmail,
   safeReturnTo,
+  sendSmtpEmail,
   verifyPassword,
 };

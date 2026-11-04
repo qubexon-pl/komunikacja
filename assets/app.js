@@ -16,6 +16,7 @@ async function initializeUserMenu(){
       if(!config.emailEnabled) deleteAccountBtn.title='Usuwanie konta wymaga skonfigurowanej usługi e-mail.';
     })
     .catch(error=>console.error('Błąd konfiguracji usuwania konta',error));
+  return user;
 }
 document.getElementById('logoutBtn').addEventListener('click',async()=>{
   const response=await fetch('/api/auth/logout',{method:'POST'});
@@ -76,7 +77,7 @@ confirmDeleteAccountButton.addEventListener('click',async()=>{
   }catch(error){ showDeleteAccountMessage(error.message); }
   finally{ confirmDeleteAccountButton.disabled=false; }
 });
-initializeUserMenu().catch(error=>console.error('Błąd sesji użytkownika',error));
+const sessionUser=initializeUserMenu().catch(error=>{ console.error('Błąd sesji użytkownika',error); return null; });
 /* ============================================================
    Konfiguracja
    ============================================================ */
@@ -124,6 +125,13 @@ const TZ = 'Europe/Warsaw';
 const RZ_CENTER = [50.0378, 22.0049];
 
 function store(k, v){ try{ if(v===undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); }catch(e){ return null; } }
+// Jednorazowo: stare ustawienia źródeł i pamięć rozkładu potrafiły blokować wczytanie linii. Adresy PKS i klucze zostają.
+if(store('rzbus.sourcesV')!==2){
+  const saved=store('rzbus.cfg');
+  if(saved){ delete saved.proxy; delete saved.proxyCustom; delete saved.staticUrls; store('rzbus.cfg', saved); }
+  try{ indexedDB.deleteDatabase('rzbus'); }catch(e){}
+  store('rzbus.proxyIdx', null); store('rzbus.sourcesV', 2);
+}
 let CFG = Object.assign({}, DEFAULTS, store('rzbus.cfg') || {});
 if(!TILE_KEYS_OK(CFG.tiles)) CFG.tiles='esri';
 function TILE_KEYS_OK(k){ return ['esri','osm','hot','sat','carto','google'].includes(k); }
@@ -168,31 +176,35 @@ function withTimeout(promise, ms){ let tm; return Promise.race([promise, new Pro
 async function fetchTimeout(url, ms){
   return withTimeout((async()=>{ const r = await fetch(url); if(!r.ok) throw new Error('HTTP '+r.status); const b = await r.arrayBuffer(); if(!b || b.byteLength===0) throw new Error('pusta odpowiedź'); return b; })(), ms);
 }
-async function fetchBin(url, timeoutMs=20000){
+function isZip(buf){ const b=new Uint8Array(buf,0,Math.min(2,buf.byteLength)); return b[0]===0x50 && b[1]===0x4B; } // „PK”
+async function fetchBin(url, timeoutMs=20000, check, stage='all'){
   const tries=[];
-  if(CFG.proxy==='custom' && CFG.proxyCustom) tries.push(CFG.proxyCustom + encodeURIComponent(url));
-  else {
-    tries.push(url);
-    if(CFG.proxy==='auto'){
-      tries.push('/api/feeds/fetch?url='+encodeURIComponent(url));
-      const order = PUBLIC_PROXIES.map((p,i)=>i);
-      if(workingProxy!=null && order.includes(workingProxy)){ order.splice(order.indexOf(workingProxy),1); order.unshift(workingProxy); }
-      for(const i of order) tries.push({i, u:PUBLIC_PROXIES[i](url)});
-    }
+  if(stage!=='public'){
+    tries.push(CFG.proxy==='custom' && CFG.proxyCustom ? CFG.proxyCustom + encodeURIComponent(url) : url);
+    tries.push('/api/feeds/fetch?url='+encodeURIComponent(url)); // własny serwer działa przy każdym ustawieniu pośrednika; zip rozkładu nie ma nagłówków CORS
+  }
+  if(stage!=='own' && CFG.proxy==='auto'){
+    const order = PUBLIC_PROXIES.map((p,i)=>i);
+    if(workingProxy!=null && order.includes(workingProxy)){ order.splice(order.indexOf(workingProxy),1); order.unshift(workingProxy); }
+    for(const i of order) tries.push({i, u:PUBLIC_PROXIES[i](url)});
   }
   let lastErr;
   for(const t of tries){
     const u = typeof t==='string' ? t : t.u;
     try{
       const buf = await fetchTimeout(u + (u.includes('?')?'&':'?') + '_=' + Date.now(), timeoutMs);
+      if(check && !check(buf)){ lastErr=new Error('nieprawidłowa odpowiedź'); break; } // adres działa, ale nie ma tam pliku — pośredniki nic nie zmienią
       if(typeof t!=='string'){ workingProxy=t.i; store('rzbus.proxyIdx', t.i); }
       return buf;
     }catch(e){ lastErr=e; }
   }
   throw lastErr || new Error('Nie udało się pobrać');
 }
-async function fetchFirst(urls, timeout){
-  let err; for(const u of urls){ try{ return {buf: await fetchBin(u, timeout), url:u}; }catch(e){ err=e; } } throw err;
+// Publiczne pośredniki potrafią wisieć po ~20 s, dlatego używamy ich dopiero, gdy żaden adres nie zadziałał bezpośrednio.
+async function fetchFirst(urls, timeout, check){
+  let err;
+  for(const stage of ['own','public']) for(const u of urls){ try{ return {buf: await fetchBin(u, timeout, check, stage), url:u}; }catch(e){ err=e; } }
+  throw err;
 }
 
 /* ============================================================
@@ -341,10 +353,11 @@ async function loadGtfsFeed(urls, pfx, agency, cacheKey, progress){
   }catch(e){ console.warn(`Nie udało się odczytać rozkładu ${agency.toUpperCase()} z Azure SQL; używam źródła GTFS.`,e); }
   const cached = await idbGet(cacheKey);
   let buf, url;
-  if(cached && cached.key===key && Date.now()-cached.t < 12*3600*1000){ buf=cached.buf; url=cached.url+' (pamięć podręczna)'; }
+  const usable=cached && cached.buf && isZip(cached.buf);
+  if(usable && cached.key===key && Date.now()-cached.t < 12*3600*1000){ buf=cached.buf; url=cached.url+' (pamięć podręczna)'; }
   else {
-    try{ progress(`Pobieranie rozkładu ${agency.toUpperCase()} w tle…`); ({buf,url} = await fetchFirst(urls, 60000)); idbSet(cacheKey, {key, t:Date.now(), buf, url}); }
-    catch(e){ if(cached && cached.buf){ buf=cached.buf; url=cached.url+' (starsza kopia)'; } else throw e; }
+    try{ progress(`Pobieranie rozkładu ${agency.toUpperCase()} w tle…`); ({buf,url} = await fetchFirst(urls, 60000, isZip)); idbSet(cacheKey, {key, t:Date.now(), buf, url}); }
+    catch(e){ if(usable){ buf=cached.buf; url=cached.url+' (starsza kopia)'; } else throw e; }
   }
   const L_ = agency.toUpperCase();
   progress(`${L_}: przygotowywanie rozkładu…`);
@@ -373,17 +386,20 @@ async function loadGtfsFeed(urls, pfx, agency, cacheKey, progress){
     await parseCSV(shapesT, (c,h)=>{ const sh=P(c[h.shape_id]); let a=tmp.get(sh); if(!a){a=[];tmp.set(sh,a);} a.push([+c[h.shape_pt_sequence], +c[h.shape_pt_lat], +c[h.shape_pt_lon]]); });
     for(const [k,a] of tmp){ a.sort((x,y)=>x[0]-y[0]); GT.shapes.set(k, a.map(q=>[q[1],q[2]])); }
   }
-  try{ await saveGtfsFeed(agency,gtfsFeedPayload(agency,key)); }
-  catch(e){ console.warn(`Nie udało się zapisać rozkładu ${agency.toUpperCase()} w Azure SQL.`,e); }
+  // Zapisać mogą tylko administratorzy; zapis działa w tle, żeby nie wstrzymywać numerów linii na mapie.
+  sessionUser.then(user=>{ if(user?.isAdmin) return saveGtfsFeed(agency,gtfsFeedPayload(agency,key)); })
+    .catch(e=>console.warn(`Nie udało się zapisać rozkładu ${agency.toUpperCase()} w Azure SQL.`,e));
   return url;
 }
 GT.sources={};
 async function loadStatic(progress, onReady){
-  GT.sources.ztm = await loadGtfsFeed(CFG.staticUrls, '', 'ztm', 'gtfs', progress);
+  // Zapisane ustawienia mogą wskazywać nieaktualny adres, dlatego domyślne źródła zawsze są na końcu listy.
+  const withDefaults=(urls,defaults)=>[...new Set([...(urls||[]),...defaults])];
+  GT.sources.ztm = await loadGtfsFeed(withDefaults(CFG.staticUrls,DEFAULTS.staticUrls), '', 'ztm', 'gtfs', progress);
   GT.loaded=true; GT.source=GT.sources.ztm;
   onReady();
   if(CFG.pks){
-    try{ GT.sources.pks = await loadGtfsFeed(CFG.pksStaticUrls, 'pks:', 'pks', 'gtfs-pks', progress); }
+    try{ GT.sources.pks = await loadGtfsFeed(withDefaults(CFG.pksStaticUrls,DEFAULTS.pksStaticUrls), 'pks:', 'pks', 'gtfs-pks', progress); }
     catch(e){ console.warn('Brak rozkładu PKS', e); GT.sources.pks=null;
       S.alerts.push({id:'nopks', header:'Nie wczytano rozkładu PKS', desc:'Linie podmiejskie PKS nie są dostępne w wyszukiwarce i liście linii. Wklej poprawny adres pliku GTFS PKS (z kmrzeszow.live/otwartedane) w Ustawieniach.', routes:[], stops:[]}); }
     onReady();
@@ -399,7 +415,7 @@ const S = {
   tripUpdates:new Map(),
   alerts:[],
   feedTs:null, lastOk:null, lastErr:null,
-  filter:'all', query:'', agency:'all',
+  filter:'all', query:'', agency:'ztm',
   selected:null, follow:false, routeLayer:null,
   prevPos:new Map()
 };
@@ -508,9 +524,26 @@ function liveFeeds(){
   if(CFG.pks && CFG.pksRtUrls && CFG.pksRtUrls.length) f.push({name:'pks', urls:CFG.pksRtUrls, pfx:'pks:'});
   return f;
 }
+// Pobieranie kanału może trwać ponad minutę, gdy zawodzą wszystkie adresy i pośredniki. Trwa wtedy w tle,
+// a pierwszy kanał (ZTM) nie czeka na pozostałe — ich dane trafią na mapę przy kolejnym odświeżeniu.
+const FEED_GRACE_MS=2500;
+const feedJobs=new Map(), feedLast=new Map();
+function fetchFeed(f){
+  const key=f.urls.join('|');
+  if(!feedJobs.has(key)) feedJobs.set(key, fetchFirst(f.urls, 15000)
+    .then(r=>{ feedLast.set(key,r); return r; }, e=>{ feedLast.delete(key); throw e; })
+    .finally(()=>feedJobs.delete(key)));
+  return feedJobs.get(key);
+}
+function feedResult(f,i){
+  const job=fetchFeed(f); if(i===0) return job;
+  const late=new Error('kanał wciąż się wczytuje');
+  return Promise.race([job, new Promise((_,rej)=>setTimeout(()=>rej(late), FEED_GRACE_MS))])
+    .catch(e=>{ const last=feedLast.get(f.urls.join('|')); if(e===late && last) return last; throw e; });
+}
 async function refreshLive(){
   const feeds=liveFeeds();
-  const res = await Promise.allSettled(feeds.map(f=>fetchFirst(f.urls, 15000)));
+  const res = await Promise.allSettled(feeds.map(feedResult));
   const tus=new Map(), alerts=[], vehicles=[]; let ts=0, okAny=false;
   res.forEach((r,i)=>{
     const f=feeds[i];
@@ -824,7 +857,7 @@ function pinHtml(v, st, sel, fl){
     const tag = v.delay==null ? '?' : (Math.abs(v.delay)<60 ? 'na czas' : fmtDelay(v.delay,true));
     return `<div class="bus-pin in-leg ${st==='late'?'late':''} ${sel?'sel':''} ${fl.mine?'mine':''}" style="--c:${fl.color};--t:#fff"><span class="bus-body">${BUS_SVG}${esc(lbl)}</span>${dir}<span class="st-tag ${st}">${fl.mine?'twój · ':''}${tag}</span></div>`;
   }
-  return `<div class="bus-pin ${st==='late'?'late':''} ${sel?'sel':''} ${v.agency==='pks'?'is-pks':''}" style="--c:${STATUS_COLOR[st]};--t:${STATUS_TEXT[st]||'#fff'}"><span class="bus-body">${v.agency==='pks'?'<i class="ag">PKS</i>':''}${BUS_SVG}${esc(lbl)}</span>${dir}</div>`;
+  return `<div class="bus-pin ${st==='late'?'late':''} ${sel?'sel':''} ${v.agency==='pks'?'is-pks':''}" style="--c:${STATUS_COLOR[st]}"><span class="bus-body">${v.agency==='pks'?'<i class="ag">PKS</i>':''}${BUS_SVG}${v.short==='—'?'':esc(lbl)}</span>${dir}</div>`;
 }
 function matchesFilter(v){
   if(S.focus) return !!focusLegOf(v);
@@ -866,22 +899,35 @@ function renderMarkers(){
    Panele: statystyki, lista spóźnionych
    ============================================================ */
 function renderStats(){
-  let all=0, ok=0, late=0, max=null, maxV=null;
-  for(const v of S.vehicles.values()){ all++; const st=statusOf(v.delay); if(st==='late') late++; if(st==='ok'||st==='minor'||st==='early') ok++; if(v.delay!=null && (max==null||v.delay>max)){max=v.delay;maxV=v;} }
+  const delays = S.agency==='kolej'
+    ? TR.trains.filter(t=>trainPosition(t)).map(t=>{ const d=trainDelayNow(t); return d==null?null:d*60; })
+    : [...S.vehicles.values()].filter(v=>(v.agency||'ztm')===S.agency).map(v=>v.delay);
+  let all=0, ok=0, late=0, max=null;
+  for(const delay of delays){ all++; const st=statusOf(delay); if(st==='late') late++; if(st==='ok'||st==='minor'||st==='early') ok++; if(delay!=null && (max==null||delay>max)) max=delay; }
   document.getElementById('stAll').textContent=all;
   document.getElementById('stOk').textContent=ok;
   document.getElementById('stLate').textContent=late;
   document.getElementById('stMax').textContent= max!=null && max>=60 ? Math.round(max/60)+' min' : '0';
   document.getElementById('lateCountChip').textContent=late;
 }
+function renderLateTrains(){
+  const list=TR.trains.filter(t=>trainPosition(t)&&trainMatches(t)).map(t=>({t,d:trainDelayNow(t)})).filter(x=>x.d!=null&&x.d>=1).sort((a,b)=>b.d-a.d).slice(0,12);
+  const el=document.getElementById('lateList');
+  if(!list.length){ el.innerHTML=`<div class="empty-note">${TR.trains.length? '🎉 Brak spóźnionych pociągów dla wybranego filtra.' : 'Czekam na dane…'}</div>`; return; }
+  el.innerHTML = list.map(({t,d})=>`<button class="set-card" data-train="${esc(t.key)}">
+      <span class="line-badge" style="--c1:#181818;--c2:#181818">${esc(t.cat||'POC')}</span>
+      <span class="set-body"><strong>→ ${esc(t.to)}</strong><span class="meta">${esc(t.label)}${t.name?' „'+esc(t.name)+'”':''}</span></span>
+      <span class="chip ${statusOf(d*60)}">+${d} min</span></button>`).join('');
+}
 function renderLateList(){
+  if(S.agency==='kolej'){ renderLateTrains(); return; }
   const list=[...S.vehicles.values()].filter(v=>v.delay!=null && v.delay>=60 && matchesFilter(v)).sort((a,b)=>b.delay-a.delay).slice(0,12);
   const el=document.getElementById('lateList');
-  if(!list.length){ el.innerHTML=`<div class="empty-note">${S.vehicles.size? '🎉 Brak spóźnionych autobusów dla wybranego filtra.' : 'Czekam na dane…'}</div>`; return; }
+  if(!list.length){ const inView=[...S.vehicles.values()].some(v=>(v.agency||'ztm')===S.agency); el.innerHTML=`<div class="empty-note">${inView? '🎉 Brak spóźnionych autobusów dla wybranego filtra.' : S.vehicles.size? 'Brak pojazdów tej kategorii w danych na żywo.' : 'Czekam na dane…'}</div>`; return; }
   el.innerHTML = list.map(v=>{ const st=statusOf(v.delay);
     return `<button class="set-card" data-id="${esc(v.id)}">
       <span class="line-badge" style="--c1:${v.color};--c2:${v.color}">${esc(v.short)}</span>
-      <span class="set-body"><span class="tag">Linia ${esc(v.short)}</span><strong>${esc(v.headsign||(GT.loaded?'kierunek nieznany':'wczytywanie kierunku…'))}</strong>
+      <span class="set-body"><strong>${esc(v.headsign||(GT.loaded||GT.failed?'kierunek nieznany':'wczytywanie kierunku…'))}</strong>
       <span class="meta">Pojazd ${esc(v.label)}${v.stopName?` · ${STOP_STATUS[v.stopStatus]||''} ${esc(v.stopName)}`:''}</span></span>
       <span class="chip ${st}">${fmtDelay(v.delay,true)}</span></button>`; }).join('');
 }
@@ -1023,13 +1069,48 @@ document.getElementById('settingsForm').addEventListener('submit', e=>{
 /* ============================================================
    Filtry, motyw, przyciski mapy
    ============================================================ */
-document.querySelectorAll('[data-agency]').forEach(b=>b.addEventListener('click', ()=>{ setAgency(b.dataset.agency); if(b.classList.contains('stat-card')) document.getElementById('map-sec').scrollIntoView({behavior:'smooth'}); }));
-function setAgency(a){ S.agency=a; document.querySelectorAll('[data-agency]').forEach(b=>b.classList.toggle('active', b.dataset.agency===a)); renderMarkers(); renderLateList(); renderLineNotice(); renderLinesGrid(); if(typeof renderTrainsOnMap==='function') renderTrainsOnMap(); }
-function setFilter(f){ S.filter=f; document.querySelectorAll('.pill-btn[data-filter]').forEach(b=>{ b.classList.toggle('active', b.dataset.filter===f); b.classList.toggle('late', b.dataset.filter==='late'); }); renderMarkers(); renderLateList(); }
+/* ---------- Podstrony: autobusy, PKS, pociągi ---------- */
+const VIEWS={
+  ztm:{path:'/autobusy', tab:'Autobusy', title:'Autobusy w Rzeszowie', plan:'Jak dojechać autobusem', search:'Szukaj linii, kierunku lub nr pojazdu…'},
+  pks:{path:'/pks', tab:'PKS', title:'PKS — linie podmiejskie', plan:'Jak dojechać PKS-em', search:'Szukaj linii, kierunku lub nr pojazdu…'},
+  kolej:{path:'/pociagi', tab:'Pociągi', title:'Pociągi w okolicy Rzeszowa', plan:'Jak dojechać pociągiem', search:'Szukaj pociągu lub kierunku…'}
+};
+function viewFromPath(){ return Object.keys(VIEWS).find(k=>VIEWS[k].path===location.pathname)||'ztm'; }
+function fitView(){
+  const pts=[...S.vehicles.values()].filter(matchesFilter).map(v=>[v.lat,v.lon]);
+  if(pts.length) map.fitBounds(L.latLngBounds(pts),{padding:[30,30],maxZoom:14}); else map.setView(RZ_CENTER, S.agency==='kolej'?12:13);
+}
+function setView(view, push){
+  const V=VIEWS[view];
+  if(push) history.pushState(null,'',V.path);
+  if(S.focus) resetFocus();
+  clearRouteLayer(); S.selected=null; S.follow=false;
+  S.agency=view; S.query=''; S.plan=null;
+  document.body.dataset.view=view;
+  document.title=`${V.tab} · Rzeszów Live`;
+  document.getElementById('heroTitle').textContent=V.title;
+  document.getElementById('planTitle').textContent=V.plan;
+  const search=document.getElementById('lineSearch'); search.value=''; search.placeholder=V.search;
+  document.querySelectorAll('.view-tab').forEach(a=>{ const on=a.dataset.view===view; a.classList.toggle('active',on); if(on) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
+  let n=0; document.querySelectorAll('.sec-num').forEach(e=>{ if(e.offsetParent) e.textContent=String(++n).padStart(2,'0'); });
+  document.getElementById('planResults').innerHTML=''; document.getElementById('planErr').textContent='';
+  const saved=store('rzbus.plan.'+view); plFrom.value=saved?.from||''; plTo.value=saved?.to||'';
+  refreshStopList();
+  renderMarkers(); renderStats(); renderLateList(); renderLineNotice(); renderLinesGrid(); renderTrainsOnMap(); renderBoard();
+  fitView();
+}
+document.querySelectorAll('.view-tab').forEach(a=>a.addEventListener('click', e=>{
+  if(e.ctrlKey||e.metaKey||e.shiftKey) return;
+  e.preventDefault();
+  if(a.dataset.view!==S.agency) setView(a.dataset.view, true);
+  window.scrollTo({top:0, behavior:'instant'});
+}));
+window.addEventListener('popstate', ()=>setView(viewFromPath(), false));
+function setFilter(f){ S.filter=f; document.querySelectorAll('.pill-btn[data-filter]').forEach(b=>{ b.classList.toggle('active', b.dataset.filter===f); b.classList.toggle('late', b.dataset.filter==='late'); }); renderMarkers(); renderLateList(); renderTrainsOnMap(); }
 document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click', ()=>setFilter(b.dataset.filter)));
-let qTimer; document.getElementById('lineSearch').addEventListener('input', e=>{ clearTimeout(qTimer); qTimer=setTimeout(()=>{ S.query=e.target.value.trim(); renderMarkers(); renderLateList(); renderLineNotice(); fitQuery(); }, 250); });
+let qTimer; document.getElementById('lineSearch').addEventListener('input', e=>{ clearTimeout(qTimer); qTimer=setTimeout(()=>{ S.query=e.target.value.trim(); renderMarkers(); renderLateList(); renderLineNotice(); renderTrainsOnMap(); fitQuery(); }, 250); });
 function fitQuery(){ if(!S.query) return; const pts=[...S.vehicles.values()].filter(matchesFilter).map(v=>[v.lat,v.lon]); if(pts.length===1) map.setView(pts[0],15); else if(pts.length>1 && pts.length<40) map.fitBounds(L.latLngBounds(pts),{padding:[40,40],maxZoom:15}); }
-document.getElementById('lateList').addEventListener('click', e=>{ const b=e.target.closest('[data-id]'); if(!b) return; const v=S.vehicles.get(b.dataset.id); if(v){ map.setView([v.lat,v.lon], Math.max(map.getZoom(),15)); openBus(v.id); } });
+document.getElementById('lateList').addEventListener('click', e=>{ const tr=e.target.closest('[data-train]'); if(tr){ openTrain(tr.dataset.train); return; } const b=e.target.closest('[data-id]'); if(!b) return; const v=S.vehicles.get(b.dataset.id); if(v){ map.setView([v.lat,v.lon], Math.max(map.getZoom(),15)); openBus(v.id); } });
 document.getElementById('fitBtn').addEventListener('click', ()=>{ const pts=[...S.vehicles.values()].filter(matchesFilter).map(v=>[v.lat,v.lon]); if(pts.length) map.fitBounds(L.latLngBounds(pts),{padding:[30,30]}); });
 document.getElementById('centerBtn').addEventListener('click', ()=>map.setView(RZ_CENTER,13));
 document.getElementById('resetViewBtn').addEventListener('click', ()=>resetFocus());
@@ -1066,6 +1147,17 @@ function resolveTripId(id){
   for(const off of [0,-1]){ const day=dayInfo(off); const hit=ids.findLast(t=>serviceOn(GT.trips.get(t).service,day)); if(hit) return hit; } // -1: kursy po północy
   return ids[ids.length-1];
 }
+function tripInView(t){ return (routeById(t.route).agency||'ztm')===S.agency; }
+function groupInView(name){ return !!GT.groupAgency?.get(name)?.has(S.agency); }
+function refreshStopList(){
+  const list=document.getElementById('stopNames'), hint=document.getElementById('planHint');
+  const fill=names=>{ list.innerHTML=names.map(n=>`<option value="${esc(n)}">`).join(''); };
+  if(S.agency==='kolej'){ const names=railStationNames(); fill(names); hint.textContent=`${names.length} stacji · połączenia bezpośrednie`; return; }
+  if(!GT.groupAgency){ fill([]); hint.textContent=''; return; }
+  const used=[...GT.groups.keys()].filter(groupInView).sort(natSort);
+  const lines=[...GT.routes.values()].filter(r=>(r.agency||'ztm')===S.agency).length;
+  fill(used); hint.textContent = used.length ? `${used.length} przystanków · ${lines} linii w rozkładzie` : 'Rozkład tej kategorii nie jest wczytany.';
+}
 function dirKey(t){ return (t.dir!=null && t.dir!=='') ? 'd'+t.dir : 'h'+(t.headsign||''); }
 function onStaticReady(){
   GT.byStop=new Map(); GT.groups=new Map(); GT.stopGroupOf=new Map(); GT.tripsByRoute=new Map(); svcCache.clear();
@@ -1079,9 +1171,10 @@ function onStaticReady(){
   for(const [tid,st] of GT.stopTimes){ st.forEach((x,i)=>{ let a=GT.byStop.get(x.stop); if(!a){a=[];GT.byStop.set(x.stop,a);} a.push([tid,i]); }); }
   for(const t of GT.trips.values()){ let a=GT.tripsByRoute.get(t.route); if(!a){a=[];GT.tripsByRoute.set(t.route,a);} a.push(t); }
   // przystanki bez kursów nie trafiają do podpowiedzi
-  const used=[...GT.groups.values()].filter(g=>g.ids.some(id=>GT.byStop.has(id))).map(g=>g.name).sort(natSort);
-  document.getElementById('stopNames').innerHTML = used.map(n=>`<option value="${esc(n)}">`).join('');
-  document.getElementById('planHint').textContent = `${used.length} przystanków · ${GT.routes.size} linii w rozkładzie`;
+  GT.groupAgency=new Map();
+  for(const [tid,st] of GT.stopTimes){ const t=GT.trips.get(tid); if(!t) continue; const ag=routeById(t.route).agency||'ztm';
+    for(const x of st){ const g=GT.stopGroupOf.get(x.stop); let a=GT.groupAgency.get(g); if(!a){a=new Set();GT.groupAgency.set(g,a);} a.add(ag); } }
+  refreshStopList();
   renderLinesGrid(); renderLineNotice(); if(S.plan) runPlan(false);
 }
 function departuresFrom(groupName, fromTs, toTs, filterFn, offsets=[-1,0,1]){
@@ -1147,7 +1240,7 @@ function activeOfRoute(routeId, short){ return [...S.vehicles.values()].filter(v
 /* ---------- Komunikat przy filtrowaniu linii ---------- */
 function renderLineNotice(){
   const el=document.getElementById('lineNotice'); const q=(S.query||'').trim();
-  if(!q || S.focus){ el.classList.add('d-none'); return; }
+  if(!q || S.focus || S.agency==='kolej'){ el.classList.add('d-none'); return; }
   const routes = GT.loaded ? findRoutesByShort(q) : [];
   const matchingVeh=[...S.vehicles.values()].filter(matchesFilter);
   let html='';
@@ -1262,7 +1355,7 @@ function clearRouteLayer(){ if(S.routeLayer){ map.removeLayer(S.routeLayer); S.r
    ============================================================ */
 function resolveStop(txt){
   const q=(txt||'').trim().toLowerCase(); if(!q) return null;
-  const names=[...GT.groups.keys()];
+  const names=[...GT.groups.keys()].filter(groupInView);
   return names.find(n=>n.toLowerCase()===q) || names.filter(n=>n.toLowerCase().startsWith(q)).sort((a,b)=>a.length-b.length)[0] || names.filter(n=>n.toLowerCase().includes(q)).sort((a,b)=>a.length-b.length)[0] || null;
 }
 function mkLeg(d, j, L){
@@ -1275,7 +1368,7 @@ function planTrips(fromName, toName, atTs){
   const dest=GT.groups.get(toName); const destIds=new Set(dest.ids);
   const destIdx=new Map(); for(const sid of destIds) for(const [tid,idx] of GT.byStop.get(sid)||[]){ let a=destIdx.get(tid); if(!a){a=[];destIdx.set(tid,a);} a.push(idx); }
   const firstDestAfter=(tid,i)=>{ const a=destIdx.get(tid); if(!a) return null; let m=null; for(const j of a) if(j>i && (m==null||j<m)) m=j; return m; };
-  const deps=departuresFrom(fromName, atTs-45*60, atTs+3*3600).map(d=>Object.assign(d,{L:liveFor(d.tid,d.st,d.idx,d.base)})).filter(d=>d.L.state!=='passed' && d.L.pred>=atTs-30 && (d.L.state!=='sched' || d.dep>=atTs-60)).sort((a,b)=>a.L.pred-b.L.pred);
+  const deps=departuresFrom(fromName, atTs-45*60, atTs+3*3600, tripInView).map(d=>Object.assign(d,{L:liveFor(d.tid,d.st,d.idx,d.base)})).filter(d=>d.L.state!=='passed' && d.L.pred>=atTs-30 && (d.L.state!=='sched' || d.dep>=atTs-60)).sort((a,b)=>a.L.pred-b.L.pred);
   const out=[]; const seen=new Set();
   for(const d of deps){ const j=firstDestAfter(d.tid,d.idx); if(j==null) continue; if(seen.has(d.tid)) continue; seen.add(d.tid); out.push({legs:[mkLeg(d,j,d.L)]}); }
   const direct=out.length;
@@ -1287,7 +1380,7 @@ function planTrips(fromName, toName, atTs){
       for(let k=d.idx+1;k<d.st.length && k<=d.idx+40;k++){
         const X=GT.stopGroupOf.get(d.st[k].stop); if(!X||X===fromName) continue;
         const arr1=d.base+d.st[k].arr+Math.max(0,delay1);
-        const sec=departuresFrom(X, arr1+60, arr1+45*60, (t,st2,i2)=> t.route!==d.t.route && firstDestAfter(t.id,i2)!=null, [-1,0,1]);
+        const sec=departuresFrom(X, arr1+60, arr1+45*60, (t,st2,i2)=> tripInView(t) && t.route!==d.t.route && firstDestAfter(t.id,i2)!=null, [-1,0,1]);
         for(const s2 of sec){ const L2=liveFor(s2.tid,s2.st,s2.idx,s2.base); if(L2.state==='passed' || L2.pred < arr1+60) continue;
           const j2=firstDestAfter(s2.tid,s2.idx); const arrive=s2.base+s2.st[j2].arr+(L2.delay||0);
           if(!best || arrive<best.arrive) best={arrive, legs:[mkLeg(d,k,d.L), mkLeg(s2,j2,L2)]}; break; }
@@ -1324,6 +1417,7 @@ function renderPlan(results){
 }
 function runPlan(scroll){
   const P=S.plan; if(!P) return;
+  if(S.agency==='kolej'){ renderTrainPlan(planTrainTrips(P.from, P.to, P.at||nowSec())); if(scroll) document.getElementById('planResults').scrollIntoView({behavior:'smooth', block:'nearest'}); return; }
   if(!GT.loaded){ document.getElementById('planResults').innerHTML='<div class="empty-note">Rozkład jazdy jeszcze się wczytuje — wyniki pojawią się automatycznie.</div>'; return; }
   const at = P.at || nowSec();
   renderPlan(planTrips(P.from, P.to, at));
@@ -1332,31 +1426,34 @@ function runPlan(scroll){
 document.getElementById('planForm').addEventListener('submit', e=>{
   e.preventDefault();
   const err=document.getElementById('planErr'); err.textContent='';
-  if(!GT.loaded){ err.textContent='Rozkład jazdy jeszcze się wczytuje — spróbuj za chwilę.'; return; }
-  const f=resolveStop(plFrom.value), t=resolveStop(plTo.value);
-  if(!f){ err.textContent='Nie znaleziono przystanku „Skąd”.'; return; }
-  if(!t){ err.textContent='Nie znaleziono przystanku „Dokąd”.'; return; }
-  if(f===t){ err.textContent='Przystanek początkowy i docelowy są takie same.'; return; }
+  const train=S.agency==='kolej';
+  if(!train && !GT.loaded){ err.textContent='Rozkład jazdy jeszcze się wczytuje — spróbuj za chwilę.'; return; }
+  const find=train?resolveStation:resolveStop;
+  const f=find(plFrom.value), t=find(plTo.value);
+  if(!f){ err.textContent=`Nie znaleziono ${train?'stacji':'przystanku'} „Skąd”.`; return; }
+  if(!t){ err.textContent=`Nie znaleziono ${train?'stacji':'przystanku'} „Dokąd”.`; return; }
+  if(f===t){ err.textContent=`${train?'Stacja początkowa i docelowa są takie same.':'Przystanek początkowy i docelowy są takie same.'}`; return; }
   plFrom.value=f; plTo.value=t;
   let at=null; if(plTime.value){ const [h,m]=plTime.value.split(':').map(Number); at=todayMidnight()+h*3600+m*60; if(at<nowSec()-3600) at+=86400; }
-  S.plan={from:f, to:t, at}; store('rzbus.plan', {from:f,to:t});
+  S.plan={from:f, to:t, at}; store('rzbus.plan.'+S.agency, {from:f,to:t});
   runPlan(true);
 });
 const [plFrom,plTo,plTime]=['plFrom','plTo','plTime'].map(id=>document.getElementById(id));
 document.getElementById('plSwap').addEventListener('click', ()=>{ const a=plFrom.value; plFrom.value=plTo.value; plTo.value=a; });
 document.getElementById('plGeo').addEventListener('click', ()=>{
   const err=document.getElementById('planErr'); err.textContent='';
-  if(!GT.loaded){ err.textContent='Rozkład jeszcze się wczytuje.'; return; }
-  const pick=(lat,lon)=>{ let best=null,bd=1e12; for(const g of GT.groups.values()){ if(!g.ids.some(id=>GT.byStop.has(id))) continue; const d=hav([lat,lon],[g.lat,g.lon]); if(d<bd){bd=d;best=g;} } if(best){ plFrom.value=best.name; err.textContent=`Najbliższy przystanek: ${best.name} (${Math.round(bd)} m)`; } };
+  if(S.agency!=='kolej' && !GT.loaded){ err.textContent='Rozkład jeszcze się wczytuje.'; return; }
+  const places=S.agency==='kolej' ? Object.values(RAIL_ST).map(s=>({name:s[0],lat:s[1],lon:s[2]})) : [...GT.groups.values()].filter(g=>groupInView(g.name));
+  const pick=(lat,lon)=>{ let best=null,bd=1e12; for(const g of places){ const d=hav([lat,lon],[g.lat,g.lon]); if(d<bd){bd=d;best=g;} } if(best){ plFrom.value=best.name; err.textContent=`Najbliższy przystanek: ${best.name} (${Math.round(bd)} m)`; } };
   try{ navigator.geolocation.getCurrentPosition(p=>pick(p.coords.latitude,p.coords.longitude), ()=>{ const c=map.getCenter(); pick(c.lat,c.lng); err.textContent+= ' — brak dostępu do lokalizacji, użyto środka mapy.'; }, {timeout:8000}); }
   catch(e){ const c=map.getCenter(); pick(c.lat,c.lng); }
 });
 document.getElementById('planResults').addEventListener('click', e=>{
+  const tr=e.target.closest('[data-train]'); if(tr){ openTrain(tr.dataset.train); return; }
   const b=e.target.closest('[data-bus]'); if(b){ const v=S.vehicles.get(b.dataset.bus); if(v){ document.getElementById('map-sec').scrollIntoView({behavior:'smooth'}); map.setView([v.lat,v.lon],16); openBus(v.id);} return; }
   const s=e.target.closest('[data-show]'); if(!s) return;
   const o=S.planResults[+s.dataset.show]; if(o) showPlanFocus(o);
 });
-{ const p=store('rzbus.plan'); if(p){ plFrom.value=p.from||''; plTo.value=p.to||''; } }
 
 
 /* ============================================================
@@ -1429,7 +1526,7 @@ function resetFocus(){
   S.focus=null; setTimeout(renderTrainsOnMap,0); if(S.focusLayer){ map.removeLayer(S.focusLayer); S.focusLayer=null; }
   clearRouteLayer(); S.query=''; document.getElementById('lineSearch').value='';
   renderFocusBar(); renderMarkers(); renderLateList(); renderLineNotice();
-  const pts=[...S.vehicles.values()].map(v=>[v.lat,v.lon]); if(pts.length) map.fitBounds(L.latLngBounds(pts),{padding:[30,30],maxZoom:14}); else map.setView(RZ_CENTER,13);
+  fitView();
 }
 
 
@@ -1439,10 +1536,10 @@ function resetFocus(){
 const pickModalEl=document.getElementById('pickModal'); const pickModal=new bootstrap.Modal(pickModalEl);
 const PK={mode:'from', map:null, stops:null, me:null, sel:null, markers:new Map(), routesAt:new Map()};
 function routesAtGroup(name){
-  if(PK.routesAt.has(name)) return PK.routesAt.get(name);
+  const key=S.agency+'|'+name; if(PK.routesAt.has(key)) return PK.routesAt.get(key);
   const g=GT.groups.get(name); const set=new Set();
-  if(g) for(const id of g.ids) for(const [tid] of GT.byStop.get(id)||[]){ const t=GT.trips.get(tid); if(t) set.add(t.route); }
-  const res=[...set].map(routeById).sort((a,b)=>natSort(a.short,b.short)); PK.routesAt.set(name,res); return res;
+  if(g) for(const id of g.ids) for(const [tid] of GT.byStop.get(id)||[]){ const t=GT.trips.get(tid); if(t && tripInView(t)) set.add(t.route); }
+  const res=[...set].map(routeById).sort((a,b)=>natSort(a.short,b.short)); PK.routesAt.set(key,res); return res;
 }
 function openPicker(mode){
   const err=document.getElementById('planErr'); err.textContent='';
@@ -1482,7 +1579,7 @@ function drawPickStops(){
   if(PK.stops) PK.map.removeLayer(PK.stops); PK.markers.clear();
   const renderer=L.canvas({padding:.3}); const layers=[];
   for(const g of GT.groups.values()){
-    if(!g.ids.some(id=>GT.byStop.has(id))) continue;
+    if(!groupInView(g.name)) continue;
     const m=L.circleMarker([g.lat,g.lon], Object.assign({renderer}, pickStyle(g.name))).bindTooltip(esc(g.name),{className:'bus-tip',direction:'top',offset:[0,-6]});
     m.on('click', ()=>selectPick(g.name, false)); PK.markers.set(g.name,m); layers.push(m);
   }
@@ -1495,7 +1592,7 @@ function selectPick(name, pan){
   if(pan) PK.map.setView([g.lat,g.lon], Math.max(PK.map.getZoom(),16));
   const routes=routesAtGroup(name);
   const dist = PK.me ? ` · ${Math.round(hav(PK.me,[g.lat,g.lon]))} m od Ciebie` : '';
-  const now=nowSec(); const next=departuresFrom(name, now-60, now+2*3600).map(d=>Object.assign(d,{L:liveFor(d.tid,d.st,d.idx,d.base)})).filter(d=>d.L.state!=='passed' && d.L.pred>=now-30).sort((a,b)=>a.L.pred-b.L.pred).slice(0,4);
+  const now=nowSec(); const next=departuresFrom(name, now-60, now+2*3600, tripInView).map(d=>Object.assign(d,{L:liveFor(d.tid,d.st,d.idx,d.base)})).filter(d=>d.L.state!=='passed' && d.L.pred>=now-30).sort((a,b)=>a.L.pred-b.L.pred).slice(0,4);
   document.getElementById('pickInfo').innerHTML = `
     <div class="pi-name">${esc(name)}</div><div class="pi-meta">${routes.length} ${routes.length===1?'linia':'linii'}${dist}</div>
     <div class="pi-lines">${routes.map(r=>`<span class="leg-line" style="background:${lineColor(r.short,r.color,r.agency)}">${esc(r.short)}</span>`).join('')}</div>
@@ -1674,12 +1771,18 @@ function trainPosition(t){
   return null;
 }
 function trainDelayNow(t){ let d=null; for(const x of t.stops){ if(x.cf || x.aDep || x.aArr) d=x.delay; } if(d==null){ const n=t.stops.find(x=>x.delay!=null); d=n?n.delay:null; } return d; }
+function trainMatches(t){
+  const d=trainDelayNow(t), st=statusOf(d==null?null:d*60);
+  if(S.filter==='late' && st!=='late') return false;
+  if(S.filter==='ontime' && !(st==='ok'||st==='minor'||st==='early')) return false;
+  return !S.query || [t.label,t.name,t.from,t.to].join(' ').toLowerCase().includes(S.query.toLowerCase());
+}
 function trainsVisible(){ return CFG.trains!==false && !S.focus && (S.agency==='all'||S.agency==='kolej'); }
 function renderTrainsOnMap(){
   const show=trainsVisible(); const live=new Set();
   if(show){
     for(const t of TR.trains){
-      const pos=trainPosition(t); if(!pos) continue; live.add(t.key);
+      const pos=trainPosition(t); if(!pos || !trainMatches(t)) continue; live.add(t.key);
       const dmin=trainDelayNow(t); const st=statusOf(dmin==null?null:dmin*60);
       let m=TR.markers.get(t.key);
       const html=`<div class="bus-pin is-train ${st==='late'?'late':''} ${TR.sel===t.key?'sel':''}" style="--c:${STATUS_COLOR[st]};--t:${STATUS_TEXT[st]||'#fff'}"><span class="bus-body">${TRAIN_SVG}${esc(t.cat||'POC')}</span>${pos.bearing!=null?`<span class="dir" style="transform:rotate(${Math.round(pos.bearing)}deg)"></span>`:''}</div>`;
@@ -1748,6 +1851,41 @@ document.getElementById('trStation').innerHTML = RAIL_IDS.slice().sort((a,b)=>(b
 document.getElementById('trStation').value=String(TR.station);
 document.getElementById('trStation').addEventListener('change', e=>{ TR.station=+e.target.value; renderBoard(); });
 document.querySelectorAll('[data-trtab]').forEach(b=>b.addEventListener('click', ()=>{ TR.tab=b.dataset.trtab; document.querySelectorAll('[data-trtab]').forEach(x=>x.classList.toggle('active', x===b)); renderBoard(); }));
+/* ---------- jak dojechać pociągiem (połączenia bezpośrednie) ---------- */
+function railStationNames(){ const names=new Set(Object.values(RAIL_ST).map(s=>s[0])); for(const t of TR.trains) for(const x of t.stops) names.add(railName(x.id)); return [...names].sort(natSort); }
+function resolveStation(txt){
+  const q=(txt||'').trim().toLowerCase(); if(!q) return null;
+  const names=railStationNames();
+  return names.find(n=>n.toLowerCase()===q) || names.filter(n=>n.toLowerCase().startsWith(q)).sort((a,b)=>a.length-b.length)[0] || names.filter(n=>n.toLowerCase().includes(q)).sort((a,b)=>a.length-b.length)[0] || null;
+}
+function planTrainTrips(from, to, at){
+  const out=[];
+  for(const t of TR.trains){
+    if(t.cancelled) continue;
+    const i=t.stops.findIndex(x=>railName(x.id)===from); if(i<0) continue;
+    const j=t.stops.findIndex((x,k)=>k>i && railName(x.id)===to); if(j<0) continue;
+    const a=t.stops[i], b=t.stops[j]; if(a.cn||b.cn) continue;
+    const dep=a.predDep, arr=b.predArr??b.predDep;
+    if(dep==null || arr==null || dep<at-60 || dep>at+6*3600) continue;
+    out.push({t, a, b, dep, arr});
+  }
+  return out.sort((x,y)=>x.dep-y.dep).slice(0,7);
+}
+function renderTrainPlan(results){
+  const el=document.getElementById('planResults'); const P=S.plan;
+  const note=TR.mode==='demo' ? '<div class="small text-soft mb-2">Przykładowe dane — prawdziwe połączenia pojawią się po dodaniu klucza PKP PLK w Ustawieniach.</div>' : '';
+  if(!results.length){ el.innerHTML=note+`<div class="empty-note">Brak bezpośrednich pociągów z <b>${esc(P.from)}</b> do <b>${esc(P.to)}</b> w ciągu 6 godzin.</div>`; return; }
+  el.innerHTML = note+`<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span><span class="text-soft">${P.at?'odjazd od '+fmtClock(P.at):'odjazdy od teraz'} · ${results.length} połączeń</span></div>` +
+    results.map(({t,a,dep,arr})=>`<div class="plan-card">
+      <div class="pc-time"><div class="pc-dep ${a.delay!=null&&statusOf(a.delay*60)==='late'?'txt-red':''}">${fmtClock(dep)}</div><div class="pc-in">${inMin(dep)}</div></div>
+      <div class="pc-main">
+        <div class="pc-lines"><span class="leg-line" style="background:#181818">${esc(t.cat||'POC')}</span><span class="pc-sum">przyjazd ${fmtClock(arr)} · ${Math.round((arr-dep)/60)} min · bez przesiadek</span></div>
+        <div class="pc-status">${trainDelayChip(a.delay,false)}${a.pl?` <span class="text-soft small">peron ${esc(a.pl)}${a.tr?' · tor '+esc(a.tr):''}</span>`:''}</div>
+        <div class="pc-legs"><div class="leg-meta">${esc(t.label)}${t.name?' „'+esc(t.name)+'”':''} · kierunek ${esc(t.to)}${TR.carriers.get(t.carrier)?' · '+esc(TR.carriers.get(t.carrier)):''}</div></div>
+      </div>
+      <div class="pc-actions"><button class="btn-ghost" data-train="${esc(t.key)}">Szczegóły</button></div>
+    </div>`).join('');
+}
 /* ---------- okienko pociągu ---------- */
 const trainModalEl=document.getElementById('trainModal'); const trainModal=new bootstrap.Modal(trainModalEl);
 function openTrain(key){ TR.sel=key; renderTrain(false); trainModal.show(); renderTrainsOnMap(); }
@@ -1814,7 +1952,7 @@ async function trainsTick(){
   }catch(e){
     console.warn('PLK', e); TR.err=e.message;
     if(!TR.trains.length || TR.mode!=='live'){ TR.mode='demo'; TR.trains=demoTrains(); TR.ts=nowSec(); }
-  }finally{ TR.busy=false; renderTrainsOnMap(); renderBoard(); if(trainModalEl.classList.contains('show')) renderTrain(true); }
+  }finally{ TR.busy=false; renderTrainsOnMap(); renderBoard(); if(S.agency==='kolej'){ renderStats(); renderLateList(); refreshStopList(); if(S.plan) runPlan(false); } if(trainModalEl.classList.contains('show')) renderTrain(true); }
 }
 function trainsBoot(){
   clearInterval(TR.timer); trSched=null; TR.err=null; TR.trains=[];
@@ -1859,7 +1997,7 @@ function renderWeather(){
     <div class="wx-hours">${hrs.map(x=>`<span><small>${esc(String(x.t).slice(11,16))}</small>${wmo(x.code)[1]} ${Math.round(x.temp)}°${x.pp!=null?`<small>${x.pp}%</small>`:''}</span>`).join('')}</div>
     <div class="wx-tip ${hard?'hard':wet?'wet':''}">${tip}</div>`;
 }
-function weatherBoot(){ clearInterval(WX.timer); renderWeather(); if(CFG.weather===false) return; weatherTick(); WX.timer=setInterval(()=>{ if(!document.hidden) weatherTick(); }, 15*60*1000); }
+function weatherBoot(){ clearInterval(WX.timer); renderWeather(); if(CFG.weather===false) return; weatherTick(); WX.timer=setInterval(()=>{ if(!document.hidden) weatherTick(); }, 45*60*1000); }
 
 /* ============================================================
    Pętla odświeżania i start
@@ -1910,17 +2048,22 @@ async function boot(){
   if(CFG.demo){ S.mode='demo'; hideOverlay(); await tick(true); drawVectorBase(); restartTimer(); return; }
   S.mode='loading'; setKicker('loading','Łączenie…');
   showOverlay('Łączenie z ZTM Rzeszów…');
-  const staticPromise = loadStatic(t=>{ if(my===bootId) showOverlay(t); },()=>{
+  const loadTimetable = () => loadStatic(t=>{ if(my===bootId) showOverlay(t); },()=>{
       if(my!==bootId) return;
+      GT.failed=false; S.alerts=S.alerts.filter(a=>a.id!=='nogtfs');
       onStaticReady();
       hideOverlay();
       drawVectorBase();
+      if(S.vehicles.size) tick(false); // od razu pokaż linie i kierunki pojazdów już widocznych na mapie
     })
     .catch(e=>{
       console.warn('Brak rozkładu GTFS', e);
-      S.alerts.push({id:'nogtfs', header:'Nie wczytano rozkładu jazdy', desc:'Opóźnienia są pokazywane tylko tam, gdzie podaje je kanał GTFS-RT. Kierunki i nazwy przystanków mogą być niedostępne.', routes:[], stops:[]});
+      GT.failed=true; S.alerts=S.alerts.filter(a=>a.id!=='nogtfs');
+      S.alerts.push({id:'nogtfs', header:'Nie wczytano rozkładu jazdy', desc:'Numery linii, kierunki i nazwy przystanków są niedostępne. Aplikacja spróbuje ponownie za minutę.', routes:[], stops:[]});
       hideOverlay();
+      setTimeout(()=>{ if(my===bootId && !GT.loaded) loadTimetable(); }, 60000);
     });
+  const staticPromise = loadTimetable();
   let rtOk=false;
   try{ S.mode='live'; await refreshLive(); rtOk=true; S.lastOk=nowSec(); renderAll(); hideOverlay(); setKicker('live','Na żywo · '+fmtClockS(S.feedTs)); }
   catch(e){ console.warn('RT niedostępny', e); }
@@ -1930,7 +2073,7 @@ async function boot(){
     if(!store('rzbus.demoInfoShown')){ store('rzbus.demoInfoShown', true); document.getElementById('alertsBtn').click(); }
     restartTimer();
   } else {
-    if(S.vehicles.size){ const pts=[...S.vehicles.values()].map(v=>[v.lat,v.lon]); map.fitBounds(L.latLngBounds(pts),{padding:[30,30], maxZoom:14}); }
+    fitView();
     restartTimer();
   }
   await staticPromise;
@@ -1940,6 +2083,7 @@ async function boot(){
   await tick(true);
 }
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) tick(false); });
+setView(viewFromPath(), false);
 boot();
 trainsBoot();
 weatherBoot();
