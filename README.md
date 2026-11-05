@@ -12,7 +12,7 @@ The app has one page per transport category: `/autobusy` (ZTM, also served at `/
 
 ## Timetables
 
-The server downloads each timetable once a day into `.cache/timetables` (or `TIMETABLE_CACHE_DIR`) and serves it from `/api/timetable/<agency>` with an ETag, so visitors keep working if the source is down. Custom timetable addresses from Ustawienia are fetched directly instead.
+The server downloads each timetable once a day into `.cache/timetables` (or `TIMETABLE_CACHE_DIR`). When the feed changes it is imported into Azure SQL in one transaction, so a failed import keeps the previous timetable. Visitors load it from `/api/schedule/<agency>`, a compressed copy built from the database once per import. If the database has no copy, `/api/timetable/<agency>` serves the downloaded file instead. Custom timetable addresses from Ustawienia are fetched directly.
 
 Bus and PKS pages list every departure from a stop for today or the next six days, 20 per page, and open on the page with the next departure. The train board lists today's trains, 15 per page. The journey planner has earlier and later buttons to move beyond its search window.
 

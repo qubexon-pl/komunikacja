@@ -264,6 +264,24 @@ function clearGtfsFeed(agency){
   for(const id of serviceIds){ GT.cal.delete(id); GT.calDates.delete(id); }
   for(const id of new Set(trips.map(trip=>trip.shape).filter(Boolean))) GT.shapes.delete(id);
 }
+function hydrateGtfsFeed(feed){
+  for(const route of feed.routes) GT.routes.set(route.id, route);
+  for(const trip of feed.trips) GT.trips.set(trip.id, trip);
+  for(const stop of feed.stops) GT.stops.set(stop.id, stop);
+  for(const stopTime of feed.stopTimes){
+    let rows=GT.stopTimes.get(stopTime.trip_id);
+    if(!rows){ rows=[]; GT.stopTimes.set(stopTime.trip_id,rows); }
+    rows.push({seq:stopTime.sequence, stop:stopTime.stop_id, arr:stopTime.arrival_seconds, dep:stopTime.departure_seconds});
+  }
+  for(const rows of GT.stopTimes.values()) rows.sort((a,b)=>a.seq-b.seq);
+  for(const service of feed.calendar) GT.cal.set(service.service_id,{days:service.days,start:service.start,end:service.end});
+  for(const exception of feed.calendarDates){
+    let dates=GT.calDates.get(exception.service_id);
+    if(!dates){ dates=new Map(); GT.calDates.set(exception.service_id,dates); }
+    dates.set(exception.date,exception.exception_type);
+  }
+  for(const shape of feed.shapes) GT.shapes.set(shape.id,shape.points);
+}
 async function loadGtfsFeed(urls, pfx, agency, cacheKey, progress){
   const P = x => (x==null||x==='') ? x : pfx + x;
   const key=urls.join('|');
@@ -271,6 +289,10 @@ async function loadGtfsFeed(urls, pfx, agency, cacheKey, progress){
   if(key===(agency==='pks'?DEFAULTS.pksStaticUrls:DEFAULTS.staticUrls).join('|')){ // własne adresy z Ustawień pobieramy bezpośrednio
     try{
       progress(`Pobieranie rozkładu ${agency.toUpperCase()} w tle…`);
+      const stored=await withTimeout(fetch('/api/schedule/'+agency), 60000);
+      if(stored.ok){ const feed=await stored.json(); clearGtfsFeed(agency); hydrateGtfsFeed(feed); return 'baza danych'; }
+    }catch(e){ console.warn(`Baza nie udostępniła rozkładu ${agency.toUpperCase()}.`,e); }
+    try{
       const r=await withTimeout(fetch('/api/timetable/'+agency), 60000);
       if(r.ok){ const b=await r.arrayBuffer(); if(isZip(b)){ buf=b; url='serwer aplikacji'; } }
     }catch(e){ console.warn(`Serwer nie udostępnił rozkładu ${agency.toUpperCase()}.`,e); }
@@ -1389,11 +1411,13 @@ function toggleFavorite(item){
   renderFavorites();
 }
 function renderFavorites(){
-  const el=document.getElementById('favBar'), items=FAV.items.filter(f=>f.view===S.agency);
-  el.classList.toggle('d-none', !items.length);
-  el.innerHTML=items.length ? `<span class="fav-title">★ Ulubione</span>`+items.map(f=>`<span class="fav-chip"><button class="fav-open" type="button" data-fav-open="${esc(favKey(f))}">${esc(f.type==='route'?f.from+' → '+f.to:f.name)}</button><button class="fav-remove" type="button" data-fav-remove="${esc(favKey(f))}" aria-label="Usuń z ulubionych">×</button></span>`).join('') : '';
+  const el=document.getElementById('favBar'), items=FAV.items;
+  el.innerHTML=`<span class="fav-title">★ Ulubione</span>`+(items.length
+    ? items.map(f=>`<span class="fav-chip"><span class="fav-kind ${f.view}">${TERM_KINDS[f.view]}</span><button class="fav-open" type="button" data-fav-open="${esc(favKey(f))}">${esc(f.type==='route'?f.from+' → '+f.to:f.name)}</button><button class="fav-remove" type="button" data-fav-remove="${esc(favKey(f))}" aria-label="Usuń z ulubionych">×</button></span>`).join('')
+    : '<span class="fav-hint">Kliknij ☆ przy przystanku w „Rozkładzie jazdy” albo przy trasie w „Jak dojechać”, aby zapisać ją tutaj.</span>');
 }
 function openFavorite(f){
+  if(f.view!==S.agency) setView(f.view,true);
   if(f.type==='route'){
     S.placeChoice={}; plFrom.value=f.from; plTo.value=f.to;
     document.getElementById('planForm').requestSubmit();

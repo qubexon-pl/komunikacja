@@ -16,6 +16,8 @@ const SCHEDULE_TABLES = [
   "shapes",
 ];
 const MAX_SOURCE_KEY_LENGTH = 4096;
+const WRITE_CHUNK = 20000;
+const READ_CHUNK = 100000;
 
 function createSqlConfig(env = process.env) {
   const server = env.AZURE_SQL_SERVER;
@@ -126,9 +128,20 @@ function table(name, columns, rows) {
   return result;
 }
 
+// A timetable has over a million rows, so work in chunks to stay within the request timeout on small databases.
 async function bulk(transaction, tableName, columns, rows) {
-  if (rows.length === 0) return;
-  await transaction.request().bulk(table(tableName, columns, rows));
+  for (let start = 0; start < rows.length; start += WRITE_CHUNK) {
+    await transaction.request().bulk(table(tableName, columns, rows.slice(start, start + WRITE_CHUNK)));
+  }
+}
+
+async function deleteRows(transaction, tableName, agency) {
+  for (;;) {
+    const result = await transaction.request()
+      .input("agency", sql.NVarChar(10), agency)
+      .query(`DELETE TOP (${WRITE_CHUNK}) FROM dbo.${tableName} WHERE agency_code = @agency;`);
+    if (result.rowsAffected[0] < WRITE_CHUNK) return;
+  }
 }
 
 async function replaceSchedule(pool, agency, payload) {
@@ -136,18 +149,9 @@ async function replaceSchedule(pool, agency, payload) {
   const tx = new sql.Transaction(pool);
   await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
   try {
-    await tx.request()
-      .input("agency", sql.NVarChar(10), agency)
-      .query(`
-        DELETE FROM dbo.GtfsTrip WHERE agency_code = @agency;
-        DELETE FROM dbo.GtfsServiceException WHERE agency_code = @agency;
-        DELETE FROM dbo.GtfsServiceCalendar WHERE agency_code = @agency;
-        DELETE FROM dbo.GtfsRoute WHERE agency_code = @agency;
-        DELETE FROM dbo.GtfsStop WHERE agency_code = @agency;
-        DELETE FROM dbo.GtfsService WHERE agency_code = @agency;
-        DELETE FROM dbo.GtfsShape WHERE agency_code = @agency;
-        DELETE FROM dbo.GtfsFeedImport WHERE agency_code = @agency;
-      `);
+    for (const tableName of ["GtfsStopTime", "GtfsShapePoint", "GtfsTrip", "GtfsServiceException", "GtfsServiceCalendar", "GtfsRoute", "GtfsStop", "GtfsService", "GtfsShape", "GtfsFeedImport"]) {
+      await deleteRows(tx, tableName, agency);
+    }
 
     await bulk(tx, "GtfsRoute", [
       ["agency_code", sql.NVarChar(10)],
@@ -269,16 +273,48 @@ async function getSchedule(pool, agency, sourceKey) {
         AND imported_at >= DATEADD(hour, -12, SYSUTCDATETIME());
     `);
   if (!feedResult.recordset.length) return null;
+  return readSchedule(pool, agency, feedResult.recordset[0].importedAt);
+}
 
-  const [routes, trips, stops, stopTimes, calendars, exceptions, shapes] = await Promise.all([
-    request().query("SELECT route_id AS id, short_name AS short, long_name AS [long], route_color AS color, text_color AS [text], route_type AS [type] FROM dbo.GtfsRoute WHERE agency_code = @agency;"),
-    request().query("SELECT trip_id AS id, route_id AS route, service_id AS service, headsign, direction_id AS dir, shape_id AS shape, block_id AS block, brigade FROM dbo.GtfsTrip WHERE agency_code = @agency;"),
-    request().query("SELECT stop_id AS id, stop_name AS name, stop_code AS code, latitude AS lat, longitude AS lon FROM dbo.GtfsStop WHERE agency_code = @agency;"),
-    request().query("SELECT trip_id AS trip_id, stop_sequence AS sequence, stop_id AS stop_id, arrival_seconds AS arrival_seconds, departure_seconds AS departure_seconds FROM dbo.GtfsStopTime WHERE agency_code = @agency ORDER BY trip_id, stop_sequence;"),
-    request().query("SELECT c.service_id, c.monday, c.tuesday, c.wednesday, c.thursday, c.friday, c.saturday, c.sunday, c.start_date AS [start], c.end_date AS [end] FROM dbo.GtfsServiceCalendar c WHERE c.agency_code = @agency;"),
-    request().query("SELECT service_id, service_date AS [date], exception_type FROM dbo.GtfsServiceException WHERE agency_code = @agency;"),
-    request().query("SELECT shape_id, point_sequence, latitude, longitude FROM dbo.GtfsShapePoint WHERE agency_code = @agency ORDER BY shape_id, point_sequence;"),
-  ]);
+async function importedHash(pool, agency) {
+  const result = await pool.request().input("agency", sql.NVarChar(10), agency)
+    .query("SELECT source_hash AS sourceHash FROM dbo.GtfsFeedImport WHERE agency_code = @agency;");
+  return result.recordset[0]?.sourceHash ?? null;
+}
+
+async function readInChunks(pool, agency, select, keyColumn, sequenceColumn) {
+  const rows = [];
+  let key = "";
+  let sequence = -1;
+  for (;;) {
+    const result = await pool.request()
+      .input("agency", sql.NVarChar(10), agency)
+      .input("key", sql.NVarChar(200), key)
+      .input("sequence", sql.Int, sequence)
+      .query(`
+        SELECT TOP (${READ_CHUNK}) ${select}
+        WHERE agency_code = @agency AND (${keyColumn} > @key OR (${keyColumn} = @key AND ${sequenceColumn} > @sequence))
+        ORDER BY ${keyColumn}, ${sequenceColumn};
+      `);
+    for (const row of result.recordset) rows.push(row);
+    if (result.recordset.length < READ_CHUNK) return rows;
+    const last = result.recordset[result.recordset.length - 1];
+    key = last[keyColumn];
+    sequence = last[sequenceColumn];
+  }
+}
+
+async function readSchedule(pool, agency, knownImportedAt) {
+  const request = () => pool.request().input("agency", sql.NVarChar(10), agency);
+  const importedAt = knownImportedAt ?? (await request().query("SELECT imported_at AS importedAt FROM dbo.GtfsFeedImport WHERE agency_code = @agency;")).recordset[0]?.importedAt;
+  if (!importedAt) return null;
+  const routes = await request().query("SELECT route_id AS id, short_name AS short, long_name AS [long], route_color AS color, text_color AS [text], route_type AS [type] FROM dbo.GtfsRoute WHERE agency_code = @agency;");
+  const trips = await request().query("SELECT trip_id AS id, route_id AS route, service_id AS service, headsign, direction_id AS dir, shape_id AS shape, block_id AS block, brigade FROM dbo.GtfsTrip WHERE agency_code = @agency;");
+  const stops = await request().query("SELECT stop_id AS id, stop_name AS name, stop_code AS code, latitude AS lat, longitude AS lon FROM dbo.GtfsStop WHERE agency_code = @agency;");
+  const calendars = await request().query("SELECT c.service_id, c.monday, c.tuesday, c.wednesday, c.thursday, c.friday, c.saturday, c.sunday, c.start_date AS [start], c.end_date AS [end] FROM dbo.GtfsServiceCalendar c WHERE c.agency_code = @agency;");
+  const exceptions = await request().query("SELECT service_id, service_date AS [date], exception_type FROM dbo.GtfsServiceException WHERE agency_code = @agency;");
+  const stopTimes = { recordset: await readInChunks(pool, agency, "trip_id, stop_sequence, stop_id, arrival_seconds, departure_seconds FROM dbo.GtfsStopTime", "trip_id", "stop_sequence") };
+  const shapes = { recordset: await readInChunks(pool, agency, "shape_id, point_sequence, latitude, longitude FROM dbo.GtfsShapePoint", "shape_id", "point_sequence") };
 
   const shapeMap = new Map();
   for (const point of shapes.recordset) {
@@ -286,11 +322,11 @@ async function getSchedule(pool, agency, sourceKey) {
     shapeMap.get(point.shape_id).push([point.latitude, point.longitude]);
   }
   return {
-    importedAt: feedResult.recordset[0].importedAt,
+    importedAt,
     routes: routes.recordset.map((row) => ({ ...row, agency })),
     trips: trips.recordset,
     stops: stops.recordset.map((row) => ({ ...row, agency })),
-    stopTimes: stopTimes.recordset,
+    stopTimes: stopTimes.recordset.map((row) => ({ ...row, sequence: row.stop_sequence, stop_sequence: undefined })),
     calendar: calendars.recordset.map((row) => ({
       service_id: row.service_id,
       days: [row.monday, row.tuesday, row.wednesday, row.thursday, row.friday, row.saturday, row.sunday],
@@ -306,6 +342,8 @@ module.exports = {
   AGENCIES,
   createSqlConfig,
   getSchedule,
+  importedHash,
+  readSchedule,
   replaceSchedule,
   sourceHash,
   validateSchedulePayload,

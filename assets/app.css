@@ -604,3 +604,12 @@ body.guest .account-only,body:not(.guest) .guest-only{display:none !important}
 .fav-remove:hover{color:var(--red)}
 .fav-star{padding:0 4px; color:var(--grey); font-size:1.1rem; line-height:1; vertical-align:baseline; background:none; border:0}
 .fav-star:hover,.fav-star.on{color:#F2B200}
+
+/* ---- ulubione widoczne zawsze ---- */
+.fav-bar{min-height:30px}
+body[data-view="koncowe"] .fav-bar{margin-top:18px}
+.fav-hint{color:var(--ink-soft); font-size:.84rem}
+.fav-kind{display:flex; align-items:center; padding:0 8px; color:#fff; font-size:.6rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase}
+.fav-kind.ztm{background:#DA291C}
+.fav-kind.pks{background:#1F5E3B}
+.fav-kind.kolej{background:#181818}

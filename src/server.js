@@ -6,9 +6,10 @@ const path = require("node:path");
 const { pipeline } = require("node:stream/promises");
 const crypto = require("node:crypto");
 const tls = require("node:tls");
-const { AGENCIES, createSqlConfig, getSchedule, replaceSchedule } = require("./database");
+const { AGENCIES, createSqlConfig, getSchedule, importedHash, readSchedule, replaceSchedule } = require("./database");
 const { createGeocoder, createStreetSuggester } = require("./geocode");
 const { normalizeFavorites } = require("./favorites");
+const { createScheduleStore } = require("./schedule");
 const { createTimetableStore } = require("./timetable");
 const { AuthError, SESSION_TTL_SECONDS, createAuthService, isEmailConfigured, safeReturnTo } = require("./auth");
 
@@ -29,7 +30,7 @@ const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/koncowe"]);
 const MAX_FAVORITES_BYTES = 64 * 1024;
 const PLK_API = "https://pdp-api.plk-sa.pl/api/v1/";
 const PLK_ROUTES = new Set(["schedules", "operations"]);
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, plk: 60 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -424,6 +425,22 @@ async function handleAuth(req, res, url, auth) {
   return false;
 }
 
+function serveSchedule(req, res, agency, schedules) {
+  const copy = schedules?.get(agency);
+  if (!copy) {
+    json(res, 503, { error: "Rozkład jest chwilowo niedostępny." });
+    return;
+  }
+  const headers = { ETag: copy.etag, "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff" };
+  if (req.headers["if-none-match"] === copy.etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(200, { ...headers, "Content-Type": "application/json; charset=utf-8", "Content-Encoding": "gzip", "Content-Length": copy.body.length });
+  res.end(copy.body);
+}
+
 async function serveTimetable(req, res, agency, timetables) {
   const feed = await timetables?.get(agency);
   if (!feed) {
@@ -511,7 +528,7 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, schedules = null, staticRoot = ROOT }) {
   const root = path.resolve(staticRoot);
   return http.createServer(async (req, res) => {
     try {
@@ -535,10 +552,15 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "geocode" && segments.length === 2)
           || (segments[1] === "feeds" && segments[2] === "fetch" && segments.length === 3)
           || (segments[1] === "timetable" && segments.length === 3 && AGENCIES.has(segments[2]))
+          || (segments[1] === "schedule" && segments.length === 3 && AGENCIES.has(segments[2]))
           || (segments[1] === "plk" && segments.length === 3 && PLK_ROUTES.has(segments[2]))
         ) ? (segments[1] === "feeds" ? "feeds" : segments[1]) : null;
         if (publicRoute && !takePublicRequest(req, publicRoute)) {
           json(res, 429, { error: "Zbyt wiele zapytań. Spróbuj ponownie za chwilę." });
+          return;
+        }
+        if (publicRoute === "schedule") {
+          serveSchedule(req, res, segments[2], schedules);
           return;
         }
         if (publicRoute === "timetable") {
@@ -676,9 +698,19 @@ async function main() {
   const auth = createAuthService(pool);
   const timetables = createTimetableStore();
   timetables.start();
+  const schedules = createScheduleStore({
+    timetables,
+    database: {
+      importedHash: (agency) => importedHash(pool, agency),
+      read: (agency) => readSchedule(pool, agency),
+      replace: (agency, payload) => replaceSchedule(pool, agency, payload),
+    },
+  });
+  schedules.start();
   const server = createServer({
     auth,
     timetables,
+    schedules,
     database: {
       health: async () => pool.request().query("SELECT 1 AS ok"),
       getSchedule: (agency, sourceKey) => getSchedule(pool, agency, sourceKey),
@@ -689,6 +721,7 @@ async function main() {
   server.listen(port, () => console.log(`Komunikacja is listening on http://localhost:${port}`));
   const close = () => server.close(async () => {
     timetables.stop();
+    schedules.stop();
     await pool.close();
     process.exit(0);
   });
