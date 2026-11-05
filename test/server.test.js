@@ -79,7 +79,7 @@ test("static server exposes the frontend but not project files", async (t) => {
   assert.equal(protectedPage.status, 200);
   assert.match(protectedPage.headers.get("content-type"), /text\/html/);
 
-  for (const page of ["/autobusy", "/pks", "/pociagi", "/koncowe"]) {
+  for (const page of ["/autobusy", "/pks", "/pociagi", "/podroz"]) {
     const guest = await fetch(`${baseUrl}${page}`, { redirect: "manual" });
     assert.equal(guest.status, 200);
     assert.match(guest.headers.get("content-type"), /text\/html/);
@@ -438,4 +438,62 @@ test("unsupported agencies and missing source keys are rejected", async (t) => {
   assert.equal(unsupported.status, 404);
   const missingKey = await fetch(`${baseUrl}/api/gtfs/ztm`, { headers: { Cookie: "rzbus_session=test-session" } });
   assert.equal(missingKey.status, 400);
+});
+
+test("flights and driving routes are public, validated, and old end-stop links move to the trip page", async (t) => {
+  const seen = [];
+  const flights = {
+    search: (query) => { seen.push(query); return { flights: [], total: 0 }; },
+    options: ({ origin, dest, date }) => ({ options: [], origin, dest, date }),
+  };
+  const server = createServer({
+    database: {},
+    auth: { resolveSession: async () => null },
+    flights,
+    drive: async () => ({ km: 167, minutes: 104 }),
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  assert.equal((await fetch(`${base}/api/flights?from=rze&date=2026-11-11`)).status, 200);
+  assert.deepEqual(seen[0], { from: "RZE", to: "", date: "2026-11-11" });
+  assert.equal((await fetch(`${base}/api/flights?date=jutro`)).status, 400);
+  const options = await (await fetch(`${base}/api/flights/options?origin=50.04,22&dest=55.95,-3.19`)).json();
+  assert.deepEqual(options.dest, { lat: 55.95, lon: -3.19 });
+  assert.equal((await fetch(`${base}/api/flights/options?origin=x&dest=y`)).status, 400);
+  assert.deepEqual((await (await fetch(`${base}/api/driving?from=50.04,22&to=50.06,19.94`)).json()).route, { km: 167, minutes: 104 });
+  assert.equal((await fetch(`${base}/api/driving?from=50.04`)).status, 400);
+  const old = await fetch(`${base}/koncowe`, { redirect: "manual" });
+  assert.equal(old.status, 301);
+  assert.equal(old.headers.get("location"), "/podroz");
+});
+
+test("only an administrator can start a flight refresh", async (t) => {
+  const requests = [];
+  let user = null;
+  const server = createServer({
+    database: {},
+    auth: { resolveSession: async () => user },
+    flights: { search: () => ({}), pairsFor: ({ from, to }) => (to === "XXX" ? [] : [{ from, to, airlines: ["WIZZ"] }]) },
+    collector: { status: () => ({ available: true, running: false }), request: (target) => { requests.push(target); return "started"; } },
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (body) => fetch(`${base}/api/flights/refresh`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base, Cookie: "x=1" }, body: JSON.stringify(body) });
+
+  assert.equal((await (await fetch(`${base}/api/flights/status`)).json()).available, true);
+  assert.equal((await post({})).status, 401);
+  user = { id: "1", email: "someone@example.invalid", isAdmin: false };
+  assert.equal((await post({})).status, 403);
+  user = { id: "2", email: "boss@example.invalid", isAdmin: true };
+  const period = { start: "2026-12-01", end: "2026-12-10" };
+  assert.equal((await post({ from: "rze", ...period })).status, 400);
+  assert.equal((await post({ from: "RZE", to: "BCN" })).status, 400);
+  assert.equal((await post({ from: "RZE", to: "BCN", start: "2026-12-10", end: "2026-12-01" })).status, 400);
+  assert.equal((await post({ from: "RZE", to: "BCN", start: "2026-12-01", end: "2027-06-01" })).status, 400);
+  assert.equal((await post({ from: "RZE", to: "XXX", ...period })).status, 400);
+  assert.equal((await post({ from: "RZE", to: "BCN", ...period })).status, 202);
+  assert.deepEqual(requests, [{ pairs: [{ from: "RZE", to: "BCN", airlines: ["WIZZ"] }], ...period, target: { from: "RZE", to: "BCN", ...period } }]);
 });

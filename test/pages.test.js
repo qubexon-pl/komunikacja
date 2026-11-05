@@ -11,7 +11,7 @@ const source = fs.readFileSync(path.resolve(__dirname, "../assets/app.js"), "utf
 function loadTrainPlanner(trains) {
   const context = { TR: { trains }, railName: (id) => id };
   const start = source.indexOf("function planTrainTrips(");
-  vm.runInNewContext(source.slice(start, source.indexOf("function renderTrainPlan(")), context);
+  vm.runInNewContext(source.slice(start, source.indexOf("/* ---------- okienko pociągu")), context);
   return context.planTrainTrips;
 }
 
@@ -66,58 +66,86 @@ test("the timetable opens on the page with the next departure", () => {
   assert.equal(pageOfNow([], 20, same, 0), 1);
 });
 
-function loadTermini() {
+function loadTripModes() {
   const context = {};
-  const start = source.indexOf("const TERM_MIN_SHARE=");
-  vm.runInNewContext(`${source.slice(start, source.indexOf("function busTermini("))}; this.collectTermini = collectTermini; this.terminalName = terminalName; this.matchDestination = matchDestination;`, context);
+  const start = source.indexOf("const WALK_MAX_KM=");
+  vm.runInNewContext(`${source.slice(start, source.indexOf("function fmtKm("))}; this.tripModes = tripModes; this.bestMode = bestMode; this.transitName = transitName;`, context);
   return context;
 }
-const tripsTo = (route, dir, last, count) => Array.from({ length: count }, () => ({ route, dir, last }));
-const plain = (value) => JSON.parse(JSON.stringify(value));
 
-test("platform numbers are removed from a terminus name", () => {
-  const { terminalName } = loadTermini();
-  assert.equal(terminalName("Dworzec Główny PKP 03"), "Dworzec Główny PKP");
-  assert.equal(terminalName("Lubelska Zajezdnia MPK"), "Lubelska Zajezdnia MPK");
-  assert.equal(terminalName("Osiedle 1000-lecia"), "Osiedle 1000-lecia");
+const none = { transit: false, rail: false, flights: false };
+
+test("a short trip offers walking and a nearby bus", () => {
+  const { tripModes, bestMode } = loadTripModes();
+  const modes = tripModes(0.8, { ...none, transit: true });
+  assert.deepEqual([...modes], ["walk", "transit"]);
+  assert.equal(bestMode(0.8, modes, { walk: 900, transit: 600 }), "walk");
 });
 
-test("platforms of one terminus are merged and share its lines", () => {
-  const { collectTermini } = loadTermini();
-  const result = collectTermini([...tripsTo("1", "d0", "Dworzec 01", 10), ...tripsTo("2", "d0", "Dworzec 03", 10)]);
-  assert.deepEqual(plain(result), [{ name: "Dworzec", routes: ["1", "2"], stops: ["Dworzec 01", "Dworzec 03"] }]);
+test("the fastest option is recommended when walking is not obvious", () => {
+  const { tripModes, bestMode } = loadTripModes();
+  const modes = tripModes(12, { ...none, transit: true, rail: true });
+  assert.deepEqual([...modes], ["transit", "rail"]);
+  assert.equal(bestMode(12, modes, { transit: 2000, rail: 1500 }), "rail");
 });
 
-test("rare trips to a depot do not create a terminus, but real variants do", () => {
-  const { collectTermini } = loadTermini();
-  const result = collectTermini([
-    ...tripsTo("1", "d0", "Pętla", 40),
-    ...tripsTo("1", "d0", "Zajezdnia", 2),
-    ...tripsTo("1", "d0", "Pętla skrócona", 10),
-    ...tripsTo("1", "d1", "Dworzec", 5),
-  ]);
-  assert.deepEqual(Array.from(result, (terminus) => terminus.name).sort(), ["Dworzec", "Pętla", "Pętla skrócona"]);
+test("a car is suggested only when nothing else is available", () => {
+  const { tripModes } = loadTripModes();
+  assert.deepEqual([...tripModes(90, none)], ["car"]);
+  assert.deepEqual([...tripModes(2, none)], ["walk"]);
+  assert.deepEqual([...tripModes(90, { ...none, rail: true })], ["rail"]);
+  assert.deepEqual([...tripModes(null, none)], ["car"]);
 });
 
-test("a destination lists each direction once, with its lines and closest stop", () => {
-  const { matchDestination } = loadTermini();
-  const result = matchDestination([
-    { route: "13", terminus: "Bardowskiego", stop: "Lwowska 04", walk: 300 },
-    { route: "34", terminus: "Bardowskiego", stop: "Lwowska 03", walk: 120 },
-    { route: "13", terminus: "Bardowskiego", stop: "Lwowska 03", walk: 120 },
-    { route: "6", terminus: "Pobitno", stop: "Lwowska 04", walk: 300 },
-  ]);
-  assert.equal(result.size, 2);
-  const direction = result.get("Bardowskiego");
-  assert.deepEqual([...direction.routes], ["13", "34"]);
-  assert.equal(direction.stop, "Lwowska 03");
-  assert.equal(direction.walk, 120);
+test("a flight is the recommendation for a far destination, and no car appears while flights load", () => {
+  const { tripModes, bestMode } = loadTripModes();
+  const modes = tripModes(1800, { ...none, flights: true });
+  assert.equal(bestMode(1800, modes, {}), "flight");
+  assert.deepEqual([...tripModes(1800, { ...none, pending: true })], []);
+  assert.deepEqual([...tripModes(1800, none)], ["car"]);
+});
+
+test("airports are grouped by country, Poland first, and only compatible ones count as served", () => {
+  const context = { natSort: (a, b) => a.localeCompare(b) };
+  vm.runInNewContext(`${source.slice(source.indexOf("function airportGroups("), source.indexOf("function airportSelect("))}; this.airportGroups = airportGroups;`, context);
+  const airports = [
+    { code: "BCN", label: "Barcelona (BCN)", country: "Hiszpania" },
+    { code: "ALC", label: "Alicante (ALC)", country: "Hiszpania" },
+    { code: "RZE", label: "Rzeszów (RZE)", country: "Polska" },
+    { code: "KRK", label: "Kraków (KRK)", country: "Polska" },
+  ];
+  const stored = [{ from: "RZE", to: "ALC" }];
+  const network = [{ from: "RZE", to: "ALC" }, { from: "KRK", to: "BCN" }, { from: "KRK", to: "ALC" }];
+  const groups = context.airportGroups(airports, stored, network, "to", "KRK");
+  assert.deepEqual([...groups].map((group) => group.country), ["Polska", "Hiszpania"]);
+  assert.deepEqual([...groups[1].items].map((airport) => [airport.code, airport.stored, airport.served]), [["ALC", false, true], ["BCN", false, true]]);
+  const fromRzeszow = context.airportGroups(airports, stored, network, "to", "RZE");
+  assert.deepEqual([...fromRzeszow[1].items].map((airport) => [airport.code, airport.stored, airport.served]), [["ALC", true, true], ["BCN", false, false]]);
+  const origins = context.airportGroups(airports, stored, network, "from", "");
+  assert.deepEqual([...origins[0].items].map((airport) => [airport.code, airport.served]), [["RZE", true], ["KRK", true]]);
+});
+
+test("the earliest return counts the start day as a day at the destination", () => {
+  const context = {};
+  const start = source.indexOf("function earliestReturnDay(");
+  vm.runInNewContext(`${source.slice(start, source.indexOf("function syncReturn("))}; this.earliestReturnDay = earliestReturnDay;`, context);
+  assert.equal(context.earliestReturnDay("2026-12-01", 3), "2026-12-03");
+  assert.equal(context.earliestReturnDay("2026-12-01", 1), "2026-12-01");
+  assert.equal(context.earliestReturnDay("2026-12-30", 5), "2027-01-03");
+});
+
+test("a trip is named after what it uses", () => {
+  const { transitName } = loadTripModes();
+  assert.equal(transitName({ legs: [{ agency: "ztm" }] }), "Autobus");
+  assert.equal(transitName({ legs: [{ agency: "pks" }] }), "PKS");
+  assert.equal(transitName({ legs: [{ agency: "ztm" }, { agency: "pks" }] }), "Autobus + PKS");
 });
 
 test("each category has its own page and weather refreshes every 45 minutes", () => {
   assert.match(source, /ztm:\{path:'\/autobusy'/);
   assert.match(source, /pks:\{path:'\/pks'/);
   assert.match(source, /kolej:\{path:'\/pociagi'/);
-  assert.match(source, /koncowe:\{path:'\/koncowe'/);
+  assert.match(source, /podroz:\{path:'\/podroz'/);
+  assert.doesNotMatch(source, /koncowe/);
   assert.match(source, /weatherTick\(\); \}, 45\*60\*1000\)/);
 });

@@ -79,6 +79,17 @@ test("favourites keep only known fields and drop duplicates", () => {
   assert.deepEqual(normalizeFavorites("nope"), []);
 });
 
+test("line favourites keep their ID and name", () => {
+  assert.deepEqual(normalizeFavorites([
+    { type: "line", view: "ztm", id: "1_13", name: "13", extra: 1 },
+    { type: "line", view: "kolej", id: "R 35136", name: "R 35136" },
+    { type: "line", view: "ztm", name: "bez id" },
+  ]), [
+    { type: "line", view: "ztm", id: "1_13", name: "13" },
+    { type: "line", view: "kolej", id: "R 35136", name: "R 35136" },
+  ]);
+});
+
 test("favourites are limited in number and length", () => {
   const many = Array.from({ length: 80 }, (_, index) => ({ type: "stop", view: "ztm", name: `Stop ${index}` }));
   assert.equal(normalizeFavorites(many).length, MAX_FAVORITES);

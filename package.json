@@ -10,6 +10,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:migrate": "node src/migrate.js",
+    "flights:import": "node src/flights-import.js",
     "test": "node --test"
   },
   "dependencies": {

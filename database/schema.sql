@@ -341,6 +341,42 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'dbo.FlightFare', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.FlightFare (
+        fare_id BIGINT IDENTITY(1,1) NOT NULL,
+        airline VARCHAR(16) NOT NULL,
+        from_airport CHAR(3) NOT NULL,
+        to_airport CHAR(3) NOT NULL,
+        flight_day DATE NOT NULL,
+        departure_local VARCHAR(16) NULL,
+        arrival_local VARCHAR(16) NULL,
+        flight_number VARCHAR(16) NULL,
+        price DECIMAL(10,2) NOT NULL,
+        currency CHAR(3) NULL,
+        price_pln DECIMAL(10,2) NOT NULL,
+        seats_left INT NULL,
+        price_type VARCHAR(8) NOT NULL,
+        source VARCHAR(40) NOT NULL,
+        collected_at DATETIME2(0) NOT NULL,
+        CONSTRAINT PK_FlightFare PRIMARY KEY (fare_id)
+    );
+    CREATE INDEX IX_FlightFare_Day ON dbo.FlightFare (flight_day, from_airport, to_airport);
+END;
+GO
+
+IF OBJECT_ID(N'dbo.FlightNetwork', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.FlightNetwork (
+        network_id TINYINT NOT NULL CONSTRAINT DF_FlightNetwork_Id DEFAULT (1),
+        network NVARCHAR(MAX) NOT NULL,
+        updated_at DATETIME2(0) NOT NULL,
+        CONSTRAINT PK_FlightNetwork PRIMARY KEY (network_id),
+        CONSTRAINT CK_FlightNetwork_OneRow CHECK (network_id = 1)
+    );
+END;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_AuthSession_User' AND object_id = OBJECT_ID(N'dbo.AuthSession'))
     CREATE INDEX IX_AuthSession_User ON dbo.AuthSession (user_id, expires_at);
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_OAuthState_Expiry' AND object_id = OBJECT_ID(N'dbo.OAuthState'))

@@ -2,7 +2,7 @@
 
 const MAX_FAVORITES = 50;
 const MAX_TEXT = 200;
-const VIEWS = new Set(["ztm", "pks", "kolej"]);
+const VIEWS = new Set(["ztm", "pks", "kolej", "podroz"]);
 
 function text(value) {
   return typeof value === "string" ? value.trim().slice(0, MAX_TEXT) : "";
@@ -17,7 +17,11 @@ function normalizeFavorites(value) {
     if (!item || !VIEWS.has(item.view)) continue;
     let favorite = null;
     if (item.type === "stop" && text(item.name)) favorite = { type: "stop", view: item.view, name: text(item.name) };
+    if (item.type === "line" && text(item.id) && text(item.name)) favorite = { type: "line", view: item.view, id: text(item.id), name: text(item.name) };
     if (item.type === "route" && text(item.from) && text(item.to)) favorite = { type: "route", view: item.view, from: text(item.from), to: text(item.to) };
+    if (item.type === "trip" && text(item.id) && text(item.from) && text(item.to) && text(item.name)) {
+      favorite = { type: "trip", view: "podroz", id: text(item.id), from: text(item.from), to: text(item.to), name: text(item.name), detail: text(item.detail) };
+    }
     if (!favorite) continue;
     const key = JSON.stringify(favorite);
     if (seen.has(key)) continue;

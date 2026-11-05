@@ -338,12 +338,72 @@ async function readSchedule(pool, agency, knownImportedAt) {
   };
 }
 
+const FARE_COLUMNS = [
+  ["airline", sql.VarChar(16), false],
+  ["from_airport", sql.Char(3), false],
+  ["to_airport", sql.Char(3), false],
+  ["flight_day", sql.Date, false],
+  ["departure_local", sql.VarChar(16), true],
+  ["arrival_local", sql.VarChar(16), true],
+  ["flight_number", sql.VarChar(16), true],
+  ["price", sql.Decimal(10, 2), false],
+  ["currency", sql.Char(3), true],
+  ["price_pln", sql.Decimal(10, 2), false],
+  ["seats_left", sql.Int, true],
+  ["price_type", sql.VarChar(8), false],
+  ["source", sql.VarChar(40), false],
+  ["collected_at", sql.DateTime2(0), false],
+];
+
+async function replaceFlightFares(pool, fares) {
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    await tx.request().query("DELETE FROM dbo.FlightFare;");
+    await bulk(tx, "FlightFare", FARE_COLUMNS, fares.map((fare) => [
+      fare.airline, fare.from, fare.to, new Date(`${fare.day}T00:00:00Z`), fare.departure, fare.arrival, fare.flightNumber,
+      fare.price, fare.currency, fare.pricePln, fare.seatsLeft, fare.priceType, fare.source, fare.collectedAt,
+    ]));
+    await tx.commit();
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  }
+}
+
+async function readFlightFares(pool, fromDay) {
+  const result = await pool.request().input("fromDay", sql.Date, new Date(`${fromDay}T00:00:00Z`)).query(`
+    SELECT airline, from_airport AS [from], to_airport AS [to], CONVERT(CHAR(10), flight_day, 23) AS day,
+           departure_local AS departure, arrival_local AS arrival, flight_number AS flightNumber,
+           price, currency, price_pln AS pricePln, seats_left AS seatsLeft, price_type AS priceType, source, collected_at AS collectedAt
+    FROM dbo.FlightFare WHERE flight_day >= @fromDay;`);
+  return result.recordset;
+}
+
+async function readFlightNetwork(pool) {
+  const result = await pool.request().query("SELECT network FROM dbo.FlightNetwork;");
+  return result.recordset[0] ? JSON.parse(result.recordset[0].network) : null;
+}
+
+async function saveFlightNetwork(pool, network) {
+  await pool.request()
+    .input("network", sql.NVarChar(sql.MAX), JSON.stringify(network))
+    .input("updatedAt", sql.DateTime2(0), new Date(network.updatedAt))
+    .query(`
+      UPDATE dbo.FlightNetwork SET network = @network, updated_at = @updatedAt;
+      IF @@ROWCOUNT = 0 INSERT INTO dbo.FlightNetwork (network, updated_at) VALUES (@network, @updatedAt);`);
+}
+
 module.exports = {
   AGENCIES,
   createSqlConfig,
   getSchedule,
   importedHash,
+  readFlightFares,
+  readFlightNetwork,
+  saveFlightNetwork,
   readSchedule,
+  replaceFlightFares,
   replaceSchedule,
   sourceHash,
   validateSchedulePayload,
