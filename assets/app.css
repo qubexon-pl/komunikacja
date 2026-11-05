@@ -592,3 +592,15 @@ body[data-view="koncowe"] #map-sec{margin-top:24px}
 .term-row{align-items:flex-start}
 .term-row .term-dot{margin-top:5px}
 @media(max-width:700px){ .term-search{flex-direction:column} .term-search .pl-go{padding:14px !important} .term-search .btn-ghost{align-self:flex-start; margin:0 0 8px 16px} }
+
+/* ---- goście i ulubione ---- */
+body.guest .account-only,body:not(.guest) .guest-only{display:none !important}
+.fav-bar{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:-8px 0 22px}
+.fav-title{color:var(--ink-soft); font-size:.66rem; font-weight:600; letter-spacing:.14em; text-transform:uppercase}
+.fav-chip{display:inline-flex; align-items:stretch; border:1px solid var(--line)}
+.fav-open,.fav-remove{padding:6px 10px; color:var(--ink); font-size:.84rem; background:none; border:0}
+.fav-open:hover{background:var(--soft)}
+.fav-remove{padding:6px 8px; color:var(--ink-soft); border-left:1px solid var(--line)}
+.fav-remove:hover{color:var(--red)}
+.fav-star{padding:0 4px; color:var(--grey); font-size:1.1rem; line-height:1; vertical-align:baseline; background:none; border:0}
+.fav-star:hover,.fav-star.on{color:#F2B200}

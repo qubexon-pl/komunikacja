@@ -75,9 +75,6 @@ function loadFetchBin(proxy, responses) {
   const requested = [];
   const context = {
     CFG: { proxy, proxyCustom: "https://custom/?u=" },
-    PUBLIC_PROXIES: [(url) => `https://public/${url}`],
-    workingProxy: null,
-    store: () => {},
     encodeURIComponent,
     Uint8Array,
     Date,
@@ -106,30 +103,21 @@ test("the app's own server is tried whatever proxy setting was saved", async () 
   }
 });
 
-test("a second address is tried before any public proxy of the first", async () => {
+test("each address gets a direct and a server attempt, in order", async () => {
   const second = "https://feed/b.pb";
-  const { fetchFirst, requested } = loadFetchBin("auto", { [second]: zip, "https://public/": zip });
-  const result = await fetchFirst([file, second], 1000);
-  assert.equal(result.url, second);
-  assert.equal(requested.some((url) => url.startsWith("https://public/")), false);
+  const { fetchFirst, requested } = loadFetchBin("auto", { [second]: zip });
+  assert.equal((await fetchFirst([file, second], 1000)).url, second);
+  assert.deepEqual(requested, [file, `/api/feeds/fetch?url=${encodeURIComponent(file)}`, second]);
 });
 
-test("public proxies are the last resort when no address responds", async () => {
-  const { fetchFirst, requested } = loadFetchBin("auto", { "https://public/": zip });
-  assert.equal((await fetchFirst([file], 1000)).url, file);
-  assert.ok(requested.at(-1).startsWith("https://public/"));
+test("no request goes through a third-party proxy", () => {
+  assert.doesNotMatch(source, /corsproxy|allorigins|codetabs/);
 });
 
-test("public proxies are only used in automatic mode", async () => {
-  const { fetchBin, requested } = loadFetchBin("direct", {});
-  await assert.rejects(fetchBin(file));
-  assert.equal(requested.some((url) => url.startsWith("https://public/")), false);
-});
-
-test("a response that is not a zip gives up on that address without trying proxies", async () => {
-  const { fetchBin, isZip, requested } = loadFetchBin("auto", { "/api/feeds/fetch": html, "https://public/": zip });
+test("a response that is not a zip gives up on that address", async () => {
+  const { fetchBin, isZip, requested } = loadFetchBin("auto", { [file]: html, "/api/feeds/fetch": zip });
   await assert.rejects(fetchBin(file, 1000, isZip), /nieprawidłowa/);
-  assert.equal(requested.some((url) => url.startsWith("https://public/")), false);
+  assert.equal(requested.length, 1);
   assert.equal(isZip(new ArrayBuffer(0)), false);
   assert.equal(isZip(zip), true);
 });

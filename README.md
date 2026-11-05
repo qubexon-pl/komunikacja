@@ -3,7 +3,7 @@
 Three-tier web application for Rzeszów public transport:
 
 1. **Frontend** — `index.html` and `assets/` provide the map, timetable search, vehicle status, train board, and settings.
-2. **Backend** — `src/server.js` serves the UI, requires sign-in for transit features, and exposes authentication, health, and GTFS APIs.
+2. **Backend** — `src/server.js` serves the UI and transit data to everyone, keeps favourites on accounts, and exposes authentication, health, and GTFS APIs. Public endpoints that call outside services are rate limited per visitor.
 3. **Database** — Azure SQL stores user accounts, provider identities, hashed sessions, and the static GTFS timetable in normalized relational tables. Live vehicle positions remain transient and are refreshed from the public GTFS-Realtime feeds.
 
 ## Pages
@@ -11,6 +11,8 @@ Three-tier web application for Rzeszów public transport:
 The app has one page per transport category: `/autobusy` (ZTM, also served at `/`), `/pks`, and `/pociagi`. Each has its own map, statistics, late list, search, and journey planner. `/koncowe` shows the terminal stops of all three categories on one map; a stop counts when at least 15% of a line direction's trips over the next seven days end there. Typing a destination there lists the termini of lines that pass near it, which is the direction to travel, and the nearest terminus. Bus and PKS planners use only that category's stops and lines; the train planner finds direct connections from the PKP PLK data. Tabs switch pages without reloading the timetable. Weather refreshes every 45 minutes.
 
 ## Timetables
+
+The server downloads each timetable once a day into `.cache/timetables` (or `TIMETABLE_CACHE_DIR`) and serves it from `/api/timetable/<agency>` with an ETag, so visitors keep working if the source is down. Custom timetable addresses from Ustawienia are fetched directly instead.
 
 Bus and PKS pages list every departure from a stop for today or the next six days, 20 per page, and open on the page with the next departure. The train board lists today's trains, 15 per page. The journey planner has earlier and later buttons to move beyond its search window.
 
@@ -48,6 +50,8 @@ Authentication uses Microsoft Entra Default credentials: Azure CLI credentials f
 The Azure SQL server firewall must allow the client or hosting environment. Do not add a broad firewall rule; request a narrowly scoped rule for the required egress IP if connectivity is blocked.
 
 ## User sign-in
+
+Accounts are optional: guests can use every transit feature. Favourites are saved in the browser for guests and on the account after signing in, so run `npm run db:migrate` to create the favourites table.
 
 The app supports verified email/password registration and Google sign-in. New local accounts are created only after the user enters the emailed verification code. Password-reset codes expire after 10 minutes and changing a password revokes existing sessions. Account deletion requires a signed-in session and an emailed confirmation code; it removes the account's credentials, provider identities, and sessions. Google accounts require a Google-verified email. Shared GTFS imports are restricted to administrator accounts.
 

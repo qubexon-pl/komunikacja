@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Rzeszów · Autobusy na żywo</title>
+<script src="/assets/i18n.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" rel="stylesheet">
@@ -36,12 +37,14 @@
         </ul>
       </div>
       <div class="dropdown">
-        <button class="nav-link-btn dropdown-toggle" id="userMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false"><span id="currentUser">Użytkownik</span></button>
+        <button class="nav-link-btn dropdown-toggle" id="userMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false"><span id="currentUser">Konto</span></button>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
+          <li class="guest-only"><a class="dropdown-item" id="loginLink" href="/login">Zaloguj się</a></li>
           <li><button class="dropdown-item" id="themeBtn" type="button" title="Motyw">Motyw</button></li>
-          <li><button class="dropdown-item" id="deleteAccountBtn" type="button">Usuń konto</button></li>
-          <li><hr class="dropdown-divider"></li>
-          <li><button class="dropdown-item" id="logoutBtn" type="button">Wyloguj</button></li>
+          <li><button class="dropdown-item" id="langBtn" type="button">English</button></li>
+          <li class="account-only"><button class="dropdown-item" id="deleteAccountBtn" type="button">Usuń konto</button></li>
+          <li class="account-only"><hr class="dropdown-divider"></li>
+          <li class="account-only"><button class="dropdown-item" id="logoutBtn" type="button">Wyloguj</button></li>
         </ul>
       </div>
     </div>
@@ -78,6 +81,7 @@
     <div class="stat-card" data-filter="late"><div class="lbl">Maks. opóźnienie</div><div class="num" id="stMax">–</div></div>
   </div>
 
+  <div class="fav-bar d-none not-koncowe" id="favBar"></div>
   <div class="sec-head" id="map-sec"><span class="sec-num">01</span><h2 id="mapTitle">Mapa na żywo</h2><span class="sec-rule"></span></div>
   <div class="map-filters only-koncowe d-flex flex-wrap gap-2 align-items-center mb-3">
     <button class="pill-btn active" type="button" data-term="all">Wszystkie</button>
@@ -170,7 +174,7 @@
     Dane rozkładowe: <a href="https://otwartedane.erzeszow.pl/dataset/rozklad-jazdy-transxchange" target="_blank" rel="noopener">ZTM Rzeszów</a> (GTFS: <a href="https://mkuran.pl/gtfs/" target="_blank" rel="noopener">mkuran.pl</a>) ·
     pozycje na żywo: GTFS-Realtime ZTM Rzeszów (<a href="https://www.mpkrzeszow.pl/otwartedane/" target="_blank" rel="noopener">otwarte dane</a>) ·
     podkład mapy: Esri / © OpenStreetMap (wg wyboru w ustawieniach) ·
-    wyszukiwanie ulic: <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">Nominatim</a>, <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a>, dane © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">współtwórcy OpenStreetMap</a>. Gmina Miasto Rzeszów nie ponosi odpowiedzialności za sposób wykorzystania danych.
+    wyszukiwanie ulic: <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">Nominatim</a>, <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a>, dane © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">współtwórcy OpenStreetMap</a> · pogoda: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Gmina Miasto Rzeszów nie ponosi odpowiedzialności za sposób wykorzystania danych.
   </p>
 </main>
 
@@ -299,12 +303,11 @@
           <div class="mb-3">
             <label class="form-label" for="sProxy">Pośrednik CORS</label>
             <select class="form-select" id="sProxy">
-              <option value="auto">Automatycznie (najpierw bezpośrednio, potem publiczne proxy)</option>
-              <option value="direct">Tylko bezpośrednio</option>
+              <option value="auto">Automatycznie (najpierw bezpośrednio, potem serwer aplikacji)</option>
               <option value="custom">Własny prefiks proxy</option>
             </select>
             <input class="form-control mt-2" id="sProxyCustom" placeholder="np. https://moj-proxy.example/?url=" spellcheck="false">
-            <div class="form-text text-soft">Przeglądarka pobiera dane prosto z serwerów ZTM/MPK. Jeśli serwer nie zezwala na CORS, aplikacja użyje proxy.</div>
+            <div class="form-text text-soft">Przeglądarka pobiera dane prosto z serwerów ZTM/MPK. Jeśli serwer nie zezwala na CORS, dane pobierze serwer aplikacji.</div>
           </div>
           <div class="set-group">
             <div class="form-check form-switch mb-2">

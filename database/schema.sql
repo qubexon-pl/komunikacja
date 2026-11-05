@@ -328,6 +328,19 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'dbo.UserFavorites', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.UserFavorites (
+        user_id UNIQUEIDENTIFIER NOT NULL,
+        favorites NVARCHAR(MAX) NOT NULL,
+        updated_at DATETIME2(0) NOT NULL CONSTRAINT DF_UserFavorites_UpdatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_UserFavorites PRIMARY KEY (user_id),
+        CONSTRAINT FK_UserFavorites_AppUser FOREIGN KEY (user_id)
+            REFERENCES dbo.AppUser (user_id) ON DELETE CASCADE
+    );
+END;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_AuthSession_User' AND object_id = OBJECT_ID(N'dbo.AuthSession'))
     CREATE INDEX IX_AuthSession_User ON dbo.AuthSession (user_id, expires_at);
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_OAuthState_Expiry' AND object_id = OBJECT_ID(N'dbo.OAuthState'))

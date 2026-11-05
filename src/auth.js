@@ -445,6 +445,23 @@ function createAuthService(pool, {
     if (validationError) throw validationError;
   }
 
+  async function getFavorites(userId) {
+    const result = await pool.request().input("userId", sql.UniqueIdentifier, userId)
+      .query("SELECT favorites FROM dbo.UserFavorites WHERE user_id = @userId;");
+    return result.recordset[0] ? JSON.parse(result.recordset[0].favorites) : [];
+  }
+
+  async function saveFavorites(userId, favorites) {
+    await pool.request()
+      .input("userId", sql.UniqueIdentifier, userId)
+      .input("favorites", sql.NVarChar(sql.MAX), JSON.stringify(favorites))
+      .query(`
+        UPDATE dbo.UserFavorites SET favorites = @favorites, updated_at = SYSUTCDATETIME() WHERE user_id = @userId;
+        IF @@ROWCOUNT = 0
+          INSERT INTO dbo.UserFavorites (user_id, favorites) VALUES (@userId, @favorites);
+      `);
+  }
+
   async function loginWithPassword({ email: inputEmail, password }) {
     const email = normalizeEmail(inputEmail);
     if (typeof password !== "string" || password.length > 256) throw new AuthError("Nieprawidłowy adres e-mail lub hasło.", 401);
@@ -596,6 +613,8 @@ function createAuthService(pool, {
     resetPassword,
     startAccountDeletion,
     confirmAccountDeletion,
+    getFavorites,
+    saveFavorites,
     loginWithPassword,
     resolveSession,
     revokeSession,

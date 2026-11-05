@@ -68,8 +68,8 @@ test("GTFS API reads and persists schedules through the database layer", async (
 test("static server exposes the frontend but not project files", async (t) => {
   const baseUrl = await startServer(t, {});
   const page = await fetch(baseUrl, { redirect: "manual" });
-  assert.equal(page.status, 302);
-  assert.equal(page.headers.get("location"), "/login?returnTo=%2F");
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("content-type"), /text\/html/);
 
   const loginPage = await fetch(`${baseUrl}/login`);
   assert.equal(loginPage.status, 200);
@@ -80,18 +80,15 @@ test("static server exposes the frontend but not project files", async (t) => {
   assert.match(protectedPage.headers.get("content-type"), /text\/html/);
 
   for (const page of ["/autobusy", "/pks", "/pociagi", "/koncowe"]) {
-    const signedOut = await fetch(`${baseUrl}${page}`, { redirect: "manual" });
-    assert.equal(signedOut.status, 302);
-    assert.equal(signedOut.headers.get("location"), `/login?returnTo=${encodeURIComponent(page)}`);
-    const signedIn = await fetch(`${baseUrl}${page}`, { headers: { Cookie: "rzbus_session=test-session" } });
-    assert.equal(signedIn.status, 200);
-    assert.match(signedIn.headers.get("content-type"), /text\/html/);
+    const guest = await fetch(`${baseUrl}${page}`, { redirect: "manual" });
+    assert.equal(guest.status, 200);
+    assert.match(guest.headers.get("content-type"), /text\/html/);
   }
 
   const loginScript = await fetch(`${baseUrl}/assets/login.js`);
   assert.equal(loginScript.status, 200);
 
-  const script = await fetch(`${baseUrl}/assets/app.js`, { headers: { Cookie: "rzbus_session=test-session" } });
+  const script = await fetch(`${baseUrl}/assets/app.js`);
   assert.equal(script.status, 200);
   assert.match(script.headers.get("content-type"), /javascript/);
 
@@ -101,7 +98,7 @@ test("static server exposes the frontend but not project files", async (t) => {
   assert.equal(traversedFile.status, 404);
 });
 
-test("unauthenticated requests cannot access transit APIs", async (t) => {
+test("guests cannot reach account or schedule storage APIs", async (t) => {
   const baseUrl = await startServer(t, {
     health: async () => {},
     getSchedule: async () => { throw new Error("Should not be called"); },
@@ -110,7 +107,7 @@ test("unauthenticated requests cannot access transit APIs", async (t) => {
   assert.equal(response.status, 401);
 });
 
-test("authenticated feed proxy only allows approved HTTPS GTFS sources", async (t) => {
+test("feed proxy only allows approved HTTPS GTFS sources", async (t) => {
   let fetchedUrl = null;
   const server = createServer({
     auth: {
@@ -132,8 +129,8 @@ test("authenticated feed proxy only allows approved HTTPS GTFS sources", async (
   }));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-  const deniedAnonymous = await fetch(`${baseUrl}/api/feeds/fetch?url=${encodeURIComponent("https://mkuran.pl/gtfs/rzeszow.zip")}`);
-  assert.equal(deniedAnonymous.status, 401);
+  const guest = await fetch(`${baseUrl}/api/feeds/fetch?url=${encodeURIComponent("https://mkuran.pl/gtfs/rzeszow.zip")}`);
+  assert.equal(guest.status, 200);
 
   const allowedUrl = "https://mkuran.pl/gtfs/rzeszow.zip";
   const allowed = await fetch(`${baseUrl}/api/feeds/fetch?url=${encodeURIComponent(allowedUrl)}`, {
@@ -253,7 +250,7 @@ test("account deletion requires an authenticated same-origin confirmation", asyn
   assert.match(confirm.headers.get("set-cookie"), /Max-Age=0/);
 });
 
-test("street search needs a session, validates input, and hides provider failures", async (t) => {
+test("street search validates input and hides provider failures", async (t) => {
   const http = require("node:http");
   const { createServer } = require("../src/server");
   const queries = [];
@@ -272,7 +269,7 @@ test("street search needs a session, validates input, and hides provider failure
   const base = `http://127.0.0.1:${server.address().port}/api/geocode`;
   const headers = { Cookie: "rzbus_session=ok" };
 
-  assert.equal((await fetch(`${base}?q=Lwowska`)).status, 401);
+  assert.equal((await fetch(`${base}?q=Lwowska`)).status, 200);
   assert.equal((await fetch(`${base}?q=a`, { headers })).status, 400);
   assert.equal((await fetch(`${base}?q=${"x".repeat(121)}`, { headers })).status, 400);
   const found = await fetch(`${base}?q=Lwowska`, { headers });
@@ -281,10 +278,10 @@ test("street search needs a session, validates input, and hides provider failure
   const failed = await fetch(`${base}?q=awaria`, { headers });
   assert.equal(failed.status, 502);
   assert.doesNotMatch(await failed.text(), /down/);
-  assert.deepEqual(queries, ["Lwowska", "awaria"]);
+  assert.deepEqual(queries, ["Lwowska", "Lwowska", "awaria"]);
 });
 
-test("street suggestions need a session and fail without exposing details", async (t) => {
+test("street suggestions fail without exposing details", async (t) => {
   const { createServer } = require("../src/server");
   const server = createServer({
     database: {},
@@ -299,12 +296,74 @@ test("street suggestions need a session and fail without exposing details", asyn
   const base = `http://127.0.0.1:${server.address().port}/api/streets`;
   const headers = { Cookie: "rzbus_session=ok" };
 
-  assert.equal((await fetch(`${base}?q=Lwo`)).status, 401);
+  assert.equal((await fetch(`${base}?q=Lwo`)).status, 200);
   assert.equal((await fetch(`${base}?q=L`, { headers })).status, 400);
   assert.deepEqual(await (await fetch(`${base}?q=Lwo`, { headers })).json(), { suggestions: ["Lwowska, Rzeszów"] });
   const failed = await fetch(`${base}?q=awaria`, { headers });
   assert.equal(failed.status, 502);
   assert.doesNotMatch(await failed.text(), /down/);
+});
+
+test("public street search is limited per visitor", async (t) => {
+  const { createServer } = require("../src/server");
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, geocode: async () => ({ places: [], approximate: false }) });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const url = `http://127.0.0.1:${server.address().port}/api/geocode?q=Lwowska`;
+  const statuses = [];
+  for (let i = 0; i < 35; i += 1) statuses.push((await fetch(url)).status);
+  assert.equal(statuses.at(-1), 429);
+});
+
+test("timetables are served to guests and revalidated with an ETag", async (t) => {
+  const { createServer } = require("../src/server");
+  const feed = { buffer: Buffer.from([0x50, 0x4b, 3, 4, 9]), etag: '"abc"' };
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, timetables: { get: async (agency) => (agency === "ztm" ? feed : null) } });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/timetable`;
+  const first = await fetch(`${base}/ztm`);
+  assert.equal(first.status, 200);
+  assert.equal(first.headers.get("etag"), '"abc"');
+  assert.equal((await first.arrayBuffer()).byteLength, 5);
+  assert.equal((await fetch(`${base}/ztm`, { headers: { "If-None-Match": '"abc"' } })).status, 304);
+  assert.equal((await fetch(`${base}/pks`)).status, 503);
+  assert.equal((await fetch(`${base}/other`)).status, 401);
+});
+
+test("the rail proxy forwards only known routes and the visitor's key", async (t) => {
+  const { createServer } = require("../src/server");
+  const calls = [];
+  const server = createServer({
+    database: {},
+    auth: { resolveSession: async () => null },
+    fetchSource: async (url, options) => { calls.push({ url: url.href, key: options.headers["X-API-Key"] }); return new Response('{"routes":[]}', { status: 200 }); },
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/plk`;
+  assert.equal((await fetch(`${base}/schedules`)).status, 401);
+  const ok = await fetch(`${base}/schedules?dateFrom=2026-11-05`, { headers: { "X-API-Key": "secret" } });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(calls, [{ url: "https://pdp-api.plk-sa.pl/api/v1/schedules?dateFrom=2026-11-05", key: "secret" }]);
+  assert.equal((await fetch(`${base}/other`, { headers: { "X-API-Key": "secret" } })).status, 401);
+  assert.equal(calls.length, 1);
+});
+
+test("favourites need an account and are cleaned before saving", async (t) => {
+  const saved = [];
+  const baseUrl = await startServer(t, {}, {
+    getFavorites: async () => [{ type: "stop", view: "ztm", name: "Rynek" }],
+    saveFavorites: async (userId, favorites) => saved.push({ userId, favorites }),
+  });
+  const session = { Cookie: "rzbus_session=test-session" };
+  assert.equal((await fetch(`${baseUrl}/api/favorites`)).status, 401);
+  assert.deepEqual(await (await fetch(`${baseUrl}/api/favorites`, { headers: session })).json(), { favorites: [{ type: "stop", view: "ztm", name: "Rynek" }] });
+  const body = JSON.stringify({ favorites: [{ type: "stop", view: "ztm", name: "Rynek", extra: 1 }, { type: "bad" }] });
+  assert.equal((await fetch(`${baseUrl}/api/favorites`, { method: "PUT", headers: session, body })).status, 403);
+  const put = await fetch(`${baseUrl}/api/favorites`, { method: "PUT", headers: { ...session, Origin: baseUrl }, body });
+  assert.equal(put.status, 200);
+  assert.deepEqual(saved, [{ userId: "user-1", favorites: [{ type: "stop", view: "ztm", name: "Rynek" }] }]);
 });
 
 test("Google sign-in is hidden when provider credentials are absent", async (t) => {

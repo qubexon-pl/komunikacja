@@ -111,3 +111,5 @@ button, input { font: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+.browse-link { display: block; margin-top: 18px; color: var(--purple); font-size: .78rem; font-weight: 600; text-align: center; text-decoration: none; }
+.browse-link:hover { text-decoration: underline; }

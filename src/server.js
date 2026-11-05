@@ -8,6 +8,8 @@ const crypto = require("node:crypto");
 const tls = require("node:tls");
 const { AGENCIES, createSqlConfig, getSchedule, replaceSchedule } = require("./database");
 const { createGeocoder, createStreetSuggester } = require("./geocode");
+const { normalizeFavorites } = require("./favorites");
+const { createTimetableStore } = require("./timetable");
 const { AuthError, SESSION_TTL_SECONDS, createAuthService, isEmailConfigured, safeReturnTo } = require("./auth");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -24,7 +26,12 @@ const MAX_FEED_BYTES = 50 * 1024 * 1024;
 const SESSION_COOKIE = "rzbus_session";
 const OAUTH_COOKIE = "rzbus_oauth_state";
 const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/koncowe"]);
+const MAX_FAVORITES_BYTES = 64 * 1024;
+const PLK_API = "https://pdp-api.plk-sa.pl/api/v1/";
+const PLK_ROUTES = new Set(["schedules", "operations"]);
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, plk: 60 };
 const authAttempts = new Map();
+const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
   ["mkuran.pl", new Set(["/gtfs/rzeszow.zip"])],
   ["cdn.zbiorkom.live", new Set(["/gtfs/rzeszow.zip"])],
@@ -142,6 +149,20 @@ function takeAuthAttempt(req) {
   return previous.count <= 15;
 }
 
+// Public endpoints call paid or fair-use services, so each visitor gets a share per minute.
+function takePublicRequest(req, name) {
+  const key = `${name}|${req.socket.remoteAddress || "unknown"}`;
+  const now = Date.now();
+  const entry = publicRequests.get(key);
+  if (!entry || now - entry.startedAt >= 60 * 1000) {
+    if (publicRequests.size > 10000) publicRequests.clear();
+    publicRequests.set(key, { startedAt: now, count: 1 });
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= PUBLIC_LIMITS[name];
+}
+
 function authRedirect(res, pathname, search = "") {
   res.writeHead(302, { Location: `${pathname}${search}`, "Cache-Control": "no-store" });
   res.end();
@@ -150,7 +171,7 @@ function authRedirect(res, pathname, search = "") {
 function serveStatic(res, pathname, root) {
   const isLoginPage = pathname === "/login";
   const isAppPage = APP_PAGES.has(pathname);
-  const isLoginAsset = pathname === "/assets/login.css" || pathname === "/assets/login.js";
+  const isLoginAsset = pathname === "/assets/login.css" || pathname === "/assets/login.js" || pathname === "/assets/i18n.js";
   if (!isAppPage && !isLoginPage && !pathname.startsWith("/assets/")) {
     json(res, 404, { error: "Not found." });
     return;
@@ -403,6 +424,42 @@ async function handleAuth(req, res, url, auth) {
   return false;
 }
 
+async function serveTimetable(req, res, agency, timetables) {
+  const feed = await timetables?.get(agency);
+  if (!feed) {
+    json(res, 503, { error: "Rozkład jest chwilowo niedostępny." });
+    return;
+  }
+  const headers = { ETag: feed.etag, "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff" };
+  if (req.headers["if-none-match"] === feed.etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(200, { ...headers, "Content-Type": "application/zip", "Content-Length": feed.buffer.length });
+  res.end(feed.buffer);
+}
+
+// The rail API does not allow browser calls, and its key must not pass through third parties.
+async function proxyPlk(req, res, url, route, fetchSource) {
+  const key = req.headers["x-api-key"];
+  if (!key) {
+    json(res, 401, { error: "Brak klucza PKP PLK." });
+    return;
+  }
+  try {
+    const upstream = await fetchSource(new URL(`${PLK_API}${route}${url.search}`), {
+      headers: { "X-API-Key": key, Accept: "application/json" },
+      signal: AbortSignal.timeout(25000),
+    });
+    res.writeHead(upstream.status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+    res.end(await upstream.text());
+  } catch (error) {
+    console.error("Rail API request failed:", error.message);
+    json(res, 502, { error: "API PKP PLK jest chwilowo niedostępne." });
+  }
+}
+
 async function proxyGtfsSource(res, url, fetchSource = fetch) {
   const sourceValue = url.searchParams.get("url");
   if (!sourceValue || sourceValue.length > 2048) {
@@ -454,7 +511,7 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, staticRoot = ROOT }) {
   const root = path.resolve(staticRoot);
   return http.createServer(async (req, res) => {
     try {
@@ -473,9 +530,23 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           json(res, 200, { status: "ok", database: "connected" });
           return;
         }
-        req.user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
-        if (!req.user) {
-          json(res, 401, { error: "Zaloguj się, aby kontynuować." });
+        const publicRoute = req.method === "GET" && (
+          (segments[1] === "streets" && segments.length === 2)
+          || (segments[1] === "geocode" && segments.length === 2)
+          || (segments[1] === "feeds" && segments[2] === "fetch" && segments.length === 3)
+          || (segments[1] === "timetable" && segments.length === 3 && AGENCIES.has(segments[2]))
+          || (segments[1] === "plk" && segments.length === 3 && PLK_ROUTES.has(segments[2]))
+        ) ? (segments[1] === "feeds" ? "feeds" : segments[1]) : null;
+        if (publicRoute && !takePublicRequest(req, publicRoute)) {
+          json(res, 429, { error: "Zbyt wiele zapytań. Spróbuj ponownie za chwilę." });
+          return;
+        }
+        if (publicRoute === "timetable") {
+          await serveTimetable(req, res, segments[2], timetables);
+          return;
+        }
+        if (publicRoute === "plk") {
+          await proxyPlk(req, res, url, segments[2], fetchSource);
           return;
         }
         if (segments[1] === "streets" && segments.length === 2 && req.method === "GET") {
@@ -508,6 +579,28 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         }
         if (segments[1] === "feeds" && segments[2] === "fetch" && segments.length === 3 && req.method === "GET") {
           await proxyGtfsSource(res, url, fetchSource);
+          return;
+        }
+        req.user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
+        if (!req.user) {
+          json(res, 401, { error: "Zaloguj się, aby kontynuować." });
+          return;
+        }
+        if (segments[1] === "favorites" && segments.length === 2) {
+          if (req.method === "GET") {
+            json(res, 200, { favorites: await auth.getFavorites(req.user.id) });
+            return;
+          }
+          if (req.method === "PUT") {
+            requireSameOrigin(req);
+            const { favorites } = await readJson(req, MAX_FAVORITES_BYTES);
+            const saved = normalizeFavorites(favorites);
+            await auth.saveFavorites(req.user.id, saved);
+            json(res, 200, { favorites: saved });
+            return;
+          }
+          res.setHeader("Allow", "GET, PUT");
+          json(res, 405, { error: "Method not allowed." });
           return;
         }
         if (segments[1] === "gtfs" && segments.length === 3 && AGENCIES.has(segments[2])) {
@@ -557,15 +650,6 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         serveStatic(res, url.pathname, root);
         return;
       }
-      const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
-      if (!user) {
-        authRedirect(res, "/login", `?returnTo=${encodeURIComponent(url.pathname + url.search)}`);
-        return;
-      }
-      if (url.pathname.startsWith("/assets/login.")) {
-        json(res, 404, { error: "Not found." });
-        return;
-      }
       serveStatic(res, url.pathname, root);
     } catch (error) {
       if (res.headersSent) {
@@ -590,8 +674,11 @@ async function main() {
   const sql = require("mssql");
   const pool = await new sql.ConnectionPool(createSqlConfig()).connect();
   const auth = createAuthService(pool);
+  const timetables = createTimetableStore();
+  timetables.start();
   const server = createServer({
     auth,
+    timetables,
     database: {
       health: async () => pool.request().query("SELECT 1 AS ok"),
       getSchedule: (agency, sourceKey) => getSchedule(pool, agency, sourceKey),
@@ -601,6 +688,7 @@ async function main() {
   const port = Number(process.env.PORT || 3000);
   server.listen(port, () => console.log(`Komunikacja is listening on http://localhost:${port}`));
   const close = () => server.close(async () => {
+    timetables.stop();
     await pool.close();
     process.exit(0);
   });

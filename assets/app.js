@@ -1,10 +1,10 @@
 "use strict";
 async function initializeUserMenu(){
   const response=await fetch('/api/auth/me');
-  if(response.status===401){ location.assign('/login'); return; }
   if(!response.ok) throw new Error('Nie udało się sprawdzić sesji logowania.');
   const {user}=await response.json();
-  if(!user){ location.assign('/login'); return; }
+  document.body.classList.toggle('guest', !user);
+  if(!user){ document.getElementById('loginLink').href='/login?returnTo='+encodeURIComponent(location.pathname); return null; }
   document.getElementById('currentUser').textContent=user.displayName||user.email;
   const deleteAccountBtn=document.getElementById('deleteAccountBtn');
   deleteAccountBtn.disabled=true;
@@ -20,7 +20,7 @@ async function initializeUserMenu(){
 }
 document.getElementById('logoutBtn').addEventListener('click',async()=>{
   const response=await fetch('/api/auth/logout',{method:'POST'});
-  if(response.ok) location.assign('/login');
+  if(response.ok){ store('rzbus.favs', []); location.reload(); }
 });
 const deleteAccountModalElement=document.getElementById('deleteAccountModal');
 const deleteAccountModal=bootstrap.Modal.getOrCreateInstance(deleteAccountModalElement);
@@ -73,7 +73,8 @@ confirmDeleteAccountButton.addEventListener('click',async()=>{
   try{
     await postAccountAction('/api/auth/account/delete/confirm',{code});
     deleteAccountModal.hide();
-    location.assign('/login');
+    store('rzbus.favs', []);
+    location.assign('/');
   }catch(error){ showDeleteAccountMessage(error.message); }
   finally{ confirmDeleteAccountButton.disabled=false; }
 });
@@ -116,11 +117,6 @@ const DEFAULTS = {
   // Pogoda — Open-Meteo (bez klucza)
   weather: true
 };
-const PUBLIC_PROXIES = [
-  u => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
-  u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-  u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)
-];
 const TZ = 'Europe/Warsaw';
 const RZ_CENTER = [50.0378, 22.0049];
 
@@ -130,9 +126,10 @@ if(store('rzbus.sourcesV')!==2){
   const saved=store('rzbus.cfg');
   if(saved){ delete saved.proxy; delete saved.proxyCustom; delete saved.staticUrls; store('rzbus.cfg', saved); }
   try{ indexedDB.deleteDatabase('rzbus'); }catch(e){}
-  store('rzbus.proxyIdx', null); store('rzbus.sourcesV', 2);
+  store('rzbus.sourcesV', 2);
 }
 let CFG = Object.assign({}, DEFAULTS, store('rzbus.cfg') || {});
+if(CFG.proxy!=='custom') CFG.proxy='auto';
 if(!TILE_KEYS_OK(CFG.tiles)) CFG.tiles='esri';
 function TILE_KEYS_OK(k){ return ['esri','osm','hot','sat','carto','google'].includes(k); }
 
@@ -169,7 +166,6 @@ function compass(deg){ if(deg==null) return '—'; return ['N','NE','E','SE','S'
 /* ============================================================
    Pobieranie (bezpośrednio / przez proxy CORS)
    ============================================================ */
-let workingProxy = store('rzbus.proxyIdx');
 // Uwaga: bez AbortController/signal — niektóre podglądy (iframe) przekazują fetch przez postMessage
 // i nie potrafią sklonować AbortSignal (DataCloneError). Limit czasu realizujemy przez Promise.race.
 function withTimeout(promise, ms){ let tm; return Promise.race([promise, new Promise((_,rej)=>{ tm=setTimeout(()=>rej(new Error('przekroczono czas')), ms); })]).finally(()=>clearTimeout(tm)); }
@@ -177,33 +173,20 @@ async function fetchTimeout(url, ms){
   return withTimeout((async()=>{ const r = await fetch(url); if(!r.ok) throw new Error('HTTP '+r.status); const b = await r.arrayBuffer(); if(!b || b.byteLength===0) throw new Error('pusta odpowiedź'); return b; })(), ms);
 }
 function isZip(buf){ const b=new Uint8Array(buf,0,Math.min(2,buf.byteLength)); return b[0]===0x50 && b[1]===0x4B; } // „PK”
-async function fetchBin(url, timeoutMs=20000, check, stage='all'){
-  const tries=[];
-  if(stage!=='public'){
-    tries.push(CFG.proxy==='custom' && CFG.proxyCustom ? CFG.proxyCustom + encodeURIComponent(url) : url);
-    tries.push('/api/feeds/fetch?url='+encodeURIComponent(url)); // własny serwer działa przy każdym ustawieniu pośrednika; zip rozkładu nie ma nagłówków CORS
-  }
-  if(stage!=='own' && CFG.proxy==='auto'){
-    const order = PUBLIC_PROXIES.map((p,i)=>i);
-    if(workingProxy!=null && order.includes(workingProxy)){ order.splice(order.indexOf(workingProxy),1); order.unshift(workingProxy); }
-    for(const i of order) tries.push({i, u:PUBLIC_PROXIES[i](url)});
-  }
+async function fetchBin(url, timeoutMs=20000, check){
+  const tries=[CFG.proxy==='custom' && CFG.proxyCustom ? CFG.proxyCustom + encodeURIComponent(url) : url, '/api/feeds/fetch?url='+encodeURIComponent(url)]; // własny serwer: gdy źródło nie ma nagłówków CORS
   let lastErr;
-  for(const t of tries){
-    const u = typeof t==='string' ? t : t.u;
+  for(const u of tries){
     try{
       const buf = await fetchTimeout(u + (u.includes('?')?'&':'?') + '_=' + Date.now(), timeoutMs);
-      if(check && !check(buf)){ lastErr=new Error('nieprawidłowa odpowiedź'); break; } // adres działa, ale nie ma tam pliku — pośredniki nic nie zmienią
-      if(typeof t!=='string'){ workingProxy=t.i; store('rzbus.proxyIdx', t.i); }
+      if(check && !check(buf)){ lastErr=new Error('nieprawidłowa odpowiedź'); break; } // adres działa, ale nie ma tam pliku
       return buf;
     }catch(e){ lastErr=e; }
   }
   throw lastErr || new Error('Nie udało się pobrać');
 }
-// Publiczne pośredniki potrafią wisieć po ~20 s, dlatego używamy ich dopiero, gdy żaden adres nie zadziałał bezpośrednio.
 async function fetchFirst(urls, timeout, check){
-  let err;
-  for(const stage of ['own','public']) for(const u of urls){ try{ return {buf: await fetchBin(u, timeout, check, stage), url:u}; }catch(e){ err=e; } }
+  let err; for(const u of urls){ try{ return {buf: await fetchBin(u, timeout, check), url:u}; }catch(e){ err=e; } }
   throw err;
 }
 
@@ -281,80 +264,21 @@ function clearGtfsFeed(agency){
   for(const id of serviceIds){ GT.cal.delete(id); GT.calDates.delete(id); }
   for(const id of new Set(trips.map(trip=>trip.shape).filter(Boolean))) GT.shapes.delete(id);
 }
-function hydrateGtfsFeed(feed){
-  for(const route of feed.routes) GT.routes.set(route.id, route);
-  for(const trip of feed.trips) GT.trips.set(trip.id, trip);
-  for(const stop of feed.stops) GT.stops.set(stop.id, stop);
-  for(const stopTime of feed.stopTimes){
-    let rows=GT.stopTimes.get(stopTime.trip_id);
-    if(!rows){ rows=[]; GT.stopTimes.set(stopTime.trip_id,rows); }
-    rows.push({seq:stopTime.sequence, stop:stopTime.stop_id, arr:stopTime.arrival_seconds, dep:stopTime.departure_seconds});
-  }
-  for(const rows of GT.stopTimes.values()) rows.sort((a,b)=>a.seq-b.seq);
-  for(const service of feed.calendar) GT.cal.set(service.service_id,{days:service.days,start:service.start,end:service.end});
-  for(const exception of feed.calendarDates){
-    let dates=GT.calDates.get(exception.service_id);
-    if(!dates){ dates=new Map(); GT.calDates.set(exception.service_id,dates); }
-    dates.set(exception.date,exception.exception_type);
-  }
-  for(const shape of feed.shapes) GT.shapes.set(shape.id,shape.points);
-}
-function gtfsFeedPayload(agency,sourceKey){
-  const routes=[...GT.routes.values()].filter(route=>route.agency===agency);
-  const routeIds=new Set(routes.map(route=>route.id));
-  const trips=[...GT.trips.values()].filter(trip=>routeIds.has(trip.route));
-  const tripIds=new Set(trips.map(trip=>trip.id));
-  const serviceIds=new Set(trips.map(trip=>trip.service));
-  const shapeIds=new Set(trips.map(trip=>trip.shape).filter(Boolean));
-  const stops=[...GT.stops.values()].filter(stop=>stop.agency===agency);
-  const calendar=[...GT.cal.entries()].filter(([id])=>serviceIds.has(id)).map(([service_id,value])=>({service_id,...value}));
-  const calendarDates=[];
-  for(const [service_id,dates] of GT.calDates) if(serviceIds.has(service_id))
-    for(const [date,exception_type] of dates) calendarDates.push({service_id,date,exception_type});
-  return {
-    sourceKey,
-    routes,
-    trips,
-    stops,
-    stopTimes:[...tripIds].flatMap(trip_id=>(GT.stopTimes.get(trip_id)||[]).map(row=>({
-      trip_id,stop_id:row.stop,sequence:row.seq,arrival_seconds:row.arr,departure_seconds:row.dep
-    }))),
-    calendar,
-    calendarDates,
-    shapes:[...shapeIds].map(id=>({id,points:GT.shapes.get(id)||[]}))
-  };
-}
-async function loadStoredGtfsFeed(agency,sourceKey){
-  const response=await fetch(`/api/gtfs/${encodeURIComponent(agency)}?sourceKey=${encodeURIComponent(sourceKey)}`);
-  if(response.status===404) return null;
-  if(!response.ok) throw new Error(`Azure SQL API HTTP ${response.status}`);
-  return response.json();
-}
-async function saveGtfsFeed(agency,payload){
-  const response=await fetch(`/api/gtfs/${encodeURIComponent(agency)}`,{
-    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
-  });
-  if(!response.ok){
-    const body=await response.json().catch(()=>({}));
-    throw new Error(body.error||`Azure SQL API HTTP ${response.status}`);
-  }
-}
 async function loadGtfsFeed(urls, pfx, agency, cacheKey, progress){
   const P = x => (x==null||x==='') ? x : pfx + x;
   const key=urls.join('|');
-  try{
-    const feed=await loadStoredGtfsFeed(agency,key);
-    if(feed){
-      clearGtfsFeed(agency);
-      hydrateGtfsFeed(feed);
-      progress(`${agency.toUpperCase()}: rozkład z Azure SQL`);
-      return `Azure SQL (${new Date(feed.importedAt).toLocaleString('pl-PL')})`;
-    }
-  }catch(e){ console.warn(`Nie udało się odczytać rozkładu ${agency.toUpperCase()} z Azure SQL; używam źródła GTFS.`,e); }
-  const cached = await idbGet(cacheKey);
   let buf, url;
+  if(key===(agency==='pks'?DEFAULTS.pksStaticUrls:DEFAULTS.staticUrls).join('|')){ // własne adresy z Ustawień pobieramy bezpośrednio
+    try{
+      progress(`Pobieranie rozkładu ${agency.toUpperCase()} w tle…`);
+      const r=await withTimeout(fetch('/api/timetable/'+agency), 60000);
+      if(r.ok){ const b=await r.arrayBuffer(); if(isZip(b)){ buf=b; url='serwer aplikacji'; } }
+    }catch(e){ console.warn(`Serwer nie udostępnił rozkładu ${agency.toUpperCase()}.`,e); }
+  }
+  const cached = buf ? null : await idbGet(cacheKey);
   const usable=cached && cached.buf && isZip(cached.buf);
-  if(usable && cached.key===key && Date.now()-cached.t < 12*3600*1000){ buf=cached.buf; url=cached.url+' (pamięć podręczna)'; }
+  if(buf){ /* gotowe */ }
+  else if(usable && cached.key===key && Date.now()-cached.t < 12*3600*1000){ buf=cached.buf; url=cached.url+' (pamięć podręczna)'; }
   else {
     try{ progress(`Pobieranie rozkładu ${agency.toUpperCase()} w tle…`); ({buf,url} = await fetchFirst(urls, 60000, isZip)); idbSet(cacheKey, {key, t:Date.now(), buf, url}); }
     catch(e){ if(usable){ buf=cached.buf; url=cached.url+' (starsza kopia)'; } else throw e; }
@@ -386,9 +310,6 @@ async function loadGtfsFeed(urls, pfx, agency, cacheKey, progress){
     await parseCSV(shapesT, (c,h)=>{ const sh=P(c[h.shape_id]); let a=tmp.get(sh); if(!a){a=[];tmp.set(sh,a);} a.push([+c[h.shape_pt_sequence], +c[h.shape_pt_lat], +c[h.shape_pt_lon]]); });
     for(const [k,a] of tmp){ a.sort((x,y)=>x[0]-y[0]); GT.shapes.set(k, a.map(q=>[q[1],q[2]])); }
   }
-  // Zapisać mogą tylko administratorzy; zapis działa w tle, żeby nie wstrzymywać numerów linii na mapie.
-  sessionUser.then(user=>{ if(user?.isAdmin) return saveGtfsFeed(agency,gtfsFeedPayload(agency,key)); })
-    .catch(e=>console.warn(`Nie udało się zapisać rozkładu ${agency.toUpperCase()} w Azure SQL.`,e));
   return url;
 }
 GT.sources={};
@@ -1108,7 +1029,7 @@ function setView(view, push){
   refreshStopList();
   TT.stop=store('rzbus.tt.'+view)||''; TT.line=''; TT.page=null; TR.page=null;
   document.getElementById('ttStop').value=TT.stop; document.getElementById('ttErr').textContent='';
-  renderTimetable(); renderTermini(); renderFeedNotice();
+  renderTimetable(); renderTermini(); renderFeedNotice(); renderFavorites();
   renderMarkers(); renderStats(); renderLateList(); renderLineNotice(); renderLinesGrid(); renderTrainsOnMap(); renderBoard();
   fitView();
 }
@@ -1421,7 +1342,7 @@ function placeSummary(P){
 function renderPlan(results){
   const el=document.getElementById('planResults'); const P=S.plan;
   if(!results.length){ el.innerHTML=placeSummary(P)+`<div class="empty-note">Brak połączeń z <b>${esc(P.from)}</b> do <b>${esc(P.to)}</b> w ciągu 3 godzin (bezpośrednio lub z jedną przesiadką).</div>`+planPager(results); return; }
-  el.innerHTML = placeSummary(P)+`<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span><span class="text-soft">${P.at?'odjazd od '+fmtClock(P.at):'odjazdy od teraz'} · ${results.length} połączeń</span></div>` +
+  el.innerHTML = placeSummary(P)+`<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)} ${favButton({type:'route',view:S.agency,from:P.from,to:P.to})}</span><span class="text-soft">${P.at?'odjazd od '+fmtClock(P.at):'odjazdy od teraz'} · ${results.length} połączeń</span></div>` +
    results.map((o,ix)=>{ const l0=o.legs[0]; const dur=Math.round((o.arr-o.dep)/60);
     const legsH=o.legs.map((l,k)=>`<div class="leg">
         <span class="leg-line" style="background:${l.color}">${esc(l.short)}</span>
@@ -1447,6 +1368,64 @@ function runPlan(scroll){
   renderPlan(planTrips(P.origin, P.dest, at));
   if(scroll) document.getElementById('planResults').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
+/* ---------- Ulubione ---------- */
+const FAV={items:store('rzbus.favs')||[], user:null};
+const favKey=f=>[f.type,f.view,f.name||'',f.from||'',f.to||''].join('|');
+function isFavorite(item){ return FAV.items.some(f=>favKey(f)===favKey(item)); }
+function favButton(item){
+  const on=isFavorite(item);
+  return `<button class="fav-star ${on?'on':''}" type="button" data-fav="${esc(JSON.stringify(item))}" aria-pressed="${on}" title="${on?'Usuń z ulubionych':'Dodaj do ulubionych'}">${on?'★':'☆'}</button>`;
+}
+async function saveFavorites(){
+  store('rzbus.favs', FAV.items);
+  if(!FAV.user) return;
+  const r=await fetch('/api/favorites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({favorites:FAV.items})});
+  if(!r.ok) console.warn('Nie zapisano ulubionych', r.status);
+}
+function toggleFavorite(item){
+  const key=favKey(item);
+  FAV.items=isFavorite(item) ? FAV.items.filter(f=>favKey(f)!==key) : [...FAV.items, item].slice(-50);
+  saveFavorites().catch(e=>console.warn('Nie zapisano ulubionych', e));
+  renderFavorites();
+}
+function renderFavorites(){
+  const el=document.getElementById('favBar'), items=FAV.items.filter(f=>f.view===S.agency);
+  el.classList.toggle('d-none', !items.length);
+  el.innerHTML=items.length ? `<span class="fav-title">★ Ulubione</span>`+items.map(f=>`<span class="fav-chip"><button class="fav-open" type="button" data-fav-open="${esc(favKey(f))}">${esc(f.type==='route'?f.from+' → '+f.to:f.name)}</button><button class="fav-remove" type="button" data-fav-remove="${esc(favKey(f))}" aria-label="Usuń z ulubionych">×</button></span>`).join('') : '';
+}
+function openFavorite(f){
+  if(f.type==='route'){
+    S.placeChoice={}; plFrom.value=f.from; plTo.value=f.to;
+    document.getElementById('planForm').requestSubmit();
+    document.getElementById('plan-sec').scrollIntoView({behavior:'instant'});
+  } else if(f.view==='kolej'){
+    const id=RAIL_IDS.find(i=>RAIL_ST[i][0]===f.name); if(id==null) return;
+    TR.station=id; TR.page=null; document.getElementById('trStation').value=String(id); renderBoard();
+    document.getElementById('trains-sec').scrollIntoView({behavior:'instant'});
+  } else {
+    setTimetableStop(f.name);
+    document.getElementById('timetable-sec').scrollIntoView({behavior:'instant'});
+  }
+}
+document.addEventListener('click', e=>{
+  const star=e.target.closest('[data-fav]');
+  if(star){ const item=JSON.parse(star.dataset.fav); toggleFavorite(item); const on=isFavorite(item); star.classList.toggle('on',on); star.textContent=on?'★':'☆'; star.setAttribute('aria-pressed',String(on)); star.title=on?'Usuń z ulubionych':'Dodaj do ulubionych'; return; }
+  const rm=e.target.closest('[data-fav-remove]');
+  if(rm){ const f=FAV.items.find(x=>favKey(x)===rm.dataset.favRemove); if(f){ toggleFavorite(f); renderTimetable(); renderBoard(); if(S.plan) runPlan(false); } return; }
+  const open=e.target.closest('[data-fav-open]');
+  if(open){ const f=FAV.items.find(x=>favKey(x)===open.dataset.favOpen); if(f) openFavorite(f); }
+});
+// Po zalogowaniu ulubione z tej przeglądarki dołączają do tych z konta.
+sessionUser.then(async user=>{
+  if(!user) return;
+  FAV.user=user;
+  const r=await fetch('/api/favorites'); if(!r.ok) return;
+  const {favorites}=await r.json(), known=new Set(favorites.map(favKey)), local=FAV.items.filter(f=>!known.has(favKey(f)));
+  FAV.items=[...favorites, ...local].slice(0,50);
+  if(local.length) await saveFavorites(); else store('rzbus.favs', FAV.items);
+  renderFavorites();
+}).catch(e=>console.warn('Nie wczytano ulubionych', e));
+
 /* ---------- Przystanki końcowe ---------- */
 const TERM_MIN_SHARE=0.15, TERM_KINDS={ztm:'Autobusy', pks:'PKS', kolej:'Pociągi'};
 const TM={filter:'all', sel:null, layer:null};
@@ -1697,7 +1676,7 @@ function renderTimetable(){
   lineSel.innerHTML='<option value="">Wszystkie linie</option>'+routes.map(r=>`<option value="${esc(r.id)}">Linia ${esc(r.short)}</option>`).join('');
   lineSel.value=TT.line;
   const rows=TT.line ? all.filter(d=>d.t.route===TT.line) : all, now=nowSec();
-  const head=`<div class="plan-head"><span>${esc(TT.stop)}</span><span class="text-soft">${esc(dayLabel(TT.day))} · ${rows.length} odjazdów · rozkład planowy</span></div>`;
+  const head=`<div class="plan-head"><span>${esc(TT.stop)} ${favButton({type:'stop',view:S.agency,name:TT.stop})}</span><span class="text-soft">${esc(dayLabel(TT.day))} · ${rows.length} odjazdów · rozkład planowy</span></div>`;
   if(!rows.length){ el.innerHTML=head+'<div class="empty-note">Brak odjazdów w tym dniu.</div>'; return; }
   const p=paginate(rows, TT.page??(TT.day===0?pageOfNow(rows,TT_PAGE,d=>d.dep,now):1), TT_PAGE);
   el.innerHTML=head+'<div class="board">'+p.rows.map(d=>{ const r=routeById(d.t.route), last=GT.stopGroupOf.get(d.st[d.st.length-1].stop)||'';
@@ -2092,8 +2071,7 @@ async function plkGet(path, params){
     if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); };
   try{ return await tryOne(url); }
   catch(e){ if(e.fatal) throw e;
-    if(CFG.proxy==='direct') throw e;
-    try{ return await tryOne(CFG.proxy==='custom'&&CFG.proxyCustom ? CFG.proxyCustom+encodeURIComponent(url) : 'https://corsproxy.io/?url='+encodeURIComponent(url)); }
+    try{ return await tryOne(CFG.proxy==='custom'&&CFG.proxyCustom ? CFG.proxyCustom+encodeURIComponent(url) : '/api/plk'+path.replace('/api/v1','')+(qs?'?'+qs:'')); }
     catch(e2){ if(e2.fatal) throw e2; const er=new Error('Brak połączenia z API PKP PLK (serwer lub sieć blokuje zapytania z przeglądarki).'); throw er; } }
 }
 async function plkSchedules(){
@@ -2228,7 +2206,7 @@ function renderBoard(){
   const el=document.getElementById('trainBoard'); const info=document.getElementById('trInfo');
   if(CFG.trains===false){ el.innerHTML='<div class="empty-note">Pociągi są wyłączone w Ustawieniach.</div>'; info.textContent=''; return; }
   const modeTxt = TR.mode==='live' ? `Dane PKP PLK · aktualizacja ${TR.ts?fmtClockS(TR.ts):'—'} · co 2 min` : TR.mode==='demo' ? 'Przykładowe dane (brak klucza PKP PLK lub brak połączenia)' : TR.mode==='loading' ? 'Pobieranie danych PKP PLK…' : '';
-  info.innerHTML = esc(modeTxt) + (TR.err?` · <span class="txt-red">${esc(TR.err)}</span>`:'');
+  info.innerHTML = favButton({type:'stop',view:'kolej',name:RAIL_ST[TR.station][0]}) + ' ' + esc(modeTxt) + (TR.err?` · <span class="txt-red">${esc(TR.err)}</span>`:'');
   const banner = TR.mode==='demo' ? `<div class="line-notice" style="margin:0 0 12px"><div><span class="ln-badge off">i</span>${CFG.plkKey?'Nie udało się pobrać danych PKP PLK — pokazuję przykładowy rozkład.':'Aby widzieć prawdziwe pociągi i opóźnienia, dodaj bezpłatny klucz <b>Otwarte Dane Kolejowe</b> (pdp-api.plk-sa.pl) w Ustawieniach. Poniżej przykładowe dane.'}</div><button class="ln-link" id="trOpenSettings">Ustawienia →</button></div>` : '';
   const all=boardRows(TR.station, TR.tab), now=nowSec();
   const p=paginate(all, TR.page??pageOfNow(all,BOARD_PAGE,r=>r.pred,now-90), BOARD_PAGE), rows=p.rows;
@@ -2284,7 +2262,7 @@ function renderTrainPlan(results){
   const el=document.getElementById('planResults'); const P=S.plan;
   const note=placeSummary(P)+(TR.mode==='demo' ? '<div class="small text-soft mb-2">Przykładowe dane — prawdziwe połączenia pojawią się po dodaniu klucza PKP PLK w Ustawieniach.</div>' : '');
   if(!results.length){ el.innerHTML=note+`<div class="empty-note">Brak bezpośrednich pociągów z <b>${esc(P.from)}</b> do <b>${esc(P.to)}</b> w ciągu 6 godzin.</div>`+planPager(results); return; }
-  el.innerHTML = note+`<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span><span class="text-soft">${P.at?'odjazd od '+fmtClock(P.at):'odjazdy od teraz'} · ${results.length} połączeń</span></div>` +
+  el.innerHTML = note+`<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)} ${favButton({type:'route',view:S.agency,from:P.from,to:P.to})}</span><span class="text-soft">${P.at?'odjazd od '+fmtClock(P.at):'odjazdy od teraz'} · ${results.length} połączeń</span></div>` +
     results.map(({t,a,dep,arr,from,to,walkFrom,walkTo})=>`<div class="plan-card">
       <div class="pc-time"><div class="pc-dep ${a.delay!=null&&statusOf(a.delay*60)==='late'?'txt-red':''}">${fmtClock(dep)}</div><div class="pc-in">${walkFrom?'wyjdź '+fmtClock(dep-walkFrom):inMin(dep)}</div></div>
       <div class="pc-main">
