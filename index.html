@@ -85,6 +85,12 @@
     <button class="pill-btn" type="button" data-term="pks"><i class="term-dot pks"></i>PKS</button>
     <button class="pill-btn" type="button" data-term="kolej"><i class="term-dot kolej"></i>Pociągi</button>
   </div>
+  <form id="termDestForm" class="term-search only-koncowe" autocomplete="off">
+    <div class="pl-field"><label for="termDest">Dokąd jedziesz?</label><div class="pl-inp"><input id="termDest" placeholder="Ulica, przystanek lub stacja"></div></div>
+    <button class="btn-ghost" id="termDestClear" type="button" hidden>Wyczyść</button>
+    <button class="btn-grad pl-go" type="submit">Znajdź kierunek</button>
+  </form>
+  <div class="txt-red small fw-semibold mb-2 only-koncowe" id="termDestErr"></div>
   <div class="map-filters not-koncowe d-flex flex-wrap gap-2 align-items-center mb-3">
     <button class="pill-btn active" data-filter="all">Wszystkie</button>
     <button class="pill-btn" data-filter="late">Spóźnione</button>
@@ -120,7 +126,7 @@
       </div>
     </div>
     <div class="col-lg-4 col-xl-3">
-      <div class="only-koncowe" id="termPanel"><div id="termDetail"></div><div id="termList"></div></div>
+      <div class="only-koncowe" id="termPanel"><div id="termResult"></div><div id="termDetail"></div><div id="termList"></div></div>
       <div class="sec-head sec-head-sm not-koncowe"><span class="sec-num">02</span><h2>Najbardziej spóźnione</h2><span class="sec-rule"></span><span class="chip late" id="lateCountChip">0</span>
       </div>
       <div class="d-grid gap-2 not-koncowe" id="lateList"></div>

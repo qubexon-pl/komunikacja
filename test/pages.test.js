@@ -69,7 +69,7 @@ test("the timetable opens on the page with the next departure", () => {
 function loadTermini() {
   const context = {};
   const start = source.indexOf("const TERM_MIN_SHARE=");
-  vm.runInNewContext(`${source.slice(start, source.indexOf("function busTermini("))}; this.collectTermini = collectTermini; this.terminalName = terminalName;`, context);
+  vm.runInNewContext(`${source.slice(start, source.indexOf("function busTermini("))}; this.collectTermini = collectTermini; this.terminalName = terminalName; this.matchDestination = matchDestination;`, context);
   return context;
 }
 const tripsTo = (route, dir, last, count) => Array.from({ length: count }, () => ({ route, dir, last }));
@@ -97,6 +97,21 @@ test("rare trips to a depot do not create a terminus, but real variants do", () 
     ...tripsTo("1", "d1", "Dworzec", 5),
   ]);
   assert.deepEqual(Array.from(result, (terminus) => terminus.name).sort(), ["Dworzec", "Pętla", "Pętla skrócona"]);
+});
+
+test("a destination lists each direction once, with its lines and closest stop", () => {
+  const { matchDestination } = loadTermini();
+  const result = matchDestination([
+    { route: "13", terminus: "Bardowskiego", stop: "Lwowska 04", walk: 300 },
+    { route: "34", terminus: "Bardowskiego", stop: "Lwowska 03", walk: 120 },
+    { route: "13", terminus: "Bardowskiego", stop: "Lwowska 03", walk: 120 },
+    { route: "6", terminus: "Pobitno", stop: "Lwowska 04", walk: 300 },
+  ]);
+  assert.equal(result.size, 2);
+  const direction = result.get("Bardowskiego");
+  assert.deepEqual([...direction.routes], ["13", "34"]);
+  assert.equal(direction.stop, "Lwowska 03");
+  assert.equal(direction.walk, 120);
 });
 
 test("each category has its own page and weather refreshes every 45 minutes", () => {

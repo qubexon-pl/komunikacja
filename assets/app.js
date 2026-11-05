@@ -1085,7 +1085,7 @@ const VIEWS={
 };
 function viewFromPath(){ return Object.keys(VIEWS).find(k=>VIEWS[k].path===location.pathname)||'ztm'; }
 function fitView(){
-  if(S.agency==='koncowe'){ const t=visibleTermini().filter(x=>x.lat!=null).map(x=>[x.lat,x.lon]); if(t.length) map.fitBounds(L.latLngBounds(t),{padding:[40,40],maxZoom:14}); else map.setView(RZ_CENTER,12); return; }
+  if(S.agency==='koncowe'){ const t=[...visibleTermini().filter(x=>x.lat!=null).map(x=>[x.lat,x.lon]), ...(TM.dest?TM.dest.points:[])]; if(t.length) map.fitBounds(L.latLngBounds(t),{padding:[40,40],maxZoom:14}); else map.setView(RZ_CENTER,12); return; }
   const pts=[...S.vehicles.values()].filter(matchesFilter).map(v=>[v.lat,v.lon]);
   if(pts.length) map.fitBounds(L.latLngBounds(pts),{padding:[30,30],maxZoom:14}); else map.setView(RZ_CENTER, S.agency==='kolej'?12:13);
 }
@@ -1411,7 +1411,7 @@ function planTrips(origin, dest, atTs){
   for(const o of res) o.legs.forEach((l,k)=>{ l.lineColor=l.color; l.color=LEG_COLORS[k%LEG_COLORS.length]; });
   return res.sort((a,b)=>(a.arr+a.walkTo)-(b.arr+b.walkTo) || a.legs.length-b.legs.length).slice(0,7).sort((a,b)=>a.dep-b.dep);
 }
-function walkText(m){ return `${m>=1000?(m/1000).toFixed(1).replace('.',',')+' km':m+' m'} · ok. ${Math.max(1,Math.round(m/60))} min pieszo`; }
+function walkText(m){ if(m<20) return 'na miejscu'; return `${m>=1000?(m/1000).toFixed(1).replace('.',',')+' km':m+' m'} · ok. ${Math.max(1,Math.round(m/60))} min pieszo`; }
 function walkStep(m, text){ return m ? `<div class="walk-step"><span aria-hidden="true">🚶</span> ${text} <span class="text-soft">(${walkText(m)})</span></div>` : ''; }
 function placeSummary(P){
   const row=(title,p)=>p.isStop?'':`<div><b>${title}:</b> ${esc(p.label)} → najbliżej <b>${esc(p.nearest.name)}</b> <span class="text-soft">(${walkText(p.nearest.dist)})</span>${p.approximate?' <span class="txt-red">nie znaleziono tego numeru, użyto całej ulicy</span>':''}</div>`;
@@ -1463,6 +1463,15 @@ function collectTermini(trips){
   }
   return [...out.values()].map(t=>({name:t.name, routes:[...t.routes], stops:[...t.stops]}));
 }
+// Końcowy linii to jej kierunek: liczą się kursy, które mijają cel po drodze, a nie te, które dopiero tam ruszają.
+function matchDestination(rows){
+  const out=new Map();
+  for(const r of rows){
+    let m=out.get(r.terminus); if(!m){ m={routes:new Set(), stop:r.stop, walk:r.walk}; out.set(r.terminus,m); }
+    m.routes.add(r.route); if(r.walk<m.walk){ m.walk=r.walk; m.stop=r.stop; }
+  }
+  return out;
+}
 function busTermini(kind){
   const days=[0,1,2,3,4,5,6].map(dayInfo), trips=[];
   for(const t of GT.trips.values()){
@@ -1487,11 +1496,84 @@ function trainTermini(){
   }
   return [...out.values()].sort((a,b)=>(a.lat==null)-(b.lat==null) || b.trains-a.trains || natSort(a.name,b.name));
 }
+function allStopNames(){ return [...new Set([...[...GT.groups.keys()].filter(n=>GT.groupAgency?.get(n)), ...railStationNames()])]; }
+function busDestinationRows(kind, stops){
+  const days=[0,1,2,3,4,5,6].map(dayInfo), rows=[];
+  for(const x of stops) for(const id of GT.groups.get(x.name)?.ids||[]) for(const [tid,idx] of GT.byStop.get(id)||[]){
+    const t=GT.trips.get(tid); if(!t || idx===0 || (routeById(t.route).agency||'ztm')!==kind || !days.some(d=>serviceOn(t.service,d))) continue;
+    const st=GT.stopTimes.get(tid), last=GT.stopGroupOf.get(st[st.length-1].stop);
+    if(last) rows.push({route:t.route, terminus:terminalName(last), stop:x.name, walk:x.dist});
+  }
+  return rows;
+}
+function trainDestinationRows(stops){
+  const rows=[], today=ymdOf(0);
+  for(const t of TR.trains){
+    if(t.cancelled || t.date!==today || !t.stops.length) continue;
+    for(const x of stops) if(t.stops.findIndex(s=>railName(s.id)===x.name)>0) rows.push({route:t.cat||'POC', terminus:railName(t.stops[t.stops.length-1].id), stop:x.name, walk:x.dist});
+  }
+  return rows;
+}
+// Tu pytamy o kierunek do celu, więc liczy się tylko to, co da się przejść pieszo.
+function destinationStops(place, kind){ return nearbyStops(place,kind).filter(x=>x.dist<=3000); }
+function terminiForPlace(place){
+  const known=new Set(allTermini().map(t=>t.id)), matches=new Map();
+  for(const kind of ['ztm','pks','kolej']){
+    const stops=destinationStops(place,kind);
+    for(const [name,m] of matchDestination(kind==='kolej'?trainDestinationRows(stops):busDestinationRows(kind,stops))){
+      const id=kind+'|'+name; if(known.has(id)) matches.set(id,m);
+    }
+  }
+  return matches;
+}
+function nearestTerminus(place){
+  let best=null;
+  for(const t of allTermini()){
+    if(t.lat==null || (TM.filter!=='all'&&t.kind!==TM.filter)) continue;
+    const dist=Math.round(Math.min(...place.points.map(p=>hav(p,[t.lat,t.lon]))));
+    if(!best||dist<best.dist) best={t,dist};
+  }
+  return best;
+}
+function stopAsPlace(name){
+  const g=GT.groups.get(name); if(g) return {label:name, points:[[g.lat,g.lon]]};
+  const s=Object.values(RAIL_ST).find(x=>x[0]===name); return s ? {label:name, points:[[s[1],s[2]]]} : null;
+}
+async function resolveTermDest(text){
+  const q=(text||'').trim(); if(!q) return {error:'Wpisz ulicę, przystanek lub stację.'};
+  const names=allStopNames(), exact=names.find(n=>n.toLowerCase()===q.toLowerCase());
+  if(exact && stopAsPlace(exact)) return {place:stopAsPlace(exact)};
+  if(TM.choice && TM.choice.label===q) return {place:TM.choice};
+  const partial=()=>{ const n=names.filter(x=>x.toLowerCase().includes(q.toLowerCase())).sort((a,b)=>a.length-b.length)[0]; return n?{place:stopAsPlace(n)}:null; };
+  let data;
+  try{ data=await geocodeStreet(q); }
+  catch(e){ console.warn('Wyszukiwanie ulic', e); return partial()||{error:'Wyszukiwarka ulic jest chwilowo niedostępna. Wpisz nazwę przystanku lub stacji.'}; }
+  const usable=data.places.filter(p=>['ztm','pks','kolej'].some(k=>destinationStops(p,k).length));
+  if(usable.length===1) return {place:usable[0]};
+  if(usable.length>1) return {choose:usable};
+  if(data.places.length) return {error:`„${q}” istnieje, ale w pobliżu nie ma żadnego przystanku ani stacji.`};
+  return partial()||{error:`Nie znaleziono „${q}”. Sprawdź pisownię.`};
+}
+function setTermDest(place){ TM.dest={label:place.label, points:place.points, matches:terminiForPlace(place)}; TM.sel=null; TM.options=null; document.getElementById('termDest').value=place.label; renderTermini(); fitView(); }
+function clearTermDest(){ TM.dest=null; TM.choice=null; TM.options=null; TM.sel=null; document.getElementById('termDest').value=''; document.getElementById('termDestErr').textContent=''; renderTermini(); fitView(); }
+function renderTermResult(){
+  const el=document.getElementById('termResult');
+  document.getElementById('termDestClear').hidden=!TM.dest && !TM.options;
+  if(TM.options){ el.innerHTML=`<div class="term-detail"><div class="pi-meta">Której lokalizacji szukasz?</div><div class="place-choice">${TM.options.map((p,i)=>`<button class="btn-ghost" type="button" data-term-place="${i}">${esc(p.label)}</button>`).join('')}</div></div>`; return; }
+  if(!TM.dest){ el.innerHTML=''; return; }
+  const near=nearestTerminus(TM.dest), n=visibleTermini().length;
+  el.innerHTML=`<div class="term-detail"><div class="pi-meta">Cel podróży</div><div class="pi-name">${esc(TM.dest.label)}</div>
+    <div class="term-answer">${n>1?`Jedź w kierunku jednego z <b>${n}</b> przystanków końcowych poniżej.`:n?'Jedź w kierunku przystanku końcowego poniżej.':'Żadna linia z tej kategorii nie dojeżdża tu bezpośrednio.'}</div>
+    ${near?`<div class="small">Najbliższy przystanek końcowy: <button class="term-link" type="button" data-term-id="${esc(near.t.id)}">${esc(near.t.name)}</button> <span class="text-soft">(${walkText(near.dist)})</span></div>`:''}</div>`;
+}
 function allTermini(){
   if(GT.loaded && !GT.termini) GT.termini=[...busTermini('ztm'), ...busTermini('pks')];
   return [...(GT.termini||[]), ...trainTermini()];
 }
-function visibleTermini(){ return allTermini().filter(t=>TM.filter==='all'||t.kind===TM.filter); }
+function visibleTermini(){
+  const list=allTermini().filter(t=>(TM.filter==='all'||t.kind===TM.filter) && (!TM.dest||TM.dest.matches.has(t.id)));
+  return TM.dest ? list.sort((a,b)=>TM.dest.matches.get(a.id).walk-TM.dest.matches.get(b.id).walk) : list;
+}
 function terminusLines(t){
   if(t.kind==='kolej') return [...t.cats].map(c=>`<span class="leg-line sm" style="background:#181818">${esc(c)}</span>`).join('')+` <span class="text-soft small">${t.trains} ${t.trains===1?'pociąg':'pociągów'} dziś</span>`;
   return t.routes.map(routeById).sort((a,b)=>natSort(a.short,b.short)).map(r=>`<span class="leg-line sm" style="background:${lineColor(r.short,r.color,r.agency)}">${esc(r.short)}</span>`).join('');
@@ -1521,26 +1603,46 @@ function renderTermini(){
   if(TM.layer){ map.removeLayer(TM.layer); TM.layer=null; }
   if(S.agency!=='koncowe') return;
   document.querySelectorAll('[data-term]').forEach(b=>b.classList.toggle('active', b.dataset.term===TM.filter));
-  const list=visibleTermini();
-  if(!list.some(t=>t.id===TM.sel)) TM.sel=null;
-  TM.layer=L.layerGroup(list.filter(t=>t.lat!=null).map(t=>{
+  const list=visibleTermini(), known=allTermini();
+  if(!known.some(t=>t.id===TM.sel)) TM.sel=null;
+  const destPins=TM.dest?[L.marker(TM.dest.points[0],{zIndexOffset:3000, interactive:false, icon:L.divIcon({className:'bus-pin-wrap', html:`<div class="key-stop end" style="--k:#181818"><span class="ks-dot"></span><span class="ks-lbl"><b>Cel</b> ${esc(TM.dest.label)}</span></div>`, iconSize:[16,16], iconAnchor:[8,8]})})]:[];
+  TM.layer=L.layerGroup([...destPins, ...list.filter(t=>t.lat!=null).map(t=>{
     const n=t.kind==='kolej'?t.trains:t.routes.length;
     const m=L.marker([t.lat,t.lon],{zIndexOffset:t.id===TM.sel?2000:0, riseOnHover:true, title:t.name, icon:L.divIcon({className:'bus-pin-wrap', html:`<div class="term-pin ${t.kind} ${t.id===TM.sel?'sel':''}">${n}</div>`, iconSize:[28,28], iconAnchor:[14,14]})});
     m.bindTooltip(`<b>${esc(t.name)}</b><br>${TERM_KINDS[t.kind]} · ${t.kind==='kolej'?n+' poc.':n+' lin.'}`,{className:'bus-tip',direction:'top',offset:[0,-14]});
     m.on('click',()=>selectTerminus(t.id,false));
     return m;
-  })).addTo(map);
+  })]).addTo(map);
   const section=kind=>{ if(TM.filter!=='all'&&TM.filter!==kind) return '';
     const rows=list.filter(t=>t.kind===kind);
     const note=kind==='kolej'&&TR.mode==='demo' ? '<div class="small text-soft term-note">Przykładowe dane — dodaj klucz PKP PLK w Ustawieniach.</div>' : '';
-    const body=rows.length ? rows.map(t=>`<button class="term-row ${t.id===TM.sel?'active':''}" type="button" data-term-id="${esc(t.id)}"><span class="term-dot ${t.kind}"></span><span class="term-name">${esc(t.name)}${t.lat==null?' <small class="text-soft">poza mapą</small>':''}</span></button>`).join('')
-      : `<div class="empty-note">${kind==='kolej'?'Czekam na dane o pociągach…':GT.loaded?'Brak danych tej kategorii.':'Rozkład jazdy wczytuje się w tle…'}</div>`;
+    const via=t=>{ const m=TM.dest?.matches.get(t.id); if(!m) return ''; const lines=[...m.routes].map(r=>t.kind==='kolej'?r:routeById(r).short).sort(natSort);
+      return `<small class="term-via"><b>${esc(lines.join(', '))}</b> · przez ${esc(m.stop)} (${walkText(m.walk)})</small>`; };
+    const body=rows.length ? rows.map(t=>`<button class="term-row ${t.id===TM.sel?'active':''}" type="button" data-term-id="${esc(t.id)}"><span class="term-dot ${t.kind}"></span><span class="term-name">${esc(t.name)}${t.lat==null?' <small class="text-soft">poza mapą</small>':''}${via(t)}</span></button>`).join('')
+      : `<div class="empty-note">${TM.dest?'Brak bezpośrednich połączeń do tego celu.':kind==='kolej'?'Czekam na dane o pociągach…':GT.loaded?'Brak danych tej kategorii.':'Rozkład jazdy wczytuje się w tle…'}</div>`;
     return `<div class="lg-head term-head">${TERM_KINDS[kind]} <span>${rows.length}</span></div>${note}${body}`; };
   document.getElementById('termList').innerHTML=['ztm','pks','kolej'].map(section).join('');
+  renderTermResult();
   renderTerminusDetail();
 }
 document.querySelectorAll('[data-term]').forEach(b=>b.addEventListener('click', ()=>{ TM.filter=b.dataset.term; renderTermini(); fitView(); }));
+document.getElementById('termDestClear').addEventListener('click', clearTermDest);
+let termReq=0;
+document.getElementById('termDestForm').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const err=document.getElementById('termDestErr'), req=++termReq, go=e.currentTarget.querySelector('.pl-go'); err.textContent='';
+  if(!GT.loaded){ err.textContent='Rozkład jazdy jeszcze się wczytuje — spróbuj za chwilę.'; return; }
+  go.disabled=true;
+  try{
+    const r=await resolveTermDest(document.getElementById('termDest').value);
+    if(req!==termReq) return;
+    if(r.error){ TM.dest=null; TM.options=null; err.textContent=r.error; renderTermini(); return; }
+    if(r.choose){ TM.dest=null; TM.options=r.choose; renderTermini(); return; }
+    setTermDest(r.place);
+  }finally{ if(req===termReq) go.disabled=false; }
+});
 document.getElementById('termPanel').addEventListener('click', e=>{
+  const tp=e.target.closest('[data-term-place]'); if(tp){ TM.choice=TM.options[+tp.dataset.termPlace]; setTermDest(TM.choice); return; }
   const row=e.target.closest('[data-term-id]'); if(row){ selectTerminus(row.dataset.termId,true); return; }
   const line=e.target.closest('[data-route]'); if(line){ openLine(line.dataset.route); return; }
   const t=allTermini().find(x=>x.id===TM.sel); if(!t) return;
@@ -1622,7 +1724,7 @@ document.getElementById('ttResults').addEventListener('click', e=>{
 
 /* ---------- Podpowiedzi podczas pisania ---------- */
 function stopMatches(q){
-  const needle=q.toLowerCase(), names=S.agency==='kolej' ? railStationNames() : [...GT.groups.keys()].filter(groupInView);
+  const needle=q.toLowerCase(), names=S.agency==='koncowe' ? allStopNames() : S.agency==='kolej' ? railStationNames() : [...GT.groups.keys()].filter(groupInView);
   return names.filter(n=>n.toLowerCase().includes(needle)).sort((a,b)=>b.toLowerCase().startsWith(needle)-a.toLowerCase().startsWith(needle) || natSort(a,b)).slice(0,5);
 }
 function attachSuggest(input, {streets, onPick}){
@@ -1664,9 +1766,9 @@ function attachSuggest(input, {streets, onPick}){
 }
 
 /* ---------- Ulica → najbliższe przystanki ---------- */
-function nearbyStops(place){
-  const train=S.agency==='kolej';
-  const all=train ? Object.values(RAIL_ST).map(s=>({name:s[0],lat:s[1],lon:s[2]})) : [...GT.groups.values()].filter(g=>groupInView(g.name));
+function nearbyStops(place, kind=S.agency){
+  const train=kind==='kolej';
+  const all=train ? Object.values(RAIL_ST).map(s=>({name:s[0],lat:s[1],lon:s[2]})) : [...GT.groups.values()].filter(g=>GT.groupAgency?.get(g.name)?.has(kind));
   const near=all.map(g=>({name:g.name, dist:Math.round(Math.min(...place.points.map(p=>hav(p,[g.lat,g.lon]))))})).filter(x=>x.dist<=(train?30000:3000)).sort((a,b)=>a.dist-b.dist);
   if(train) return near.slice(0,3);
   const close=near.filter(x=>x.dist<=800); // przystanki są parami w obu kierunkach, więc najbliższy nie zawsze jedzie tam, gdzie trzeba
@@ -1730,6 +1832,7 @@ document.getElementById('planForm').addEventListener('submit', async e=>{
 const [plFrom,plTo,plTime]=['plFrom','plTo','plTime'].map(id=>document.getElementById(id));
 attachSuggest(plFrom, {streets:true});
 attachSuggest(plTo, {streets:true});
+attachSuggest(document.getElementById('termDest'), {streets:true, onPick:()=>document.getElementById('termDestForm').requestSubmit()});
 attachSuggest(document.getElementById('ttStop'), {streets:false, onPick:it=>setTimetableStop(it.label)});
 document.getElementById('plSwap').addEventListener('click', ()=>{ const a=plFrom.value; plFrom.value=plTo.value; plTo.value=a; S.placeChoice={from:S.placeChoice.to, to:S.placeChoice.from}; });
 document.getElementById('plGeo').addEventListener('click', ()=>{
