@@ -8,7 +8,7 @@ Three-tier web application for Rzeszów public transport:
 
 ## Pages
 
-The app has one page per transport category: `/autobusy` (ZTM, also served at `/`), `/pks`, and `/pociagi`. Each has its own map, statistics, late list, search, and journey planner. Bus and PKS planners use only that category's stops and lines; the train planner finds direct connections from the PKP PLK data. Tabs switch pages without reloading the timetable. Weather refreshes every 45 minutes.
+The app has one page per transport category: `/autobusy` (ZTM, also served at `/`), `/pks`, and `/pociagi`. Each has its own map, statistics, late list, search, and journey planner. `/koncowe` shows the terminal stops of all three categories on one map; a stop counts when at least 15% of a line direction's trips over the next seven days end there. Bus and PKS planners use only that category's stops and lines; the train planner finds direct connections from the PKP PLK data. Tabs switch pages without reloading the timetable. Weather refreshes every 45 minutes.
 
 ## Timetables
 

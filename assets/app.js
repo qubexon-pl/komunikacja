@@ -934,7 +934,7 @@ function renderLateList(){
 // Kanał potrafi odpowiadać poprawnie, ale pusto i ze starą datą — wtedy brak pojazdów nie znaczy, że linie nie kursują.
 function feedDown(){ return S.mode==='live' && !S.vehicles.size && !!S.feedTs && nowSec()-S.feedTs>300; }
 function renderFeedNotice(){
-  const el=document.getElementById('feedNotice'), down=feedDown() && S.agency!=='kolej';
+  const el=document.getElementById('feedNotice'), down=feedDown() && (S.agency==='ztm'||S.agency==='pks');
   el.classList.toggle('d-none', !down);
   if(down) el.innerHTML=`<div><span class="ln-badge off">!</span><b>ZTM nie przesyła teraz pozycji pojazdów</b> (ostatnie dane sprzed ${Math.round((nowSec()-S.feedTs)/60)} min). Mapa uzupełni się sama, gdy dane wrócą. Rozkład jazdy i „Jak dojechać” działają normalnie.</div>`;
 }
@@ -1080,10 +1080,12 @@ document.getElementById('settingsForm').addEventListener('submit', e=>{
 const VIEWS={
   ztm:{path:'/autobusy', tab:'Autobusy', title:'Autobusy w Rzeszowie', plan:'Jak dojechać autobusem', place:'Ulica z numerem lub przystanek', search:'Szukaj linii, kierunku lub nr pojazdu…'},
   pks:{path:'/pks', tab:'PKS', title:'PKS — linie podmiejskie', plan:'Jak dojechać PKS-em', place:'Ulica z numerem lub przystanek', search:'Szukaj linii, kierunku lub nr pojazdu…'},
+  koncowe:{path:'/koncowe', tab:'Przystanki końcowe', title:'Przystanki końcowe', map:'Mapa przystanków końcowych', plan:'', place:'', search:''},
   kolej:{path:'/pociagi', tab:'Pociągi', title:'Pociągi w okolicy Rzeszowa', plan:'Jak dojechać pociągiem', place:'Ulica z numerem lub stacja', search:'Szukaj pociągu lub kierunku…'}
 };
 function viewFromPath(){ return Object.keys(VIEWS).find(k=>VIEWS[k].path===location.pathname)||'ztm'; }
 function fitView(){
+  if(S.agency==='koncowe'){ const t=visibleTermini().filter(x=>x.lat!=null).map(x=>[x.lat,x.lon]); if(t.length) map.fitBounds(L.latLngBounds(t),{padding:[40,40],maxZoom:14}); else map.setView(RZ_CENTER,12); return; }
   const pts=[...S.vehicles.values()].filter(matchesFilter).map(v=>[v.lat,v.lon]);
   if(pts.length) map.fitBounds(L.latLngBounds(pts),{padding:[30,30],maxZoom:14}); else map.setView(RZ_CENTER, S.agency==='kolej'?12:13);
 }
@@ -1097,6 +1099,7 @@ function setView(view, push){
   document.title=`${V.tab} · Rzeszów Live`;
   document.getElementById('heroTitle').textContent=V.title;
   document.getElementById('planTitle').textContent=V.plan;
+  document.getElementById('mapTitle').textContent=V.map||'Mapa na żywo';
   const search=document.getElementById('lineSearch'); search.value=''; search.placeholder=V.search;
   document.querySelectorAll('.view-tab').forEach(a=>{ const on=a.dataset.view===view; a.classList.toggle('active',on); if(on) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
   let n=0; document.querySelectorAll('.sec-num').forEach(e=>{ if(e.offsetParent) e.textContent=String(++n).padStart(2,'0'); });
@@ -1105,7 +1108,7 @@ function setView(view, push){
   refreshStopList();
   TT.stop=store('rzbus.tt.'+view)||''; TT.line=''; TT.page=null; TR.page=null;
   document.getElementById('ttStop').value=TT.stop; document.getElementById('ttErr').textContent='';
-  renderTimetable();
+  renderTimetable(); renderTermini(); renderFeedNotice();
   renderMarkers(); renderStats(); renderLateList(); renderLineNotice(); renderLinesGrid(); renderTrainsOnMap(); renderBoard();
   fitView();
 }
@@ -1121,7 +1124,7 @@ document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click'
 let qTimer; document.getElementById('lineSearch').addEventListener('input', e=>{ clearTimeout(qTimer); qTimer=setTimeout(()=>{ S.query=e.target.value.trim(); renderMarkers(); renderLateList(); renderLineNotice(); renderTrainsOnMap(); fitQuery(); }, 250); });
 function fitQuery(){ if(!S.query) return; const pts=[...S.vehicles.values()].filter(matchesFilter).map(v=>[v.lat,v.lon]); if(pts.length===1) map.setView(pts[0],15); else if(pts.length>1 && pts.length<40) map.fitBounds(L.latLngBounds(pts),{padding:[40,40],maxZoom:15}); }
 document.getElementById('lateList').addEventListener('click', e=>{ const tr=e.target.closest('[data-train]'); if(tr){ openTrain(tr.dataset.train); return; } const b=e.target.closest('[data-id]'); if(!b) return; const v=S.vehicles.get(b.dataset.id); if(v){ map.setView([v.lat,v.lon], Math.max(map.getZoom(),15)); openBus(v.id); } });
-document.getElementById('fitBtn').addEventListener('click', ()=>{ const pts=[...S.vehicles.values()].filter(matchesFilter).map(v=>[v.lat,v.lon]); if(pts.length) map.fitBounds(L.latLngBounds(pts),{padding:[30,30]}); });
+document.getElementById('fitBtn').addEventListener('click', ()=>{ if(S.agency==='koncowe'){ fitView(); return; } const pts=[...S.vehicles.values()].filter(matchesFilter).map(v=>[v.lat,v.lon]); if(pts.length) map.fitBounds(L.latLngBounds(pts),{padding:[30,30]}); });
 document.getElementById('centerBtn').addEventListener('click', ()=>map.setView(RZ_CENTER,13));
 document.getElementById('resetViewBtn').addEventListener('click', ()=>resetFocus());
 const savedTheme = store('rzbus.theme'); if(savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
@@ -1185,7 +1188,7 @@ function onStaticReady(){
   for(const [tid,st] of GT.stopTimes){ const t=GT.trips.get(tid); if(!t) continue; const ag=routeById(t.route).agency||'ztm';
     for(const x of st){ const g=GT.stopGroupOf.get(x.stop); let a=GT.groupAgency.get(g); if(!a){a=new Set();GT.groupAgency.set(g,a);} a.add(ag); } }
   refreshStopList();
-  renderLinesGrid(); renderLineNotice(); if(S.plan) runPlan(false); renderTimetable();
+  renderLinesGrid(); renderLineNotice(); if(S.plan) runPlan(false); renderTimetable(); GT.termini=null; renderTermini();
 }
 function departuresFrom(groupName, fromTs, toTs, filterFn, offsets=[-1,0,1]){
   const out=[]; const g=GT.groups.get(groupName); if(!g) return out;
@@ -1444,6 +1447,110 @@ function runPlan(scroll){
   renderPlan(planTrips(P.origin, P.dest, at));
   if(scroll) document.getElementById('planResults').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
+/* ---------- Przystanki końcowe ---------- */
+const TERM_MIN_SHARE=0.15, TERM_KINDS={ztm:'Autobusy', pks:'PKS', kolej:'Pociągi'};
+const TM={filter:'all', sel:null, layer:null};
+function terminalName(name){ return String(name).replace(/\s+\d{1,2}$/,'').trim(); }
+// Kurs do zajezdni albo skrócony nie czyni przystanku końcowym, dlatego liczą się tylko częste końce kierunku.
+function collectTermini(trips){
+  const dirs=new Map();
+  for(const t of trips){ const key=t.route+'|'+t.dir; let d=dirs.get(key); if(!d){ d={route:t.route,total:0,ends:new Map()}; dirs.set(key,d); } d.total++; d.ends.set(t.last,(d.ends.get(t.last)||0)+1); }
+  const out=new Map();
+  for(const d of dirs.values()) for(const [stop,count] of d.ends){
+    if(count/d.total<TERM_MIN_SHARE) continue;
+    const name=terminalName(stop); let t=out.get(name); if(!t){ t={name,routes:new Set(),stops:new Set()}; out.set(name,t); }
+    t.routes.add(d.route); t.stops.add(stop);
+  }
+  return [...out.values()].map(t=>({name:t.name, routes:[...t.routes], stops:[...t.stops]}));
+}
+function busTermini(kind){
+  const days=[0,1,2,3,4,5,6].map(dayInfo), trips=[];
+  for(const t of GT.trips.values()){
+    if((routeById(t.route).agency||'ztm')!==kind || !days.some(d=>serviceOn(t.service,d))) continue;
+    const st=GT.stopTimes.get(t.id); if(!st||st.length<2) continue;
+    const last=GT.stopGroupOf.get(st[st.length-1].stop); if(last) trips.push({route:t.route, dir:dirKey(t), last});
+  }
+  return collectTermini(trips).map(t=>{
+    const g=t.stops.map(n=>GT.groups.get(n)).filter(Boolean);
+    return Object.assign(t,{kind, id:kind+'|'+t.name, lat:g.reduce((a,x)=>a+x.lat,0)/g.length, lon:g.reduce((a,x)=>a+x.lon,0)/g.length});
+  }).sort((a,b)=>b.routes.length-a.routes.length || natSort(a.name,b.name));
+}
+// Autobusy kończą bieg na jednym stanowisku, a odjeżdżają z innego, więc odjazdów szukamy na wszystkich.
+function terminusPlatforms(t){ return [...GT.groups.keys()].filter(n=>terminalName(n)===t.name && GT.groupAgency?.get(n)?.has(t.kind)); }
+function trainTermini(){
+  const out=new Map(), today=ymdOf(0);
+  for(const t of TR.trains){
+    if(t.cancelled||!t.stops.length||t.date!==today) continue;
+    const id=t.stops[t.stops.length-1].id, name=railName(id); let x=out.get(name);
+    if(!x){ const c=RAIL_ST[id]; x={kind:'kolej', id:'kolej|'+name, name, stationId:id, lat:c?c[1]:null, lon:c?c[2]:null, cats:new Set(), trains:0}; out.set(name,x); }
+    x.trains++; if(t.cat) x.cats.add(t.cat);
+  }
+  return [...out.values()].sort((a,b)=>(a.lat==null)-(b.lat==null) || b.trains-a.trains || natSort(a.name,b.name));
+}
+function allTermini(){
+  if(GT.loaded && !GT.termini) GT.termini=[...busTermini('ztm'), ...busTermini('pks')];
+  return [...(GT.termini||[]), ...trainTermini()];
+}
+function visibleTermini(){ return allTermini().filter(t=>TM.filter==='all'||t.kind===TM.filter); }
+function terminusLines(t){
+  if(t.kind==='kolej') return [...t.cats].map(c=>`<span class="leg-line sm" style="background:#181818">${esc(c)}</span>`).join('')+` <span class="text-soft small">${t.trains} ${t.trains===1?'pociąg':'pociągów'} dziś</span>`;
+  return t.routes.map(routeById).sort((a,b)=>natSort(a.short,b.short)).map(r=>`<span class="leg-line sm" style="background:${lineColor(r.short,r.color,r.agency)}">${esc(r.short)}</span>`).join('');
+}
+function renderTerminusDetail(){
+  const el=document.getElementById('termDetail'), t=allTermini().find(x=>x.id===TM.sel);
+  if(!t){ el.innerHTML=''; return; }
+  let body;
+  if(t.kind==='kolej'){
+    const onBoard=RAIL_IDS.includes(+t.stationId);
+    body=`<div class="pi-lines">${terminusLines(t)}</div>${t.lat==null?'<div class="small text-soft mb-2">Stacja poza zasięgiem mapy.</div>':''}${onBoard?`<button class="btn-ghost" type="button" data-term-board>Tablica stacji</button>`:''}`;
+  } else {
+    const now=nowSec(), routes=new Set(t.routes);
+    const next=terminusPlatforms(t).flatMap(n=>departuresFrom(n, now, now+2*3600, x=>routes.has(x.route))).sort((a,b)=>a.dep-b.dep).slice(0,4);
+    body=`<div class="pi-lines">${t.routes.map(routeById).sort((a,b)=>natSort(a.short,b.short)).map(r=>`<button class="leg-line term-line" type="button" style="background:${lineColor(r.short,r.color,r.agency)}" data-route="${esc(r.id)}">${esc(r.short)}</button>`).join('')}</div>
+      ${next.length?`<div class="pi-next">${next.map(d=>{ const r=routeById(d.t.route); return `<div><b>${fmtClock(d.dep)}</b> <span class="leg-line sm" style="background:${lineColor(r.short,r.color,r.agency)}">${esc(r.short)}</span> → ${esc(d.t.headsign||'')}</div>`; }).join('')}</div>`:'<div class="small text-soft mb-2">Brak odjazdów w ciągu 2 godzin.</div>'}
+      <button class="btn-ghost" type="button" data-term-timetable>Pełny rozkład</button>`;
+  }
+  el.innerHTML=`<div class="term-detail"><div class="pi-name">${esc(t.name)}</div><div class="pi-meta">${TERM_KINDS[t.kind]} · przystanek końcowy</div>${body}</div>`;
+}
+function selectTerminus(id, pan){
+  TM.sel=id; renderTermini();
+  const t=allTermini().find(x=>x.id===id);
+  if(pan && t && t.lat!=null) map.setView([t.lat,t.lon], Math.max(map.getZoom(),14));
+}
+function renderTermini(){
+  if(TM.layer){ map.removeLayer(TM.layer); TM.layer=null; }
+  if(S.agency!=='koncowe') return;
+  document.querySelectorAll('[data-term]').forEach(b=>b.classList.toggle('active', b.dataset.term===TM.filter));
+  const list=visibleTermini();
+  if(!list.some(t=>t.id===TM.sel)) TM.sel=null;
+  TM.layer=L.layerGroup(list.filter(t=>t.lat!=null).map(t=>{
+    const n=t.kind==='kolej'?t.trains:t.routes.length;
+    const m=L.marker([t.lat,t.lon],{zIndexOffset:t.id===TM.sel?2000:0, riseOnHover:true, title:t.name, icon:L.divIcon({className:'bus-pin-wrap', html:`<div class="term-pin ${t.kind} ${t.id===TM.sel?'sel':''}">${n}</div>`, iconSize:[28,28], iconAnchor:[14,14]})});
+    m.bindTooltip(`<b>${esc(t.name)}</b><br>${TERM_KINDS[t.kind]} · ${t.kind==='kolej'?n+' poc.':n+' lin.'}`,{className:'bus-tip',direction:'top',offset:[0,-14]});
+    m.on('click',()=>selectTerminus(t.id,false));
+    return m;
+  })).addTo(map);
+  const section=kind=>{ if(TM.filter!=='all'&&TM.filter!==kind) return '';
+    const rows=list.filter(t=>t.kind===kind);
+    const note=kind==='kolej'&&TR.mode==='demo' ? '<div class="small text-soft term-note">Przykładowe dane — dodaj klucz PKP PLK w Ustawieniach.</div>' : '';
+    const body=rows.length ? rows.map(t=>`<button class="term-row ${t.id===TM.sel?'active':''}" type="button" data-term-id="${esc(t.id)}"><span class="term-dot ${t.kind}"></span><span class="term-name">${esc(t.name)}${t.lat==null?' <small class="text-soft">poza mapą</small>':''}</span></button>`).join('')
+      : `<div class="empty-note">${kind==='kolej'?'Czekam na dane o pociągach…':GT.loaded?'Brak danych tej kategorii.':'Rozkład jazdy wczytuje się w tle…'}</div>`;
+    return `<div class="lg-head term-head">${TERM_KINDS[kind]} <span>${rows.length}</span></div>${note}${body}`; };
+  document.getElementById('termList').innerHTML=['ztm','pks','kolej'].map(section).join('');
+  renderTerminusDetail();
+}
+document.querySelectorAll('[data-term]').forEach(b=>b.addEventListener('click', ()=>{ TM.filter=b.dataset.term; renderTermini(); fitView(); }));
+document.getElementById('termPanel').addEventListener('click', e=>{
+  const row=e.target.closest('[data-term-id]'); if(row){ selectTerminus(row.dataset.termId,true); return; }
+  const line=e.target.closest('[data-route]'); if(line){ openLine(line.dataset.route); return; }
+  const t=allTermini().find(x=>x.id===TM.sel); if(!t) return;
+  if(e.target.closest('[data-term-timetable]')){
+    setView(t.kind,true);
+    const day=dayInfo(0), busiest=terminusPlatforms(t).map(n=>[n,departuresFrom(n,day.base,day.base+30*3600,tripInView,[0]).length]).sort((a,b)=>b[1]-a[1])[0];
+    setTimetableStop(busiest?busiest[0]:t.stops[0]); document.getElementById('timetable-sec').scrollIntoView({behavior:'instant'}); return; }
+  if(e.target.closest('[data-term-board]')){ setView('kolej',true); TR.station=+t.stationId; document.getElementById('trStation').value=String(t.stationId); renderBoard(); document.getElementById('trains-sec').scrollIntoView({behavior:'instant'}); }
+});
+
 /* ---------- Stronicowanie ---------- */
 const TT_PAGE=20, BOARD_PAGE=15;
 function paginate(rows, page, size){
@@ -2151,7 +2258,7 @@ async function trainsTick(){
   }catch(e){
     console.warn('PLK', e); TR.err=e.message;
     if(!TR.trains.length || TR.mode!=='live'){ TR.mode='demo'; TR.trains=demoTrains(); TR.ts=nowSec(); }
-  }finally{ TR.busy=false; renderTrainsOnMap(); renderBoard(); if(S.agency==='kolej'){ renderStats(); renderLateList(); refreshStopList(); if(S.plan) runPlan(false); } if(trainModalEl.classList.contains('show')) renderTrain(true); }
+  }finally{ TR.busy=false; renderTrainsOnMap(); renderBoard(); if(S.agency==='kolej'){ renderStats(); renderLateList(); refreshStopList(); if(S.plan) runPlan(false); } if(S.agency==='koncowe') renderTermini(); if(trainModalEl.classList.contains('show')) renderTrain(true); }
 }
 function trainsBoot(){
   clearInterval(TR.timer); trSched=null; TR.err=null; TR.trains=[];

@@ -23,7 +23,7 @@ const MAX_AUTH_BODY_BYTES = 16 * 1024;
 const MAX_FEED_BYTES = 50 * 1024 * 1024;
 const SESSION_COOKIE = "rzbus_session";
 const OAUTH_COOKIE = "rzbus_oauth_state";
-const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi"]);
+const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/koncowe"]);
 const authAttempts = new Map();
 const GTFS_SOURCE_PATHS = new Map([
   ["mkuran.pl", new Set(["/gtfs/rzeszow.zip"])],

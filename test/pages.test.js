@@ -66,9 +66,43 @@ test("the timetable opens on the page with the next departure", () => {
   assert.equal(pageOfNow([], 20, same, 0), 1);
 });
 
+function loadTermini() {
+  const context = {};
+  const start = source.indexOf("const TERM_MIN_SHARE=");
+  vm.runInNewContext(`${source.slice(start, source.indexOf("function busTermini("))}; this.collectTermini = collectTermini; this.terminalName = terminalName;`, context);
+  return context;
+}
+const tripsTo = (route, dir, last, count) => Array.from({ length: count }, () => ({ route, dir, last }));
+const plain = (value) => JSON.parse(JSON.stringify(value));
+
+test("platform numbers are removed from a terminus name", () => {
+  const { terminalName } = loadTermini();
+  assert.equal(terminalName("Dworzec Główny PKP 03"), "Dworzec Główny PKP");
+  assert.equal(terminalName("Lubelska Zajezdnia MPK"), "Lubelska Zajezdnia MPK");
+  assert.equal(terminalName("Osiedle 1000-lecia"), "Osiedle 1000-lecia");
+});
+
+test("platforms of one terminus are merged and share its lines", () => {
+  const { collectTermini } = loadTermini();
+  const result = collectTermini([...tripsTo("1", "d0", "Dworzec 01", 10), ...tripsTo("2", "d0", "Dworzec 03", 10)]);
+  assert.deepEqual(plain(result), [{ name: "Dworzec", routes: ["1", "2"], stops: ["Dworzec 01", "Dworzec 03"] }]);
+});
+
+test("rare trips to a depot do not create a terminus, but real variants do", () => {
+  const { collectTermini } = loadTermini();
+  const result = collectTermini([
+    ...tripsTo("1", "d0", "Pętla", 40),
+    ...tripsTo("1", "d0", "Zajezdnia", 2),
+    ...tripsTo("1", "d0", "Pętla skrócona", 10),
+    ...tripsTo("1", "d1", "Dworzec", 5),
+  ]);
+  assert.deepEqual(Array.from(result, (terminus) => terminus.name).sort(), ["Dworzec", "Pętla", "Pętla skrócona"]);
+});
+
 test("each category has its own page and weather refreshes every 45 minutes", () => {
   assert.match(source, /ztm:\{path:'\/autobusy'/);
   assert.match(source, /pks:\{path:'\/pks'/);
   assert.match(source, /kolej:\{path:'\/pociagi'/);
+  assert.match(source, /koncowe:\{path:'\/koncowe'/);
   assert.match(source, /weatherTick\(\); \}, 45\*60\*1000\)/);
 });
