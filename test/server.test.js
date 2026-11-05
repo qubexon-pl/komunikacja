@@ -284,6 +284,29 @@ test("street search needs a session, validates input, and hides provider failure
   assert.deepEqual(queries, ["Lwowska", "awaria"]);
 });
 
+test("street suggestions need a session and fail without exposing details", async (t) => {
+  const { createServer } = require("../src/server");
+  const server = createServer({
+    database: {},
+    auth: { resolveSession: async (token) => (token === "ok" ? { id: "1" } : null) },
+    suggestStreets: async (query) => {
+      if (query === "awaria") throw new Error("down");
+      return ["Lwowska, Rzeszów"];
+    },
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/streets`;
+  const headers = { Cookie: "rzbus_session=ok" };
+
+  assert.equal((await fetch(`${base}?q=Lwo`)).status, 401);
+  assert.equal((await fetch(`${base}?q=L`, { headers })).status, 400);
+  assert.deepEqual(await (await fetch(`${base}?q=Lwo`, { headers })).json(), { suggestions: ["Lwowska, Rzeszów"] });
+  const failed = await fetch(`${base}?q=awaria`, { headers });
+  assert.equal(failed.status, 502);
+  assert.doesNotMatch(await failed.text(), /down/);
+});
+
 test("Google sign-in is hidden when provider credentials are absent", async (t) => {
   const baseUrl = await startServer(t, {});
   const response = await fetch(`${baseUrl}/api/auth/config`);

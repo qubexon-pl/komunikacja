@@ -38,6 +38,34 @@ test("the train planner respects direction, departure time, and cancellations", 
   assert.deepEqual(Array.from(plan("A", "B", 1000), (result) => result.t.key), ["ok"]);
 });
 
+function loadPaging() {
+  const context = {};
+  vm.runInNewContext(source.slice(source.indexOf("function paginate("), source.indexOf("function pagerHtml(")), context);
+  return context;
+}
+
+test("timetable pages split rows and stay in range", () => {
+  const { paginate } = loadPaging();
+  const rows = Array.from({ length: 45 }, (_, index) => index);
+  const middle = paginate(rows, 2, 20);
+  assert.deepEqual([middle.page, middle.pages, middle.total, middle.rows.length, middle.rows[0]], [2, 3, 45, 20, 20]);
+  assert.equal(paginate(rows, 99, 20).page, 3);
+  assert.equal(paginate(rows, 99, 20).rows.length, 5);
+  assert.equal(paginate(rows, 0, 20).page, 1);
+  assert.deepEqual([paginate([], 1, 20).pages, paginate([], 1, 20).rows.length], [1, 0]);
+});
+
+test("the timetable opens on the page with the next departure", () => {
+  const { pageOfNow } = loadPaging();
+  const times = Array.from({ length: 45 }, (_, index) => index * 10);
+  const same = (value) => value;
+  assert.equal(pageOfNow(times, 20, same, 0), 1);
+  assert.equal(pageOfNow(times, 20, same, 185), 1);
+  assert.equal(pageOfNow(times, 20, same, 195), 2);
+  assert.equal(pageOfNow(times, 20, same, 9999), 3);
+  assert.equal(pageOfNow([], 20, same, 0), 1);
+});
+
 test("each category has its own page and weather refreshes every 45 minutes", () => {
   assert.match(source, /ztm:\{path:'\/autobusy'/);
   assert.match(source, /pks:\{path:'\/pks'/);

@@ -7,7 +7,7 @@ const { pipeline } = require("node:stream/promises");
 const crypto = require("node:crypto");
 const tls = require("node:tls");
 const { AGENCIES, createSqlConfig, getSchedule, replaceSchedule } = require("./database");
-const { createGeocoder } = require("./geocode");
+const { createGeocoder, createStreetSuggester } = require("./geocode");
 const { AuthError, SESSION_TTL_SECONDS, createAuthService, isEmailConfigured, safeReturnTo } = require("./auth");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -454,7 +454,7 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), staticRoot = ROOT }) {
   const root = path.resolve(staticRoot);
   return http.createServer(async (req, res) => {
     try {
@@ -476,6 +476,20 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         req.user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
         if (!req.user) {
           json(res, 401, { error: "Zaloguj się, aby kontynuować." });
+          return;
+        }
+        if (segments[1] === "streets" && segments.length === 2 && req.method === "GET") {
+          const query = url.searchParams.get("q")?.trim() || "";
+          if (query.length < 2 || query.length > 80) {
+            json(res, 400, { error: "Wpisz od 2 do 80 znaków." });
+            return;
+          }
+          try {
+            json(res, 200, { suggestions: await suggestStreets(query) });
+          } catch (error) {
+            console.error("Street suggestions failed:", error.message);
+            json(res, 502, { error: "Podpowiedzi ulic są chwilowo niedostępne." });
+          }
           return;
         }
         if (segments[1] === "geocode" && segments.length === 2 && req.method === "GET") {

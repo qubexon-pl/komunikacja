@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { createGeocoder, normalizeQuery } = require("../src/geocode");
+const { createGeocoder, createStreetSuggester, normalizeQuery } = require("../src/geocode");
 
 function response(items) {
   return { ok: true, json: async () => items };
@@ -97,6 +97,53 @@ test("requests stay at least the minimum gap apart", async () => {
   });
   await Promise.all([geocode("Jeden"), geocode("Dwa")]);
   assert.ok(times[1] - times[0] >= 55);
+});
+
+test("suggestions keep streets and house numbers, without duplicates or shops", async () => {
+  const feature = (properties) => ({ properties });
+  const queries = [];
+  const suggest = createStreetSuggester({
+    minGapMs: 0,
+    fetchSource: async (url) => {
+      queries.push(url.searchParams.get("q"));
+      return {
+        ok: true,
+        json: async () => ({ features: [
+          feature({ type: "street", name: "Lwowska", city: "Rzeszów" }),
+          feature({ type: "street", name: "Lwowska", city: "Rzeszów", district: "Wilkowyja" }),
+          feature({ type: "house", name: "Rejtana uniwersytet 05", street: "Aleja Tadeusza Rejtana", city: "Rzeszów" }),
+          feature({ type: "house", name: "Lwowianka", street: "Generała Langiewicza", housenumber: "29b", city: "Rzeszów" }),
+          feature({ type: "house", name: "Apteka", street: "Lwowska", housenumber: "26", city: "Rzeszów" }),
+          feature({ type: "street", name: "Lwowska", city: "Tyczyn" }),
+        ] }),
+      };
+    },
+  });
+  assert.deepEqual(await suggest("ul. Lwo"), ["Lwowska, Rzeszów", "Lwowska, Tyczyn", "Lwowska 26, Rzeszów"]);
+  await suggest("lwo");
+  assert.deepEqual(queries, ["Lwo"]);
+  assert.deepEqual(await suggest("L"), []);
+});
+
+test("suggestions match the street name whatever the Polish letters", async () => {
+  const suggest = createStreetSuggester({
+    minGapMs: 0,
+    fetchSource: async () => ({ ok: true, json: async () => ({ features: [{ properties: { type: "street", name: "Łańcucka", city: "Rzeszów" } }] }) }),
+  });
+  assert.deepEqual(await suggest("lancuc"), ["Łańcucka, Rzeszów"]);
+});
+
+test("a suggestion failure is reported and not cached", async () => {
+  let calls = 0;
+  const suggest = createStreetSuggester({
+    minGapMs: 0,
+    fetchSource: async () => {
+      calls += 1;
+      return calls === 1 ? { ok: false, status: 500 } : { ok: true, json: async () => ({ features: [] }) };
+    },
+  });
+  await assert.rejects(suggest("Lwo"), /500/);
+  assert.deepEqual(await suggest("Lwo"), []);
 });
 
 test("a provider failure is reported and not cached", async () => {

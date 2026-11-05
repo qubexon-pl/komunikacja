@@ -923,13 +923,20 @@ function renderLateList(){
   if(S.agency==='kolej'){ renderLateTrains(); return; }
   const list=[...S.vehicles.values()].filter(v=>v.delay!=null && v.delay>=60 && matchesFilter(v)).sort((a,b)=>b.delay-a.delay).slice(0,12);
   const el=document.getElementById('lateList');
-  if(!list.length){ const inView=[...S.vehicles.values()].some(v=>(v.agency||'ztm')===S.agency); el.innerHTML=`<div class="empty-note">${inView? '🎉 Brak spóźnionych autobusów dla wybranego filtra.' : S.vehicles.size? 'Brak pojazdów tej kategorii w danych na żywo.' : 'Czekam na dane…'}</div>`; return; }
+  if(!list.length){ const inView=[...S.vehicles.values()].some(v=>(v.agency||'ztm')===S.agency); el.innerHTML=`<div class="empty-note">${inView? '🎉 Brak spóźnionych autobusów dla wybranego filtra.' : S.vehicles.size? 'Brak pojazdów tej kategorii w danych na żywo.' : feedDown()? 'Brak danych na żywo od ZTM.' : 'Czekam na dane…'}</div>`; return; }
   el.innerHTML = list.map(v=>{ const st=statusOf(v.delay);
     return `<button class="set-card" data-id="${esc(v.id)}">
       <span class="line-badge" style="--c1:${v.color};--c2:${v.color}">${esc(v.short)}</span>
       <span class="set-body"><strong>${esc(v.headsign||(GT.loaded||GT.failed?'kierunek nieznany':'wczytywanie kierunku…'))}</strong>
       <span class="meta">Pojazd ${esc(v.label)}${v.stopName?` · ${STOP_STATUS[v.stopStatus]||''} ${esc(v.stopName)}`:''}</span></span>
       <span class="chip ${st}">${fmtDelay(v.delay,true)}</span></button>`; }).join('');
+}
+// Kanał potrafi odpowiadać poprawnie, ale pusto i ze starą datą — wtedy brak pojazdów nie znaczy, że linie nie kursują.
+function feedDown(){ return S.mode==='live' && !S.vehicles.size && !!S.feedTs && nowSec()-S.feedTs>300; }
+function renderFeedNotice(){
+  const el=document.getElementById('feedNotice'), down=feedDown() && S.agency!=='kolej';
+  el.classList.toggle('d-none', !down);
+  if(down) el.innerHTML=`<div><span class="ln-badge off">!</span><b>ZTM nie przesyła teraz pozycji pojazdów</b> (ostatnie dane sprzed ${Math.round((nowSec()-S.feedTs)/60)} min). Mapa uzupełni się sama, gdy dane wrócą. Rozkład jazdy i „Jak dojechać” działają normalnie.</div>`;
 }
 function renderAlertsBtn(){
   const b=document.getElementById('alertsBtn');
@@ -939,7 +946,7 @@ function renderAlertsBtn(){
 function renderAll(){
   S.byTrip=new Map(); for(const v of S.vehicles.values()) if(v.tripId) S.byTrip.set(v.tripId, v);
   const cf=document.getElementById('cdFoot'); if(cf && S.feedTs) cf.textContent=(S.mode==='demo'?'Symulacja · ':'Ostatni odczyt · ')+fmtClockS(S.feedTs);
-  renderMarkers(); renderStats(); renderLateList(); renderAlertsBtn();
+  renderMarkers(); renderStats(); renderLateList(); renderAlertsBtn(); renderFeedNotice();
   if(S.focus) renderFocusBar();
   renderTrainsOnMap();
   if(GT.loaded){ renderLinesGrid(); renderLineNotice(); if(lineModalEl.classList.contains('show')) renderLine(true); if(S.plan) runPlan(false); }
@@ -1096,6 +1103,9 @@ function setView(view, push){
   document.getElementById('planResults').innerHTML=''; document.getElementById('planErr').textContent='';
   const saved=store('rzbus.plan.'+view); plFrom.value=saved?.from||''; plTo.value=saved?.to||''; plFrom.placeholder=plTo.placeholder=V.place;
   refreshStopList();
+  TT.stop=store('rzbus.tt.'+view)||''; TT.line=''; TT.page=null; TR.page=null;
+  document.getElementById('ttStop').value=TT.stop; document.getElementById('ttErr').textContent='';
+  renderTimetable();
   renderMarkers(); renderStats(); renderLateList(); renderLineNotice(); renderLinesGrid(); renderTrainsOnMap(); renderBoard();
   fitView();
 }
@@ -1175,7 +1185,7 @@ function onStaticReady(){
   for(const [tid,st] of GT.stopTimes){ const t=GT.trips.get(tid); if(!t) continue; const ag=routeById(t.route).agency||'ztm';
     for(const x of st){ const g=GT.stopGroupOf.get(x.stop); let a=GT.groupAgency.get(g); if(!a){a=new Set();GT.groupAgency.set(g,a);} a.add(ag); } }
   refreshStopList();
-  renderLinesGrid(); renderLineNotice(); if(S.plan) runPlan(false);
+  renderLinesGrid(); renderLineNotice(); if(S.plan) runPlan(false); renderTimetable();
 }
 function departuresFrom(groupName, fromTs, toTs, filterFn, offsets=[-1,0,1]){
   const out=[]; const g=GT.groups.get(groupName); if(!g) return out;
@@ -1271,7 +1281,7 @@ function renderLinesGrid(){
   const lateC=new Map(); for(const v of S.vehicles.values()) if(statusOf(v.delay)==='late'){ const k=GT.routes.has(v.routeId)?v.routeId:v.short; lateC.set(k,(lateC.get(k)||0)+1); }
   const tile = r=>{ const n=counts.get(r.id)||0, l=lateC.get(r.id)||0;
     return `<button class="line-tile ${n?'':'off'} ${r.agency==='pks'?'is-pks':''}" data-route="${esc(r.id)}"><span class="lt-num" style="${n?`background:${lineColor(r.short,r.color,r.agency)}`:''}">${esc(r.short)}</span>
-      <span class="lt-meta">${n?`${n} w trasie`:'nie kursuje'}${l?` · <span class="txt-red">${l} spóźn.</span>`:''}</span></button>`; };
+      <span class="lt-meta">${n?`${n} w trasie`:(feedDown()?'brak danych':'nie kursuje')}${l?` · <span class="txt-red">${l} spóźn.</span>`:''}</span></button>`; };
   const groups=[['ztm','ZTM Rzeszów — komunikacja miejska'],['pks','PKS Rzeszów — linie podmiejskie']].filter(([ag])=>S.agency==='all'||S.agency==='kolej'||S.agency===ag);
   el.innerHTML = groups.map(([ag,title])=>{ const rs=[...GT.routes.values()].filter(r=>(r.agency||'ztm')===ag).sort((a,b)=>natSort(a.short,b.short)); if(!rs.length) return ag==='pks'?`<div class="lg-head">${title}</div><div class="empty-note" style="grid-column:1/-1">Rozkład PKS nie jest wczytany — sprawdź adres w Ustawieniach.</div>`:''; return `<div class="lg-head">${title} <span>${rs.length} linii</span></div>`+rs.map(tile).join(''); }).join('');
 }
@@ -1407,7 +1417,7 @@ function placeSummary(P){
 }
 function renderPlan(results){
   const el=document.getElementById('planResults'); const P=S.plan;
-  if(!results.length){ el.innerHTML=placeSummary(P)+`<div class="empty-note">Brak połączeń z <b>${esc(P.from)}</b> do <b>${esc(P.to)}</b> w ciągu 3 godzin (bezpośrednio lub z jedną przesiadką).</div>`; return; }
+  if(!results.length){ el.innerHTML=placeSummary(P)+`<div class="empty-note">Brak połączeń z <b>${esc(P.from)}</b> do <b>${esc(P.to)}</b> w ciągu 3 godzin (bezpośrednio lub z jedną przesiadką).</div>`+planPager(results); return; }
   el.innerHTML = placeSummary(P)+`<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span><span class="text-soft">${P.at?'odjazd od '+fmtClock(P.at):'odjazdy od teraz'} · ${results.length} połączeń</span></div>` +
    results.map((o,ix)=>{ const l0=o.legs[0]; const dur=Math.round((o.arr-o.dep)/60);
     const legsH=o.legs.map((l,k)=>`<div class="leg">
@@ -1423,7 +1433,7 @@ function renderPlan(results){
         <div class="pc-legs">${walkStep(o.walkFrom,`Idź na przystanek ${esc(l0.from)}`)}${legsH}${walkStep(o.walkTo,`Z przystanku ${esc(o.legs[o.legs.length-1].to)} dojdź do celu`)}</div>
       </div>
       <div class="pc-actions"><button class="btn-ghost" data-show="${ix}">Na mapie</button>${l0.L&&l0.L.v?`<button class="btn-ghost" data-bus="${esc(l0.L.v.id)}">Autobus</button>`:''}</div>
-    </div>`; }).join('');
+    </div>`; }).join('')+planPager(results);
   S.planResults=results;
 }
 function runPlan(scroll){
@@ -1434,6 +1444,118 @@ function runPlan(scroll){
   renderPlan(planTrips(P.origin, P.dest, at));
   if(scroll) document.getElementById('planResults').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
+/* ---------- Stronicowanie ---------- */
+const TT_PAGE=20, BOARD_PAGE=15;
+function paginate(rows, page, size){
+  const pages=Math.max(1,Math.ceil(rows.length/size)), current=Math.min(Math.max(page,1),pages);
+  return {rows:rows.slice((current-1)*size,current*size), page:current, pages, total:rows.length};
+}
+function pageOfNow(rows, size, timeOf, now){
+  const i=rows.findIndex(r=>timeOf(r)>=now);
+  return i<0 ? Math.max(1,Math.ceil(rows.length/size)) : Math.floor(i/size)+1;
+}
+function pagerHtml(p, withNow){
+  if(p.pages<2) return '';
+  return `<div class="pager"><button class="btn-ghost" type="button" data-page="${p.page-1}" ${p.page<=1?'disabled':''}>← Poprzednia</button>
+    <span class="pager-info">Strona ${p.page} z ${p.pages}</span>
+    <button class="btn-ghost" type="button" data-page="${p.page+1}" ${p.page>=p.pages?'disabled':''}>Następna →</button>
+    ${withNow?'<button class="btn-ghost" type="button" data-page-now>Teraz</button>':''}</div>`;
+}
+function planPager(results){
+  const P=S.plan, last=results[results.length-1]; P.lastDep=last?last.dep:null;
+  if(!last && !P.history.length) return '';
+  return `<div class="pager">${P.history.length?'<button class="btn-ghost" type="button" data-plan-page="prev">← Wcześniejsze</button>':''}${last?'<button class="btn-ghost" type="button" data-plan-page="next">Późniejsze →</button>':''}</div>`;
+}
+
+/* ---------- Pełny rozkład z przystanku ---------- */
+const TT={stop:'', day:0, line:'', page:null};
+function timetableRows(){
+  const day=dayInfo(TT.day);
+  return departuresFrom(TT.stop, day.base, day.base+30*3600, tripInView, [TT.day]);
+}
+function dayLabel(off){
+  const d=dayInfo(off), date=`${d.ymd.slice(6,8)}.${d.ymd.slice(4,6)}`;
+  return off===0?`Dziś · ${date}`:off===1?`Jutro · ${date}`:`${['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'][d.wd]} · ${date}`;
+}
+function renderTimetable(){
+  const el=document.getElementById('ttResults'), lineSel=document.getElementById('ttLine');
+  if(S.agency==='kolej') return;
+  if(!GT.loaded){ el.innerHTML='<div class="empty-note">Rozkład jazdy wczytuje się w tle…</div>'; return; }
+  if(!TT.stop){ lineSel.innerHTML='<option value="">Wszystkie linie</option>'; el.innerHTML='<div class="empty-note">Wpisz przystanek, aby zobaczyć wszystkie odjazdy w wybranym dniu.</div>'; return; }
+  const all=timetableRows();
+  const routes=[...new Set(all.map(d=>d.t.route))].map(routeById).sort((a,b)=>natSort(a.short,b.short));
+  if(TT.line && !routes.some(r=>r.id===TT.line)) TT.line='';
+  lineSel.innerHTML='<option value="">Wszystkie linie</option>'+routes.map(r=>`<option value="${esc(r.id)}">Linia ${esc(r.short)}</option>`).join('');
+  lineSel.value=TT.line;
+  const rows=TT.line ? all.filter(d=>d.t.route===TT.line) : all, now=nowSec();
+  const head=`<div class="plan-head"><span>${esc(TT.stop)}</span><span class="text-soft">${esc(dayLabel(TT.day))} · ${rows.length} odjazdów · rozkład planowy</span></div>`;
+  if(!rows.length){ el.innerHTML=head+'<div class="empty-note">Brak odjazdów w tym dniu.</div>'; return; }
+  const p=paginate(rows, TT.page??(TT.day===0?pageOfNow(rows,TT_PAGE,d=>d.dep,now):1), TT_PAGE);
+  el.innerHTML=head+'<div class="board">'+p.rows.map(d=>{ const r=routeById(d.t.route), last=GT.stopGroupOf.get(d.st[d.st.length-1].stop)||'';
+    return `<button class="tt-row ${d.dep<now?'tt-past':''}" type="button" data-route="${esc(r.id)}"><b class="tt-time">${fmtClock(d.dep)}</b>
+      <span class="leg-line" style="background:${lineColor(r.short,r.color,r.agency)}">${esc(r.short)}</span>
+      <span class="tt-dir">→ ${esc(d.t.headsign||last)}</span><small class="text-soft">${TT.day===0&&d.dep>=now?inMin(d.dep):''}</small></button>`; }).join('')+'</div>'+pagerHtml(p, TT.day===0);
+}
+function setTimetableStop(name){ TT.stop=name; TT.page=null; TT.line=''; document.getElementById('ttStop').value=name; store('rzbus.tt.'+S.agency, name); renderTimetable(); }
+document.getElementById('ttDay').innerHTML=[0,1,2,3,4,5,6].map(i=>`<option value="${i}">${esc(dayLabel(i))}</option>`).join('');
+document.getElementById('ttDay').addEventListener('change', e=>{ TT.day=+e.target.value; TT.page=null; renderTimetable(); });
+document.getElementById('ttLine').addEventListener('change', e=>{ TT.line=e.target.value; TT.page=null; renderTimetable(); });
+document.getElementById('ttForm').addEventListener('submit', e=>{
+  e.preventDefault();
+  const err=document.getElementById('ttErr'); err.textContent='';
+  if(!GT.loaded) return;
+  const n=resolveStop(document.getElementById('ttStop').value);
+  if(n) setTimetableStop(n); else err.textContent='Nie znaleziono takiego przystanku.';
+});
+document.getElementById('ttResults').addEventListener('click', e=>{
+  const pg=e.target.closest('[data-page]'); if(pg){ TT.page=+pg.dataset.page; renderTimetable(); return; }
+  if(e.target.closest('[data-page-now]')){ TT.page=null; renderTimetable(); return; }
+  const b=e.target.closest('[data-route]'); if(b) openLine(b.dataset.route);
+});
+
+/* ---------- Podpowiedzi podczas pisania ---------- */
+function stopMatches(q){
+  const needle=q.toLowerCase(), names=S.agency==='kolej' ? railStationNames() : [...GT.groups.keys()].filter(groupInView);
+  return names.filter(n=>n.toLowerCase().includes(needle)).sort((a,b)=>b.toLowerCase().startsWith(needle)-a.toLowerCase().startsWith(needle) || natSort(a,b)).slice(0,5);
+}
+function attachSuggest(input, {streets, onPick}){
+  const box=document.createElement('ul'); box.className='suggest-list'; box.id=input.id+'List'; box.setAttribute('role','listbox'); box.hidden=true;
+  input.closest('.pl-field').appendChild(box);
+  input.setAttribute('role','combobox'); input.setAttribute('aria-autocomplete','list'); input.setAttribute('aria-controls',box.id); input.setAttribute('aria-expanded','false'); input.autocomplete='off';
+  let items=[], active=-1, timer=null, req=0;
+  const close=()=>{ clearTimeout(timer); req++; box.hidden=true; active=-1; input.setAttribute('aria-expanded','false'); input.removeAttribute('aria-activedescendant'); };
+  const draw=()=>{
+    box.innerHTML=items.map((it,i)=>`<li id="${box.id}-${i}" role="option" aria-selected="${i===active}" class="${i===active?'active':''}" data-i="${i}"><span class="sg-kind">${it.kind}</span>${esc(it.label)}</li>`).join('');
+    box.hidden=!items.length; input.setAttribute('aria-expanded', String(!box.hidden));
+    if(active>=0) input.setAttribute('aria-activedescendant', box.id+'-'+active); else input.removeAttribute('aria-activedescendant');
+  };
+  const pick=it=>{ input.value=it.label; close(); if(onPick) onPick(it); };
+  const stopKind=()=>S.agency==='kolej'?'stacja':'przystanek';
+  input.addEventListener('input', ()=>{
+    clearTimeout(timer); const q=input.value.trim(), my=++req;
+    if(q.length<2){ items=[]; close(); return; }
+    const local=stopMatches(q).map(label=>({label, kind:stopKind()}));
+    items=local; active=-1; draw();
+    if(!streets) return;
+    timer=setTimeout(async()=>{
+      try{
+        const r=await fetch('/api/streets?q='+encodeURIComponent(q)); if(!r.ok) return;
+        const {suggestions}=await r.json();
+        if(my!==req) return;
+        items=[...suggestions.map(label=>({label, kind:'ulica'})), ...local.slice(0,3)]; active=-1; draw();
+      }catch(e){ console.warn('Podpowiedzi ulic', e); }
+    }, 250);
+  });
+  input.addEventListener('keydown', e=>{
+    if(e.key==='Escape'){ close(); return; }
+    if(box.hidden) return;
+    if(e.key==='ArrowDown' || e.key==='ArrowUp'){ e.preventDefault(); const n=items.length; active=e.key==='ArrowDown' ? (active+1)%n : (active+n-1+(active<0?1:0))%n; draw(); }
+    else if(e.key==='Enter'){ if(active>=0){ e.preventDefault(); pick(items[active]); } else close(); }
+  });
+  box.addEventListener('mousedown', e=>{ const li=e.target.closest('[data-i]'); if(li){ e.preventDefault(); pick(items[+li.dataset.i]); } });
+  input.addEventListener('blur', close);
+}
+
 /* ---------- Ulica → najbliższe przystanki ---------- */
 function nearbyStops(place){
   const train=S.agency==='kolej';
@@ -1494,11 +1616,14 @@ document.getElementById('planForm').addEventListener('submit', async e=>{
     plFrom.value=origin.label; plTo.value=dest.label;
     for(const [field,p] of [['from',origin],['to',dest]]) if(p.place) S.placeChoice[field]={q:p.label, place:p.place, approximate:p.approximate};
     let at=null; if(plTime.value){ const [h,m]=plTime.value.split(':').map(Number); at=todayMidnight()+h*3600+m*60; if(at<nowSec()-3600) at+=86400; }
-    S.plan={from:origin.label, to:dest.label, origin, dest, at}; store('rzbus.plan.'+S.agency, {from:origin.label,to:dest.label});
+    S.plan={from:origin.label, to:dest.label, origin, dest, at, history:[]}; store('rzbus.plan.'+S.agency, {from:origin.label,to:dest.label});
     runPlan(true);
   }finally{ if(req===planReq){ go.disabled=false; refreshStopList(); } }
 });
 const [plFrom,plTo,plTime]=['plFrom','plTo','plTime'].map(id=>document.getElementById(id));
+attachSuggest(plFrom, {streets:true});
+attachSuggest(plTo, {streets:true});
+attachSuggest(document.getElementById('ttStop'), {streets:false, onPick:it=>setTimetableStop(it.label)});
 document.getElementById('plSwap').addEventListener('click', ()=>{ const a=plFrom.value; plFrom.value=plTo.value; plTo.value=a; S.placeChoice={from:S.placeChoice.to, to:S.placeChoice.from}; });
 document.getElementById('plGeo').addEventListener('click', ()=>{
   const err=document.getElementById('planErr'); err.textContent='';
@@ -1510,6 +1635,8 @@ document.getElementById('plGeo').addEventListener('click', ()=>{
 });
 document.getElementById('planResults').addEventListener('click', e=>{
   const tr=e.target.closest('[data-train]'); if(tr){ openTrain(tr.dataset.train); return; }
+  const pp=e.target.closest('[data-plan-page]');
+  if(pp){ const P=S.plan; if(pp.dataset.planPage==='next'){ P.history.push(P.at); P.at=P.lastDep+60; } else P.at=P.history.pop(); runPlan(false); return; }
   const pl=e.target.closest('[data-place]'); if(pl){ const r=S.placeOptions; S.placeChoice[r.field]={q:r.q, place:r.choose[+pl.dataset.place], approximate:r.approximate}; document.getElementById('planForm').requestSubmit(); return; }
   const b=e.target.closest('[data-bus]'); if(b){ const v=S.vehicles.get(b.dataset.bus); if(v){ document.getElementById('map-sec').scrollIntoView({behavior:'smooth'}); map.setView([v.lat,v.lon],16); openBus(v.id);} return; }
   const s=e.target.closest('[data-show]'); if(!s) return;
@@ -1861,7 +1988,7 @@ function renderTrainsOnMap(){
     for(const id of RAIL_IDS){ const [n,lat,lon]=RAIL_ST[id];
       const mk=L.marker([lat,lon],{icon:L.divIcon({className:'bus-pin-wrap',html:`<div class="rail-st" title="${esc(n)}">${TRAIN_SVG}</div>`,iconSize:[20,20],iconAnchor:[10,10]}), zIndexOffset:-500});
       mk.bindTooltip(`<b>${esc(n)}</b><br>stacja kolejowa · kliknij, by zobaczyć odjazdy`,{className:'bus-tip',direction:'top',offset:[0,-10]});
-      mk.on('click',()=>{ TR.station=id; document.getElementById('trStation').value=String(id); renderBoard(); document.getElementById('trains-sec').scrollIntoView({behavior:'smooth'}); });
+      mk.on('click',()=>{ TR.station=id; TR.page=null; document.getElementById('trStation').value=String(id); renderBoard(); document.getElementById('trains-sec').scrollIntoView({behavior:'smooth'}); });
       TR.stMarkers.push(mk); }
   }
   for(const mk of TR.stMarkers){ if(show){ if(!map.hasLayer(mk)) mk.addTo(map); } else if(map.hasLayer(mk)) map.removeLayer(mk); }
@@ -1869,19 +1996,17 @@ function renderTrainsOnMap(){
 }
 /* ---------- tablica odjazdów / przyjazdów ---------- */
 function boardRows(stationId, kind){
-  const now=nowSec(); const rows=[];
+  const rows=[], mid=todayMidnight();
   for(const t of TR.trains){
     const idx=t.stops.findIndex(x=>x.id===stationId); if(idx<0) continue;
     const x=t.stops[idx];
     if(kind==='dep'){ if(idx===t.stops.length-1 || x.pDep==null) continue; }
     else { if(idx===0 || x.pArr==null) continue; }
     const plan = kind==='dep'?x.pDep:x.pArr, pred = kind==='dep'?x.predDep:x.predArr;
-    const done = kind==='dep' ? (x.aDep && x.cf && x.aDep<now-30) : (x.aArr && x.cf && x.aArr<now-30);
-    if(done) continue;
-    if(pred < now-90 || plan > now+4*3600) continue;
+    if(plan<mid || plan>=mid+86400) continue;
     rows.push({t, x, idx, plan, pred, delay:x.delay, cn: x.cn || t.cancelled});
   }
-  return rows.sort((a,b)=>a.pred-b.pred).slice(0,30);
+  return rows.sort((a,b)=>a.pred-b.pred);
 }
 function trainDelayChip(d, cn){
   if(cn) return '<span class="chip late">odwołany</span>';
@@ -1895,23 +2020,24 @@ function renderBoard(){
   const modeTxt = TR.mode==='live' ? `Dane PKP PLK · aktualizacja ${TR.ts?fmtClockS(TR.ts):'—'} · co 2 min` : TR.mode==='demo' ? 'Przykładowe dane (brak klucza PKP PLK lub brak połączenia)' : TR.mode==='loading' ? 'Pobieranie danych PKP PLK…' : '';
   info.innerHTML = esc(modeTxt) + (TR.err?` · <span class="txt-red">${esc(TR.err)}</span>`:'');
   const banner = TR.mode==='demo' ? `<div class="line-notice" style="margin:0 0 12px"><div><span class="ln-badge off">i</span>${CFG.plkKey?'Nie udało się pobrać danych PKP PLK — pokazuję przykładowy rozkład.':'Aby widzieć prawdziwe pociągi i opóźnienia, dodaj bezpłatny klucz <b>Otwarte Dane Kolejowe</b> (pdp-api.plk-sa.pl) w Ustawieniach. Poniżej przykładowe dane.'}</div><button class="ln-link" id="trOpenSettings">Ustawienia →</button></div>` : '';
-  const rows=boardRows(TR.station, TR.tab);
-  if(!rows.length){ el.innerHTML = banner+`<div class="empty-note">Brak ${TR.tab==='dep'?'odjazdów':'przyjazdów'} w ciągu najbliższych 4 godzin${TR.mode==='loading'?' (wczytywanie…)':''}.</div>`; }
+  const all=boardRows(TR.station, TR.tab), now=nowSec();
+  const p=paginate(all, TR.page??pageOfNow(all,BOARD_PAGE,r=>r.pred,now-90), BOARD_PAGE), rows=p.rows;
+  if(!rows.length){ el.innerHTML = banner+`<div class="empty-note">Brak ${TR.tab==='dep'?'odjazdów':'przyjazdów'} na dziś${TR.mode==='loading'?' (wczytywanie…)':''}.</div>`; }
   else el.innerHTML = banner + `<div class="board">` + rows.map(r=>{ const t=r.t; const changed = r.delay!=null && Math.abs(r.delay)>=1 && !r.cn;
-    return `<button class="board-row ${r.cn?'cancel':''}" data-train="${esc(t.key)}">
+    return `<button class="board-row ${r.cn?'cancel':''} ${r.pred<now-90?'tt-past':''}" data-train="${esc(t.key)}">
       <span class="br-time"><b class="${changed&&statusOf(r.delay*60)==='late'?'txt-red':''}">${fmtClock(r.pred)}</b>${changed?`<s>${fmtClock(r.plan)}</s>`:''}<small>${inMin(r.pred)}</small></span>
       <span class="br-train"><span class="tr-cat">${esc(t.cat||'POC')}</span> <b>${esc(t.num)}</b>${t.name?` <i>„${esc(t.name)}”</i>`:''}<small>${esc(TR.carriers.get(t.carrier)||t.carrier||'')}</small></span>
       <span class="br-dir">${TR.tab==='dep'?'→ '+esc(t.to):'z: '+esc(t.from)}<small>${TR.tab==='dep'?'z: '+esc(t.from):'→ '+esc(t.to)}</small></span>
       <span class="br-pl">${r.x.pl?`peron <b>${esc(r.x.pl)}</b>`:''}${r.x.tr?` tor <b>${esc(r.x.tr)}</b>`:''}${!r.x.pl&&!r.x.tr?'<small>peron —</small>':''}</span>
       <span class="br-st">${trainDelayChip(r.delay, r.cn)}<small>${esc(TRAIN_STATUS[t.status]||'')}</small></span>
-    </button>`; }).join('') + `</div>`;
+    </button>`; }).join('') + `</div>` + pagerHtml(p, true);
   const os=document.getElementById('trOpenSettings'); if(os) os.onclick=()=>{ fillSettings(); settingsModal.show(); setTimeout(()=>document.getElementById('sPlk').focus(),400); };
 }
-document.getElementById('trainBoard').addEventListener('click', e=>{ const b=e.target.closest('[data-train]'); if(b) openTrain(b.dataset.train); });
+document.getElementById('trainBoard').addEventListener('click', e=>{ const pg=e.target.closest('[data-page]'); if(pg){ TR.page=+pg.dataset.page; renderBoard(); return; } if(e.target.closest('[data-page-now]')){ TR.page=null; renderBoard(); return; } const b=e.target.closest('[data-train]'); if(b) openTrain(b.dataset.train); });
 document.getElementById('trStation').innerHTML = RAIL_IDS.slice().sort((a,b)=>(b===82669)-(a===82669) || RAIL_ST[a][0].localeCompare(RAIL_ST[b][0],'pl')).map(id=>`<option value="${id}">${esc(RAIL_ST[id][0])}</option>`).join('');
 document.getElementById('trStation').value=String(TR.station);
-document.getElementById('trStation').addEventListener('change', e=>{ TR.station=+e.target.value; renderBoard(); });
-document.querySelectorAll('[data-trtab]').forEach(b=>b.addEventListener('click', ()=>{ TR.tab=b.dataset.trtab; document.querySelectorAll('[data-trtab]').forEach(x=>x.classList.toggle('active', x===b)); renderBoard(); }));
+document.getElementById('trStation').addEventListener('change', e=>{ TR.station=+e.target.value; TR.page=null; renderBoard(); });
+document.querySelectorAll('[data-trtab]').forEach(b=>b.addEventListener('click', ()=>{ TR.tab=b.dataset.trtab; TR.page=null; document.querySelectorAll('[data-trtab]').forEach(x=>x.classList.toggle('active', x===b)); renderBoard(); }));
 /* ---------- jak dojechać pociągiem (połączenia bezpośrednie) ---------- */
 function railStationNames(){ const names=new Set(Object.values(RAIL_ST).map(s=>s[0])); for(const t of TR.trains) for(const x of t.stops) names.add(railName(x.id)); return [...names].sort(natSort); }
 function resolveStation(txt){
@@ -1947,7 +2073,7 @@ function planTrainRoutes(origin, dest, at){
 function renderTrainPlan(results){
   const el=document.getElementById('planResults'); const P=S.plan;
   const note=placeSummary(P)+(TR.mode==='demo' ? '<div class="small text-soft mb-2">Przykładowe dane — prawdziwe połączenia pojawią się po dodaniu klucza PKP PLK w Ustawieniach.</div>' : '');
-  if(!results.length){ el.innerHTML=note+`<div class="empty-note">Brak bezpośrednich pociągów z <b>${esc(P.from)}</b> do <b>${esc(P.to)}</b> w ciągu 6 godzin.</div>`; return; }
+  if(!results.length){ el.innerHTML=note+`<div class="empty-note">Brak bezpośrednich pociągów z <b>${esc(P.from)}</b> do <b>${esc(P.to)}</b> w ciągu 6 godzin.</div>`+planPager(results); return; }
   el.innerHTML = note+`<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span><span class="text-soft">${P.at?'odjazd od '+fmtClock(P.at):'odjazdy od teraz'} · ${results.length} połączeń</span></div>` +
     results.map(({t,a,dep,arr,from,to,walkFrom,walkTo})=>`<div class="plan-card">
       <div class="pc-time"><div class="pc-dep ${a.delay!=null&&statusOf(a.delay*60)==='late'?'txt-red':''}">${fmtClock(dep)}</div><div class="pc-in">${walkFrom?'wyjdź '+fmtClock(dep-walkFrom):inMin(dep)}</div></div>
@@ -1957,7 +2083,7 @@ function renderTrainPlan(results){
         <div class="pc-legs">${walkStep(walkFrom,`Idź na stację ${esc(from)}`)}<div class="leg-meta">${esc(t.label)}${t.name?' „'+esc(t.name)+'”':''} · kierunek ${esc(t.to)}${TR.carriers.get(t.carrier)?' · '+esc(TR.carriers.get(t.carrier)):''}</div>${walkStep(walkTo,`Ze stacji ${esc(to)} dojdź do celu`)}</div>
       </div>
       <div class="pc-actions"><button class="btn-ghost" data-train="${esc(t.key)}">Szczegóły</button></div>
-    </div>`).join('');
+    </div>`).join('')+planPager(results);
 }
 /* ---------- okienko pociągu ---------- */
 const trainModalEl=document.getElementById('trainModal'); const trainModal=new bootstrap.Modal(trainModalEl);

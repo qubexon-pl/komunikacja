@@ -10,9 +10,13 @@ Three-tier web application for Rzeszów public transport:
 
 The app has one page per transport category: `/autobusy` (ZTM, also served at `/`), `/pks`, and `/pociagi`. Each has its own map, statistics, late list, search, and journey planner. Bus and PKS planners use only that category's stops and lines; the train planner finds direct connections from the PKP PLK data. Tabs switch pages without reloading the timetable. Weather refreshes every 45 minutes.
 
+## Timetables
+
+Bus and PKS pages list every departure from a stop for today or the next six days, 20 per page, and open on the page with the next departure. The train board lists today's trains, 15 per page. The journey planner has earlier and later buttons to move beyond its search window.
+
 ## Street search
 
-"Jak dojechać" accepts a street, with or without a house number, as well as a stop or station name. The server checks the address with OpenStreetMap's public Nominatim service through `/api/geocode`, at most one request per second and with a 24-hour cache. Searches run when the form is submitted because Nominatim does not allow search-as-you-type. The planner then compares several stops near each address and counts the estimated walk. Heavier traffic would need a self-hosted or paid geocoder.
+"Jak dojechać" accepts a street, with or without a house number, as well as a stop or station name. The server checks the address with OpenStreetMap's public Nominatim service through `/api/geocode`, at most one request per second and with a 24-hour cache. Nominatim does not allow search-as-you-type, so live suggestions come from the Photon service through `/api/streets` and the chosen address is still checked with Nominatim when the form is submitted. The planner then compares several stops near each address and counts the estimated walk. Heavier traffic would need a self-hosted or paid geocoder.
 
 ## Database design
 
