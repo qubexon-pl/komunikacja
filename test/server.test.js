@@ -469,25 +469,24 @@ test("flights and driving routes are public, validated, and old end-stop links m
   assert.equal(old.headers.get("location"), "/podroz");
 });
 
-test("only an administrator can start a flight refresh", async (t) => {
+test("anyone can start a flight refresh, from this site and with valid details", async (t) => {
   const requests = [];
-  let user = null;
   const server = createServer({
     database: {},
-    auth: { resolveSession: async () => user },
+    auth: { resolveSession: async () => null },
     flights: { search: () => ({}), pairsFor: ({ from, to }) => (to === "XXX" ? [] : [{ from, to, airlines: ["WIZZ"] }]) },
     collector: { status: () => ({ available: true, running: false }), request: (target) => { requests.push(target); return "started"; } },
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const post = (body) => fetch(`${base}/api/flights/refresh`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base, Cookie: "x=1" }, body: JSON.stringify(body) });
+  const post = (body) => fetch(`${base}/api/flights/refresh`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify(body) });
 
   assert.equal((await (await fetch(`${base}/api/flights/status`)).json()).available, true);
-  assert.equal((await post({})).status, 401);
-  user = { id: "1", email: "someone@example.invalid", isAdmin: false };
-  assert.equal((await post({})).status, 403);
-  user = { id: "2", email: "boss@example.invalid", isAdmin: true };
+  const foreign = await fetch(`${base}/api/flights/refresh`, { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://evil.example" }, body: "{}" });
+  assert.equal(foreign.status, 403);
+  assert.equal((await post({})).status, 202);
+  requests.length = 0;
   const period = { start: "2026-12-01", end: "2026-12-10" };
   assert.equal((await post({ from: "rze", ...period })).status, 400);
   assert.equal((await post({ from: "RZE", to: "BCN" })).status, 400);

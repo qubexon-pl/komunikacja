@@ -9,11 +9,45 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.resolve(__dirname, "../assets/app.js"), "utf8");
 
 function loadTrainPlanner(trains) {
-  const context = { TR: { trains }, railName: (id) => id };
+  const context = { TR: { trains }, railName: (id) => id, RAIL_SEARCH_HOURS: 14 };
   const start = source.indexOf("function planTrainTrips(");
   vm.runInNewContext(source.slice(start, source.indexOf("/* ---------- okienko pociągu")), context);
-  return context.planTrainTrips;
+  return (from, to, at) => context.planTrainTrips(from, to, at, trains);
 }
+
+function loadRailTargets(names, nearby = []) {
+  const points = { "Rzeszów Główny": [50.043, 22.006], "Rzeszów Załęże": [50.059, 22.07] };
+  const context = {
+    HOME_STATION: "Rzeszów Główny",
+    railStationNames: () => names,
+    stopPoint: (name) => points[name] || null,
+    stationsNear: () => nearby,
+    hav: (a, b) => Math.round(Math.hypot(a[0] - b[0], a[1] - b[1]) * 100000),
+  };
+  vm.runInNewContext(`${source.slice(source.indexOf("function placeCity("), source.indexOf("function stopsAtStation("))}; this.railTargets = railTargets;`, context);
+  return (place) => Array.from(context.railTargets({ points: [], ...place }), (station) => station.name);
+}
+
+const stations = ["Kraków Płaszów", "Kraków Główny", "Krakówek", "Tarnów", "Rzeszów Załęże", "Rzeszów Główny"];
+
+test("a city leads to its stations, the main one first", () => {
+  const targets = loadRailTargets(stations);
+  assert.deepEqual(targets({ label: "Kraków", place: { label: "Kraków", locality: "Kraków" } }), ["Kraków Główny", "Kraków Płaszów"]);
+});
+
+test("a street leads to the stations of its city", () => {
+  const targets = loadRailTargets(stations);
+  assert.equal(targets({ label: "Floriańska 10, Kraków", place: { label: "Floriańska 10, Kraków", locality: "Kraków" } })[0], "Kraków Główny");
+});
+
+test("a typed station is used exactly", () => {
+  assert.deepEqual(loadRailTargets(stations)({ label: "Kraków Płaszów", station: "Kraków Płaszów" }), ["Kraków Płaszów"]);
+});
+
+test("a place without its own station uses the nearest ones and the main Rzeszów station", () => {
+  const targets = loadRailTargets(stations, [{ name: "Rzeszów Załęże" }]);
+  assert.deepEqual(targets({ label: "Tyczyn", points: [[50.0, 22.0]], place: { label: "Tyczyn", locality: "Tyczyn" } }), ["Rzeszów Główny", "Rzeszów Załęże"]);
+});
 
 const stop = (id, predDep, predArr = predDep) => ({ id, predDep, predArr, cn: false });
 const train = (key, stops, extra = {}) => ({ key, stops, cancelled: false, ...extra });
@@ -30,7 +64,7 @@ test("the train planner respects direction, departure time, and cancellations", 
   const plan = loadTrainPlanner([
     train("wrong-way", [stop("B", 1500), stop("A", 1800)]),
     train("gone", [stop("A", 100), stop("B", 400)]),
-    train("too-far", [stop("A", 1000 + 7 * 3600), stop("B", 1000 + 8 * 3600)]),
+    train("too-far", [stop("A", 1000 + 15 * 3600), stop("B", 1000 + 16 * 3600)]),
     train("cancelled", [stop("A", 1500), stop("B", 1800)], { cancelled: true }),
     train("stop-cancelled", [{ ...stop("A", 1500), cn: true }, stop("B", 1800)]),
     train("ok", [stop("A", 1600), stop("B", 1900)]),

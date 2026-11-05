@@ -6,7 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { airportsNear } = require("../src/airports");
-const { createDrivingRouter, parsePoint } = require("../src/driving");
+const { createDrivingRouter, createPathRouter, parsePoint } = require("../src/driving");
 const { buildWatches, createFlightCollector, trackerDatabase, watchesForPairs, writeWatches } = require("../src/flight-collector");
 const { mergeNetwork, parseWizzMap, readNetwork, ryanairAirports } = require("../src/flight-network");
 const { createFlightStore, earliestReturn, inWindow, lastChange, normalizeFare, rankFares, readFareFile } = require("../src/flights");
@@ -165,6 +165,7 @@ test("only the newest run of a flight-tracker database is imported, and exact pr
   add.run(2, "WIZZ", "RZE", "TGD", "2026-11-12", null, 300, "wizz.farechart", 300);
   add.run(2, "WIZZ", "RZE", "TGD", "2026-11-12", "W6 1", 250, "wizz.search", 250);
   add.run(2, "WIZZ", "RZE", "TGD", "2026-11-13", null, 280, "wizz.farechart", 280);
+  add.run(2, "WIZZ", "RZE", "TGD", "2026-11-13", null, 280, "wizz.farechart", 280);
   add.run(2, "RYANAIR", "RZE", "STN", "2027-06-01", "LATER", 99, "ryanair.availability.v4", 99);
   add.run(1, "RYANAIR", "RZE", "EDI", "2026-11-18", "OTHER DAY", 200, "ryanair.availability.v4", 200);
   db.close();
@@ -277,24 +278,27 @@ test("our watches are replaced on later runs and the user's own are left alone",
 
 test("a scan of chosen routes asks each airline only about what it flies and does not postpone the daily run", async () => {
   const prepared = [];
+  const modes = [];
   let marks = 0;
   const collector = createFlightCollector({
     dir: "tracker",
     flights: { sync: async () => {} },
     prepare: async (dir, watches) => { prepared.push(watches); },
-    collect: async () => {},
+    collect: async (dir, options) => { modes.push(options.wizzMode); },
     markFullRun: async () => { marks += 1; },
   });
   const pairs = [{ from: "TIA", to: "CRL", airlines: ["RYANAIR", "WIZZ"] }, { from: "TIA", to: "BGY", airlines: ["WIZZ"] }];
   await collector.run({ pairs, start: "2026-12-01", end: "2026-12-10", target: { from: "TIA", to: "" } });
   assert.deepEqual(prepared[0].map((watch) => [watch.origin, watch.destinations, watch.airlines, watch.start, watch.end]), [
-    ["TIA", "CRL", "RYANAIR", "2026-12-01", "2026-12-10"],
-    ["TIA", "CRL,BGY", "WIZZ", "2026-12-01", "2026-12-10"],
+    ["TIA", "CRL", "RYANAIR", "2026-12-01", "2026-12-11"],
+    ["TIA", "CRL,BGY", "WIZZ", "2026-12-01", "2026-12-11"],
   ]);
+  assert.equal(prepared[0][0].min_days, 1);
   assert.equal(marks, 0);
   assert.deepEqual(collector.status().target, { from: "TIA", to: "" });
   await collector.run();
   assert.equal(marks, 1);
+  assert.deepEqual(modes, ["detailed", undefined]);
 });
 
 test("only one collection runs at a time, and the outcome can be read", async () => {
@@ -394,4 +398,22 @@ test("a one-day trip cannot return before it has landed", async () => {
   ]);
   const [trip] = store.options({ origin: { lat: 50.04, lon: 22.0 }, dest: { lat: 55.95, lon: -3.19 }, stay: 1 }).options;
   assert.deepEqual(trip.returns.map((flight) => flight.flightNumber), ["AFTER"]);
+});
+
+test("a path follows the router's line, walking and driving use their own routers, and repeats are cached", async () => {
+  const urls = [];
+  const findPath = createPathRouter({
+    fetchSource: async (url) => {
+      urls.push(String(url));
+      return { ok: true, json: async () => ({ routes: [{ geometry: { coordinates: [[22, 50], [22.1, 50.1]] } }] }) };
+    },
+  });
+  const from = { lat: 50, lon: 22 };
+  const to = { lat: 50.1, lon: 22.1 };
+  assert.deepEqual(await findPath("walk", from, to), [[50, 22], [50.1, 22.1]]);
+  await findPath("walk", from, to);
+  await findPath("car", from, to);
+  assert.equal(urls.length, 2);
+  assert.match(urls[0], /routed-foot/);
+  assert.match(urls[1], /project-osrm/);
 });

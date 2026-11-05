@@ -10,8 +10,10 @@ const WATCH_PREFIX = "komunikacja: ";
 const DEFAULT_ROUTES = "RZE:STN,LTN,EDI,DUB,ALC,BGY;KRK:STN,DUB,BCN,BGY;KTW:LTN,EIN,BCN,BGY";
 const DEFAULT_INTERVAL_HOURS = 24;
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
-const RUN_TIMEOUT_MS = 90 * 60 * 1000;
+const RUN_TIMEOUT_MS = 30 * 60 * 1000;
+const WIZZ_DAY_TIMEOUT_MS = 30 * 1000;
 const STAY_DAYS = 3;
+const SCAN_STAY_DAYS = 1;
 const FULL_RUN_MARKER = path.join("data", "komunikacja-last-full-run");
 
 const isoDay = (date) => date.toISOString().slice(0, 10);
@@ -30,12 +32,14 @@ function buildWatches(routes, now, days = WINDOW_DAYS) {
 }
 
 // One watch per origin and airline, so an airline is only asked about the routes it flies.
+// The tracker opens a day with its return one stay later, so a one-day stay past the end reaches the last chosen day.
 function watchesForPairs(pairs, start, end) {
   const groups = new Map();
+  const lastDay = isoDay(new Date(Date.parse(`${end}T12:00:00Z`) + SCAN_STAY_DAYS * 86400000));
   for (const { from, to, airlines } of pairs) {
     for (const airline of airlines) {
       const key = `${from} ${airline}`;
-      if (!groups.has(key)) groups.set(key, { name: `${WATCH_PREFIX}${key}`, origin: from, destinations: [], start, end, min_days: STAY_DAYS, max_days: STAY_DAYS, airlines: airline });
+      if (!groups.has(key)) groups.set(key, { name: `${WATCH_PREFIX}${key}`, origin: from, destinations: [], start, end: lastDay, min_days: SCAN_STAY_DAYS, max_days: SCAN_STAY_DAYS, airlines: airline });
       groups.get(key).destinations.push(to);
     }
   }
@@ -61,10 +65,16 @@ async function writeWatches(dir, watches) {
   }
 }
 
-function runTracker(dir) {
+function scanTimeout(pairs, start, end) {
+  const days = (Date.parse(end) - Date.parse(start)) / 86400000 + 1;
+  return RUN_TIMEOUT_MS + pairs.filter((pair) => pair.airlines.includes("WIZZ")).length * days * WIZZ_DAY_TIMEOUT_MS;
+}
+
+function runTracker(dir, { wizzMode = "", timeoutMs = RUN_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--use-system-ca", "--no-warnings=ExperimentalWarning", "src/collect.js"], { cwd: dir, stdio: "inherit" });
-    const timer = setTimeout(() => child.kill(), RUN_TIMEOUT_MS);
+    const env = wizzMode ? { ...process.env, WIZZ_MODE: wizzMode } : process.env;
+    const child = spawn(process.execPath, ["--use-system-ca", "--no-warnings=ExperimentalWarning", "src/collect.js"], { cwd: dir, env, stdio: "inherit" });
+    const timer = setTimeout(() => child.kill(), timeoutMs);
     child.on("error", reject);
     child.on("exit", (code) => {
       clearTimeout(timer);
@@ -104,7 +114,7 @@ function createFlightCollector({
     try {
       await updateNetwork().catch((error) => console.error("Route list update failed:", error.message));
       await prepare(dir, pairs ? watchesForPairs(pairs, start, end) : buildWatches(routes, now(), WINDOW_DAYS));
-      await collect(dir);
+      await collect(dir, pairs ? { wizzMode: "detailed", timeoutMs: scanTimeout(pairs, start, end) } : {});
       await flights.sync();
       if (!pairs) await markFullRun(dir);
       return true;

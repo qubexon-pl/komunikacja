@@ -56,7 +56,7 @@ function readTrackerDatabase(file, today, days = STORE_DAYS) {
   try {
     return db.prepare(`
       SELECT f.airline, f.from_airport AS "from", f.to_airport AS "to", f.day, f.departure, f.arrival,
-             f.flight_number AS flightNumber, f.price, f.currency, f.price_base AS pricePln, f.seats_left AS seatsLeft,
+             f.flight_number AS flightNumber, MIN(f.price) AS price, f.currency, MIN(f.price_base) AS pricePln, MIN(f.seats_left) AS seatsLeft,
              f.source, f.collected_at AS collectedAt,
              CASE WHEN f.source = 'wizz.farechart' THEN 'list' ELSE 'exact' END AS priceType
       FROM fares f
@@ -67,6 +67,7 @@ function readTrackerDatabase(file, today, days = STORE_DAYS) {
         AND NOT (f.source = 'wizz.farechart' AND EXISTS (
               SELECT 1 FROM fares s WHERE s.run_id = f.run_id AND s.source = 'wizz.search'
                 AND s.from_airport = f.from_airport AND s.to_airport = f.to_airport AND s.day = f.day))
+      GROUP BY f.airline, f.from_airport, f.to_airport, f.day, COALESCE(f.flight_number, ''), COALESCE(f.departure, '')
     `).all(today, addDays(today, days)).map((row) => ({ ...row, collectedAt: `${String(row.collectedAt).replace(" ", "T")}Z` }));
   } finally {
     db.close();

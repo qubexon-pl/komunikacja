@@ -7,7 +7,7 @@ const { pipeline } = require("node:stream/promises");
 const crypto = require("node:crypto");
 const tls = require("node:tls");
 const { AGENCIES, createSqlConfig, getSchedule, importedHash, readFlightFares, readFlightNetwork, readSchedule, replaceFlightFares, replaceSchedule, saveFlightNetwork } = require("./database");
-const { createDrivingRouter, parsePoint } = require("./driving");
+const { PATH_URLS, createDrivingRouter, createPathRouter, parsePoint } = require("./driving");
 const { createFlightCollector, trackerDatabase } = require("./flight-collector");
 const { readNetwork } = require("./flight-network");
 const { createFlightStore } = require("./flights");
@@ -34,7 +34,7 @@ const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/podroz"]);
 const MAX_FAVORITES_BYTES = 64 * 1024;
 const PLK_API = "https://pdp-api.plk-sa.pl/api/v1/";
 const PLK_ROUTES = new Set(["schedules", "operations"]);
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, flights: 120, driving: 30 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, flights: 120, driving: 30, path: 120 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -202,12 +202,8 @@ function serveFlights(res, url, action, flights) {
   json(res, 200, flights.options({ origin, dest, date, stay, back }));
 }
 
-// Each run opens a browser and calls the airlines, so only administrators may start one.
+// Open to everyone during development; each run opens a browser and calls the airlines, so limit this before a public launch.
 async function refreshFlights(req, res, collector, flights) {
-  if (!isFlightAdmin(req.user)) {
-    json(res, 403, { error: "Odświeżanie lotów jest dostępne tylko dla administratora." });
-    return;
-  }
   const { from = "", to = "", start = "", end = "", airlines = [] } = await readJson(req);
   const iata = /^[A-Z]{3}$/;
   const scan = Boolean(from || to);
@@ -231,11 +227,6 @@ async function refreshFlights(req, res, collector, flights) {
   else json(res, 202, { started: true });
 }
 
-function isFlightAdmin(user) {
-  const admins = (process.env.ADMIN_EMAILS || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean);
-  return Boolean(user.isAdmin || admins.includes(String(user.email).toLowerCase()));
-}
-
 async function serveDriving(res, url, drive) {
   const from = parsePoint(url.searchParams.get("from"));
   const to = parsePoint(url.searchParams.get("to"));
@@ -247,6 +238,22 @@ async function serveDriving(res, url, drive) {
     json(res, 200, { route: await drive(from, to) });
   } catch (error) {
     console.error("Driving route failed:", error.message);
+    json(res, 502, { error: "Wyznaczanie trasy jest chwilowo niedostępne." });
+  }
+}
+
+async function servePath(res, url, findPath) {
+  const mode = url.searchParams.get("mode");
+  const from = parsePoint(url.searchParams.get("from"));
+  const to = parsePoint(url.searchParams.get("to"));
+  if (!Object.hasOwn(PATH_URLS, mode || "") || !from || !to) {
+    json(res, 400, { error: "Podaj rodzaj trasy oraz współrzędne początku i celu." });
+    return;
+  }
+  try {
+    json(res, 200, { points: await findPath(mode, from, to) });
+  } catch (error) {
+    console.error("Route path failed:", error.message);
     json(res, 502, { error: "Wyznaczanie trasy jest chwilowo niedostępne." });
   }
 }
@@ -615,7 +622,7 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, schedules = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, schedules = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), staticRoot = ROOT }) {
   const root = path.resolve(staticRoot);
   return http.createServer(async (req, res) => {
     try {
@@ -643,6 +650,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "plk" && segments.length === 3 && PLK_ROUTES.has(segments[2]))
           || (segments[1] === "flights" && (segments.length === 2 || (segments.length === 3 && ["options", "status", "network"].includes(segments[2]))))
           || (segments[1] === "driving" && segments.length === 2)
+          || (segments[1] === "path" && segments.length === 2)
         ) ? (segments[1] === "feeds" ? "feeds" : segments[1]) : null;
         if (publicRoute && !takePublicRequest(req, publicRoute)) {
           json(res, 429, { error: "Zbyt wiele zapytań. Spróbuj ponownie za chwilę." });
@@ -674,6 +682,20 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         }
         if (publicRoute === "driving") {
           await serveDriving(res, url, drive);
+          return;
+        }
+        if (publicRoute === "path") {
+          await servePath(res, url, findPath);
+          return;
+        }
+        if (segments[1] === "flights" && segments[2] === "refresh" && segments.length === 3) {
+          if (req.method !== "POST") {
+            res.setHeader("Allow", "POST");
+            json(res, 405, { error: "Method not allowed." });
+            return;
+          }
+          requireSameOrigin(req);
+          await refreshFlights(req, res, collector, flights);
           return;
         }
         if (segments[1] === "streets" && segments.length === 2 && req.method === "GET") {
@@ -711,16 +733,6 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         req.user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
         if (!req.user) {
           json(res, 401, { error: "Zaloguj się, aby kontynuować." });
-          return;
-        }
-        if (segments[1] === "flights" && segments[2] === "refresh" && segments.length === 3) {
-          if (req.method !== "POST") {
-            res.setHeader("Allow", "POST");
-            json(res, 405, { error: "Method not allowed." });
-            return;
-          }
-          requireSameOrigin(req);
-          await refreshFlights(req, res, collector, flights);
           return;
         }
         if (segments[1] === "favorites" && segments.length === 2) {

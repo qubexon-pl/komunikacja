@@ -102,7 +102,7 @@
   <datalist id="stopNames"></datalist>
   <div id="planResults" class="mt-3 only-podroz"></div>
 
-  <div class="sec-head" id="map-sec"><span class="sec-num">01</span><h2 id="mapTitle">Mapa na żywo</h2><span class="sec-rule"></span></div>
+  <div class="sec-head not-podroz" id="map-sec"><span class="sec-num">01</span><h2 id="mapTitle">Mapa na żywo</h2><span class="sec-rule"></span></div>
   <div class="map-filters not-podroz d-flex flex-wrap gap-2 align-items-center mb-3">
     <button class="pill-btn active" data-filter="all">Wszystkie</button>
     <button class="pill-btn" data-filter="late">Spóźnione</button>
@@ -113,7 +113,7 @@
   <div class="line-notice d-none" id="feedNotice" role="status"></div>
   <div class="line-notice d-none" id="lineNotice"></div>
 
-  <div class="row g-3">
+  <div class="row g-3 not-podroz">
     <div class="col-lg-8 col-xl-9" id="mapCol">
       <div class="card-soft" id="mapWrap">
         <div id="map"></div>
@@ -122,7 +122,6 @@
           <button class="map-tool" id="centerBtn" title="Centrum Rzeszowa">⌖</button>
           <button class="map-tool" id="resetViewBtn" title="Reset widoku — wszystkie linie">↺</button>
         </div>
-        <div class="focus-bar d-none" id="focusBar"></div>
         <div class="tile-note d-none" id="tileNote">Podkład ulic zablokowany w tym podglądzie — trasy i przystanki rysowane z rozkładu. Otwórz plik w przeglądarce, by zobaczyć pełną mapę.</div>
         <div class="map-loader" id="mapLoader"><span class="mini-spin"></span><span id="loaderText">Łączenie z ZTM…</span></div>
       </div>
@@ -145,6 +144,7 @@
     </div>
   </div>
 
+  <div hidden>
   <div class="sec-head only-podroz" id="flights-sec" style="margin-top:64px"><span class="sec-num">03</span><h2>Tanie linie lotnicze</h2><span class="sec-rule"></span></div>
   <form id="flightForm" class="timetable-bar only-podroz" autocomplete="off">
     <div class="pl-field"><label for="flFrom">Z lotniska</label><div class="pl-inp"><select id="flFrom" class="tr-select"><option value="">Wszystkie</option></select></div></div>
@@ -157,8 +157,9 @@
   <div class="small text-soft mt-2 only-podroz" id="flightMeta"></div>
   <div id="flightAirlines" class="flight-airlines mt-3 only-podroz"></div>
   <div id="flightList" class="mt-3 only-podroz"></div>
+  </div>
 
-  <div class="sec-head only-podroz" id="saved-sec" style="margin-top:64px"><span class="sec-num">04</span><h2>Zapisane podróże</h2><span class="sec-rule"></span></div>
+  <div class="sec-head only-podroz" id="saved-sec" style="margin-top:64px"><span class="sec-num">02</span><h2>Zapisane podróże</h2><span class="sec-rule"></span></div>
   <div id="savedTrips" class="only-podroz"></div>
 
   <div class="sec-head only-kolej" id="trains-sec" style="margin-top:64px"><span class="sec-num">04</span><h2>Rozkład pociągów</h2><span class="sec-rule"></span></div>
@@ -187,6 +188,8 @@
     pozycje na żywo: GTFS-Realtime ZTM Rzeszów (<a href="https://www.mpkrzeszow.pl/otwartedane/" target="_blank" rel="noopener">otwarte dane</a>) ·
     podkład mapy: Esri / © OpenStreetMap (wg wyboru w ustawieniach) ·
     trasy samochodowe: <a href="https://project-osrm.org/" target="_blank" rel="noopener">OSRM</a> ·
+    trasy piesze: <a href="https://routing.openstreetmap.de/" target="_blank" rel="noopener">FOSSGIS</a> ·
+    stacje kolejowe: <a href="https://mkuran.pl/gtfs/" target="_blank" rel="noopener">mkuran.pl</a>, PKP PLK ·
     wyszukiwanie ulic: <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">Nominatim</a>, <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a>, dane © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">współtwórcy OpenStreetMap</a> · pogoda: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Gmina Miasto Rzeszów nie ponosi odpowiedzialności za sposób wykorzystania danych.
   </p>
 </main>
@@ -259,6 +262,22 @@
 </div>
 
 <!-- Train modal -->
+<div class="modal fade" id="tripMapModal" tabindex="-1" aria-hidden="true" aria-labelledby="tripMapTitle">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content">
+      <div class="modal-hero">
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+        <span class="kicker"><span class="dot"></span>Trasa na mapie</span>
+        <h4 id="tripMapTitle"></h4>
+      </div>
+      <div class="pick-map-wrap">
+        <div id="tripMap"></div>
+        <div class="pick-info" id="tripMapInfo"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="trainModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
     <div class="modal-content">

@@ -96,7 +96,7 @@ function createGeocoder({ fetchSource = fetch, minGapMs = MIN_REQUEST_GAP_MS } =
   // The area search keeps Rzeszów on the list and answers fast; the country search finds other cities but is sometimes slow.
   async function inPoland(query, status) {
     const near = await search(query, "area");
-    if (query.includes(",")) return near;
+    if (near.length && query.includes(",")) return near;
     const known = new Set(near.map((place) => place.label.toLowerCase()));
     const far = await search(query, "country").catch((error) => {
       console.warn("Country search failed:", error.message);

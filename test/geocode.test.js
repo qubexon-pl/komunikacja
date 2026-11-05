@@ -262,3 +262,12 @@ test("an address that names its city skips the country search", async () => {
   await geocode("Lwowska, Rzeszów");
   assert.equal(calls, 1);
 });
+
+test("a street written with its city is found outside the Rzeszów area", async () => {
+  const geocode = createGeocoder({
+    minGapMs: 0,
+    fetchSource: async (url) => response(url.searchParams.get("bounded") ? [] : [{ lat: "50.06", lon: "19.94", address: { road: "Floriańska", house_number: "10", city: "Kraków" } }]),
+  });
+  const { places } = await geocode("Floriańska 10, Kraków");
+  assert.deepEqual(places.map((place) => place.label), ["Floriańska 10, Kraków"]);
+});

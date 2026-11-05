@@ -12,9 +12,8 @@ const end = source.indexOf("function renderMarkers(){");
 
 function loadFilter(query, lines = []) {
   const context = {
-    S: { focus: null, agency: "all", filter: "all", query },
+    S: { agency: "all", filter: "all", query },
     statusOf: () => "ok",
-    focusLegOf: () => null,
     findRoutesByShort: (value) => lines.filter((line) => line.toLowerCase() === value),
   };
   vm.runInNewContext(source.slice(start, end), context);
