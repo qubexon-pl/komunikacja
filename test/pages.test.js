@@ -7,12 +7,13 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const source = fs.readFileSync(path.resolve(__dirname, "../assets/app.js"), "utf8");
+const html = fs.readFileSync(path.resolve(__dirname, "../index.html"), "utf8");
 
 function loadTrainPlanner(trains) {
   const context = { TR: { trains }, railName: (id) => id, RAIL_SEARCH_HOURS: 14 };
   const start = source.indexOf("function planTrainTrips(");
   vm.runInNewContext(source.slice(start, source.indexOf("/* ---------- okienko pociągu")), context);
-  return (from, to, at) => context.planTrainTrips(from, to, at, trains);
+  return (from, to, at, by) => context.planTrainTrips(from, to, at, trains, by);
 }
 
 function loadRailTargets(names, nearby = []) {
@@ -27,6 +28,370 @@ function loadRailTargets(names, nearby = []) {
   vm.runInNewContext(`${source.slice(source.indexOf("function placeCity("), source.indexOf("function stopsAtStation("))}; this.railTargets = railTargets;`, context);
   return (place) => Array.from(context.railTargets({ points: [], ...place }), (station) => station.name);
 }
+
+function loadStopFamily(names) {
+  const context = { GT: { groups: new Map(names.map((name, i) => [name, { name, lat: 50 + i, lon: 22 }])) }, groupInView: () => true, stopPoint: (name) => [50 + names.indexOf(name), 22] };
+  vm.runInNewContext(`${source.slice(source.indexOf("function stopFamily("), source.indexOf("function placeTitle("))}; this.stopFamily = stopFamily;`, context);
+  return context.stopFamily;
+}
+
+test("a stop name without a number means all of its platforms", () => {
+  const family = loadStopFamily(["Rzeszów D.A. 5", "Rzeszów D.A. 10", "Rzeszów D.A. dworzec 1", "Rzeszów Główny"])("rzeszów d.a.");
+  assert.equal(family.label, "Rzeszów D.A.");
+  assert.deepEqual(Array.from(family.names), ["Rzeszów D.A. 5", "Rzeszów D.A. 10"]);
+  assert.deepEqual(Array.from(family.points[0]), [50.5, 22]);
+});
+
+test("a name that only starts the same is not a platform", () => {
+  assert.equal(loadStopFamily(["Rzeszów D.A. dworzec 1"])("rzeszów"), null);
+});
+
+function loadTransitBy(lastStart) {
+  const asked = [];
+  const trip = { arr: 11000, walkTo: 0 };
+  const context = { planTrips: (origin, dest, at) => { asked.push(at); return at <= lastStart ? [trip] : []; } };
+  vm.runInNewContext(`${source.slice(source.indexOf("function transitBy("), source.indexOf("function planTransit("))}; this.transitBy = transitBy;`, context);
+  return { asked, transitBy: context.transitBy };
+}
+
+test("a deadline search steps back gently, so the latest connection is not skipped", () => {
+  const { asked, transitBy } = loadTransitBy(12000 - 2 * 3600);
+  assert.equal(transitBy({}, {}, 12000, 0).length, 1);
+  assert.deepEqual(asked.map((at) => (12000 - at) / 3600), [0.5, 1, 1.5, 2]);
+});
+
+test("a deadline search never starts before the journey can begin", () => {
+  const { asked, transitBy } = loadTransitBy(-1);
+  assert.equal(transitBy({}, {}, 12000, 10000).length, 0);
+  assert.equal(asked.at(-1), 10000);
+  assert.ok(asked.every((at) => at >= 10000));
+});
+
+function loadLiveFor(now) {
+  const context = { nowSec: () => now, S: { byTrip: new Map([["trip", { stopSeq: 9, delay: 300 }]]), tripUpdates: new Map() } };
+  vm.runInNewContext(`${source.slice(source.indexOf("const LIVE_WINDOW_SEC="), source.indexOf("function liveChip("))}; this.liveFor = liveFor;`, context);
+  return context.liveFor;
+}
+
+test("a bus running a trip today says nothing about the same trip on another day", () => {
+  const stops = [{ dep: 3600, seq: 1 }];
+  const today = 1000000;
+  const liveFor = loadLiveFor(today + 3600);
+  assert.equal(liveFor("trip", stops, 0, today).state, "passed");
+  const monday = liveFor("trip", stops, 0, today + 3 * 86400);
+  assert.equal(monday.state, "sched");
+  assert.equal(monday.pred, today + 3 * 86400 + 3600);
+});
+
+function loadTrainViews() {
+  const names = { 1: "Rzeszów Główny", 2: "Kraków Główny", 3: "Łódź Fabryczna" };
+  const context = { TR: { carriers: new Map([["IC", "PKP Intercity"]]) }, railName: (id) => names[id] };
+  vm.runInNewContext(`${source.slice(source.indexOf("const TRAIN_GONE_SEC="), source.indexOf("function trainPosition("))}${source.slice(source.indexOf("const foldText="), source.indexOf("function boardRows("))}; this.trainEnded = trainEnded; this.boardMatches = boardMatches;`, context);
+  return context;
+}
+
+test("a train counts as ended a few minutes after its last arrival, however late it runs", () => {
+  const { trainEnded } = loadTrainViews();
+  const stops = (last) => ({ stops: [{ pDep: 100 }, last] });
+  assert.equal(trainEnded(stops({ pArr: 1000, predArr: 1000 }), 1200), false);
+  assert.equal(trainEnded(stops({ pArr: 1000, predArr: 1000 }), 1400), true);
+  assert.equal(trainEnded(stops({ pArr: 1000, predArr: 2000 }), 1400), false);
+  assert.equal(trainEnded(stops({ pArr: 1000, predArr: 2000, aArr: 1100 }), 1500), true);
+  assert.equal(trainEnded(stops({}), 1400), false);
+});
+
+test("the timetable search finds number, name, carrier and stations on the way, with or without Polish letters", () => {
+  const { boardMatches } = loadTrainViews();
+  const row = { t: { cat: "IC", num: "3810", label: "IC 3810", name: "KOSSAK", from: "Rzeszów Główny", to: "Łódź Fabryczna", carrier: "IC", stops: [{ id: 1 }, { id: 2 }, { id: 3 }] } };
+  for (const query of ["3810", "kossak", "krakow", "KRAKÓW", "lodz", "intercity", ""]) assert.equal(boardMatches(row, query), true, query);
+  assert.equal(boardMatches(row, "gdańsk"), false);
+});
+
+function loadTrainRowStop() {
+  const names = { 1: "Tarnów", 2: "Rzeszów Główny", 3: "Rzeszów Załęże", 4: "Kraków Główny" };
+  const context = { RAIL_ST: { 2: [], 3: [] }, railName: (id) => names[id], todayMidnight: () => 0 };
+  context.foldedStation = (id) => names[id].toLowerCase().replace(/ł/g, "l").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  vm.runInNewContext(`${source.slice(source.indexOf("const foldText="), source.indexOf("// Szukamy też po stacjach"))}${source.slice(source.indexOf("function trainRowStop("), source.indexOf("function allStationRows("))}; this.trainRowStop = trainRowStop;`, context);
+  return (train, kind, now, query) => context.trainRowStop(train, kind, now, query)?.x.id ?? null;
+}
+
+const stopAt = (id, time) => ({ id, pArr: time, pDep: time, predArr: time, predDep: time });
+const line = { stops: [stopAt(1, 1000), stopAt(2, 2000), stopAt(3, 3000), stopAt(4, 4000)] };
+
+test("with all stations, a train appears at its next stop around Rzeszów", () => {
+  const rowStop = loadTrainRowStop();
+  assert.equal(rowStop(line, "dep", 500), 2);
+  assert.equal(rowStop(line, "dep", 2500), 3);
+  assert.equal(rowStop({ stops: [stopAt(1, 1000), stopAt(4, 4000)] }, "dep", 500), 1);
+  assert.equal(rowStop(line, "dep", 3500), null);
+});
+
+test("searching a station shows the train at that stop, wherever it is on the route", () => {
+  const rowStop = loadTrainRowStop();
+  assert.equal(rowStop(line, "arr", 500, "krakow"), 4);
+  assert.equal(rowStop(line, "dep", 500, "tarnow"), 1);
+  assert.equal(rowStop(line, "dep", 1500, "tarnow"), null);
+});
+
+test("a search that is not a station keeps the train at its next stop", () => {
+  assert.equal(loadTrainRowStop()(line, "dep", 500, "3810"), 2);
+});
+
+test("a train cannot depart from its last stop or arrive at its first", () => {
+  const rowStop = loadTrainRowStop();
+  assert.equal(rowStop(line, "dep", 500, "krakow"), null);
+  assert.equal(rowStop(line, "arr", 500, "tarnow"), null);
+});
+
+function loadRailSearch() {
+  const context = { };
+  vm.runInNewContext(`${source.slice(source.indexOf("const RAIL_TRANSFER_SEC="), source.indexOf("function planTrainTrips("))}; this.railJourney = railJourney; this.railJourneys = railJourneys;`, context);
+  return context;
+}
+
+const call = (id, arrive, depart = arrive) => ({ id, predArr: arrive, predDep: depart });
+const trainOf = (key, ...stops) => ({ key, stops });
+const route = (parts) => parts && Array.from(parts, (part) => `${part.t.key}:${part.a.id}-${part.b.id}`);
+
+test("a journey with one change is found when no train goes all the way", () => {
+  const { railJourney } = loadRailSearch();
+  const trains = [trainOf("first", call(1, 1000), call(2, 2000)), trainOf("second", call(2, 3000), call(3, 4000))];
+  assert.deepEqual(route(railJourney(trains, new Map([[1, 900]]), new Set([3]), 99999)), ["first:1-2", "second:2-3"]);
+});
+
+test("a change needs enough time between trains", () => {
+  const { railJourney } = loadRailSearch();
+  const trains = [trainOf("first", call(1, 1000), call(2, 2000)), trainOf("tight", call(2, 2200), call(3, 3000)), trainOf("fine", call(2, 2600), call(3, 3500))];
+  assert.deepEqual(route(railJourney(trains, new Map([[1, 900]]), new Set([3]), 99999)), ["first:1-2", "fine:2-3"]);
+});
+
+test("a direct train wins unless a change saves real time", () => {
+  const { railJourney } = loadRailSearch();
+  const direct = trainOf("direct", call(1, 1000), call(3, 9000));
+  const pair = (end) => [trainOf("first", call(1, 1000), call(2, 2000)), trainOf("second", call(2, 3000), call(3, end))];
+  assert.deepEqual(route(railJourney([direct, ...pair(8800)], new Map([[1, 900]]), new Set([3]), 99999)), ["direct:1-3"]);
+  assert.deepEqual(route(railJourney([direct, ...pair(7000)], new Map([[1, 900]]), new Set([3]), 99999)), ["first:1-2", "second:2-3"]);
+});
+
+test("up to two changes are allowed, not three", () => {
+  const { railJourney } = loadRailSearch();
+  const leg = (from, time) => trainOf(`t${from}`, call(from, time), call(from + 1, time + 500));
+  const trains = [leg(1, 1000), leg(2, 3000), leg(3, 5000), leg(4, 7000)];
+  assert.equal(railJourney(trains, new Map([[1, 900]]), new Set([4]), 99999).length, 3);
+  assert.equal(railJourney(trains, new Map([[1, 900]]), new Set([5]), 99999), null);
+});
+
+test("cancelled trains and stops are not used", () => {
+  const { railJourney } = loadRailSearch();
+  const gone = { ...trainOf("gone", call(1, 1000), call(3, 2000)), cancelled: true };
+  const skipped = trainOf("skipped", call(1, 1000), { ...call(3, 2000), cn: true });
+  assert.equal(railJourney([gone, skipped], new Map([[1, 900]]), new Set([3]), 99999), null);
+});
+
+test("a trip with fewer changes stays next to a later one arriving at the same time", () => {
+  const { railJourneys } = loadRailSearch();
+  const trains = [
+    trainOf("carpatia", call(1, 1000), call(2, 3000)),
+    trainOf("ursa", call(1, 2000), call(2, 4000)),
+    trainOf("lokietek", call(2, 4600), call(5, 5000)),
+    trainOf("ustronie", call(2, 4300), call(5, 5800), call(3, 9000)),
+  ];
+  assert.deepEqual(Array.from(railJourneys(trains, new Map([[1, 900]]), new Set([3]), 99999), route), [["carpatia:1-2", "ustronie:2-3"], ["ursa:1-2", "lokietek:2-5", "ustronie:5-3"]]);
+});
+
+test("nobody is sent to wait for hours at a change", () => {
+  const { railJourney } = loadRailSearch();
+  const trains = [trainOf("first", call(1, 1000), call(2, 2000)), trainOf("next day", call(2, 2000 + 4 * 3600), call(3, 2000 + 5 * 3600))];
+  assert.equal(railJourney(trains, new Map([[1, 900]]), new Set([3]), 99999), null);
+});
+
+test("a trip that comes back through the start is not offered", () => {
+  const { railJourneys } = loadRailSearch();
+  const trains = [trainOf("away", call(1, 1000), call(2, 1500)), trainOf("through", call(2, 2100), call(1, 2600), call(3, 4000))];
+  assert.deepEqual(Array.from(railJourneys(trains, new Map([[1, 900]]), new Set([3]), 99999), route), [["through:1-3"]]);
+});
+
+test("nobody is sent ahead to wait for a train that has just left the start", () => {
+  const { railJourneys } = loadRailSearch();
+  const trains = [trainOf("ahead", call(1, 1000), call(2, 1500)), trainOf("same line", call(1, 4000), call(2, 5000), call(3, 6000))];
+  assert.equal(railJourneys(trains, new Map([[1, 900]]), new Set([3]), 2000).length, 0);
+});
+
+test("more changes are offered when they get you there sooner or let you leave later", () => {
+  const { railJourneys } = loadRailSearch();
+  const trains = [
+    trainOf("direct", call(1, 1000), call(3, 9000)),
+    trainOf("first", call(1, 2000), call(2, 3000)),
+    trainOf("second", call(2, 4000), call(4, 5000)),
+    trainOf("third", call(4, 6000), call(3, 8900)),
+  ];
+  assert.deepEqual(Array.from(railJourneys(trains, new Map([[1, 900]]), new Set([3]), 99999), (parts) => parts.length), [1, 3]);
+});
+
+test("options come sorted by departure", () => {
+  const { railJourneys } = loadRailSearch();
+  const trains = [trainOf("late", call(1, 5000), call(3, 6000)), trainOf("early", call(1, 2000), call(3, 3000))];
+  assert.deepEqual(Array.from(railJourneys(trains, new Map([[1, 900]]), new Set([3]), 99999), (parts) => parts[0].t.key), ["early", "late"]);
+});
+
+test("several options are offered, without ones that leave earlier and arrive later", () => {
+  const { railJourneys } = loadRailSearch();
+  const trains = [trainOf("slow", call(1, 1000), call(3, 9000)), trainOf("fast", call(1, 2000), call(3, 3000)), trainOf("next", call(1, 4000), call(3, 5000))];
+  assert.deepEqual(Array.from(railJourneys(trains, new Map([[1, 900]]), new Set([3]), 99999), route).map((parts) => parts[0]), ["fast:1-3", "next:1-3"]);
+});
+
+test("a time window limits the departure, not the train after a change", () => {
+  const { railJourney } = loadRailSearch();
+  const trains = [trainOf("first", call(1, 1000), call(2, 2000)), trainOf("second", call(2, 5000), call(3, 6000))];
+  assert.deepEqual(route(railJourney(trains, new Map([[1, 900]]), new Set([3]), 1500)), ["first:1-2", "second:2-3"]);
+  assert.equal(railJourney(trains, new Map([[1, 900]]), new Set([3]), 900), null);
+});
+
+function loadRoutePlaces() {
+  const context = { RAIL_SEARCH_HOURS: 14 };
+  vm.runInNewContext(`${source.slice(source.indexOf("const foldText="), source.indexOf("// Szukamy też po stacjach"))}${source.slice(source.indexOf("function findRailCities("), source.indexOf("function railCities("))}${source.slice(source.indexOf("function railPlaceNames("), source.indexOf("function connectionRoute("))}; this.findRailCities = findRailCities; this.railPlaceNames = railPlaceNames; this.routeWindow = routeWindow;`, context);
+  return context;
+}
+
+const railNames = ["Kraków Główny", "Kraków Płaszów", "Kraków Bieżanów", "Kraków Bieżanów Drogowa", "Krakówek", "Nowy Sącz", "Nowy Sącz Miasto", "Nowy Targ", "Nowy Dwór", "Tarnów", "Warszawa Centralna", "Warszawa Wschodnia", "Łódź Fabryczna"];
+
+test("a city needs several stations and a main one, so a shared first word is not a city", () => {
+  assert.deepEqual(Array.from(loadRoutePlaces().findRailCities(railNames)).sort(), ["Kraków", "Nowy Sącz", "Warszawa"]);
+});
+
+test("a city search prefers its main station, and uses the others only when there is none", () => {
+  const context = {};
+  vm.runInNewContext(`${source.slice(source.indexOf("const isCityMain="), source.indexOf("function routeWindow("))}; this.routeStations = routeStations;`, context);
+  assert.deepEqual(Array.from(context.routeStations(["Kraków Płaszów", "Kraków Główny"])), ["Kraków Główny"]);
+  assert.deepEqual(Array.from(context.routeStations(["Warszawa Wschodnia", "Warszawa Centralna"])), ["Warszawa Centralna"]);
+  assert.deepEqual(Array.from(context.routeStations(["Tarnów", "Tarnów Filia"])), ["Tarnów", "Tarnów Filia"]);
+});
+
+test("a typed city means all its stations, and a typed station means exactly that one", () => {
+  const { findRailCities, railPlaceNames } = loadRoutePlaces();
+  const places = (text) => Array.from(railPlaceNames(text, railNames, findRailCities(railNames)));
+  assert.deepEqual(places("krakow"), ["Kraków Główny", "Kraków Płaszów", "Kraków Bieżanów", "Kraków Bieżanów Drogowa"]);
+  assert.deepEqual(places("Kraków Płaszów"), ["Kraków Płaszów"]);
+  assert.deepEqual(places("lodz"), ["Łódź Fabryczna"]);
+  assert.deepEqual(places("xyz"), []);
+});
+
+test("a time period is used as typed, and blank fields mean now or the whole day", () => {
+  const { routeWindow } = loadRoutePlaces();
+  const window = (...args) => { const { start, end } = routeWindow(...args); return [start, end]; };
+  const hour = 3600;
+  assert.deepEqual(window("", "08:00", "12:00", "2026-11-06", 0, 5 * hour), [8 * hour, 12 * hour]);
+  assert.deepEqual(window("", "", "", "2026-11-06", 0, 5 * hour), [5 * hour, 19 * hour]);
+  assert.deepEqual(window("2026-11-07", "", "", "2026-11-06", 1000, 5 * hour), [1000, 1000 + 24 * hour]);
+  assert.deepEqual(window("2026-11-07", "09:00", "", "2026-11-06", 0, 5 * hour), [9 * hour, 23 * hour]);
+  assert.deepEqual(window("", "22:00", "01:00", "2026-11-06", 0, 5 * hour), [22 * hour, 25 * hour]);
+});
+
+function loadServices({ cal = [], dates = {}, trips = [] }) {
+  const GT = { cal: new Map(cal), calDates: new Map(Object.entries(dates).map(([sid, list]) => [sid, new Map(Object.entries(list))])), samples: new Map(), trips: new Map(trips.map((service, index) => [String(index), { service }])) };
+  const context = { GT };
+  vm.runInNewContext(`${source.slice(source.indexOf("const svcCache="), source.indexOf("// Rozkład scala kilka wersji"))}; this.serviceOn = serviceOn; this.sampleDay = sampleDay; this.estimatedAgencies = estimatedAgencies; this.estimateNote = estimateNote;`, context);
+  return context;
+}
+
+// 2026-12-14 is a Monday; 2026-12-25 a Friday holiday with few buses.
+const friday = { ymd: "20270108", wd: 4 };
+const monday = { ymd: "20270104", wd: 0 };
+const publishedDays = {
+  normal: { 20261204: 1, 20261211: 1, 20261214: 1, 20261218: 1 },
+  holiday: { 20261225: 1 },
+};
+const busTrips = ["normal", "normal", "normal", "holiday"];
+
+test("past the last published day, a normal day of the same weekday is used", () => {
+  const { serviceOn, sampleDay } = loadServices({ dates: publishedDays, trips: busTrips });
+  assert.equal(sampleDay("ztm", friday).ymd, "20261204");
+  assert.equal(serviceOn("normal", friday), true);
+  assert.equal(serviceOn("holiday", friday), false);
+  assert.equal(serviceOn("normal", monday), true);
+});
+
+test("published days stay exact and carry no warning", () => {
+  const { estimatedAgencies, serviceOn } = loadServices({ dates: publishedDays, trips: busTrips });
+  const christmas = { ymd: "20261225", wd: 4 };
+  assert.equal(serviceOn("normal", christmas), false);
+  assert.equal(serviceOn("holiday", christmas), true);
+  assert.equal(estimatedAgencies(christmas).length, 0);
+  assert.deepEqual(Array.from(estimatedAgencies(friday)), ["ztm"]);
+});
+
+test("each provider has its own last published day", () => {
+  const { estimatedAgencies } = loadServices({ dates: { ...publishedDays, "pks:all": { 20270201: 1 } }, trips: [...busTrips, "pks:all"] });
+  assert.deepEqual(Array.from(estimatedAgencies(friday)), ["ztm"]);
+});
+
+test("weekly calendars are understood as well as single dates", () => {
+  const days = [true, true, true, true, true, false, false];
+  const { serviceOn } = loadServices({ cal: [["week", { days, start: "20261101", end: "20261220" }]], trips: ["week"] });
+  assert.equal(serviceOn("week", friday), true);
+  assert.equal(serviceOn("week", { ymd: "20270109", wd: 5 }), false);
+});
+
+test("the warning names the provider, the date and the weekday", () => {
+  const { estimateNote } = loadServices({ dates: publishedDays, trips: busTrips });
+  const note = estimateNote(["ztm", "pks"], friday);
+  assert.match(note, /ZTM i PKS/);
+  assert.match(note, /08\.01/);
+  assert.match(note, /piątek/);
+  assert.match(note, /niedokładny/);
+});
+
+function loadConnections() {
+  const context = {};
+  vm.runInNewContext(`${source.slice(source.indexOf("const RAIL_TRANSFER_SEC="), source.indexOf("function railJourneys("))}${source.slice(source.indexOf("const ROUTE_SLOW_FACTOR="), source.indexOf("function planTrainTrips("))}; this.railConnections = railConnections;`, context);
+  return (trains, starts, targets, limit, preferred) => Array.from(context.railConnections(trains, new Map(starts), new Set(targets), limit, new Set(preferred)), route);
+}
+
+test("every departure gets a row, even when a later train reaches the same arrival", () => {
+  const connections = loadConnections();
+  const trains = [trainOf("przemyslanin", call(1, 1000), call(2, 2000)), trainOf("rj", call(1, 1500), call(2, 2400)), trainOf("karpaty", call(2, 3000), call(3, 5000))];
+  assert.deepEqual(connections(trains, [[1, 900]], [3], 99999), [["przemyslanin:1-2", "karpaty:2-3"], ["rj:1-2", "karpaty:2-3"]]);
+});
+
+test("a train leaving another station of the city is included, and one calling at the main station starts there", () => {
+  const connections = loadConnections();
+  const trains = [trainOf("bieszczady", call(7, 1000), call(3, 2000)), trainOf("both", call(7, 1500), call(1, 1600), call(3, 2600))];
+  assert.deepEqual(connections(trains, [[1, 900], [7, 900]], [3], 99999, [1]), [["bieszczady:7-3"], ["both:1-3"]]);
+});
+
+test("a departure may show a quick trip and a simpler slower one", () => {
+  const connections = loadConnections();
+  const trains = [trainOf("first", call(1, 1000), call(2, 2000), call(3, 9000)), trainOf("fast", call(2, 3000), call(3, 4000))];
+  assert.deepEqual(connections(trains, [[1, 900]], [3], 99999), [["first:1-2", "fast:2-3"]]);
+});
+
+test("the period limits the first train only, and a far slower trip is left out", () => {
+  const connections = loadConnections();
+  const trains = [trainOf("in", call(1, 1000), call(2, 2000)), trainOf("after", call(2, 3000), call(3, 4000)), trainOf("outside", call(1, 5000), call(3, 6000)), trainOf("crawl", call(1, 1200), call(3, 20000))];
+  assert.deepEqual(connections(trains, [[1, 900]], [3], 1500), [["in:1-2", "after:2-3"]]);
+});
+
+function loadTrackBetween() {
+  const context = {};
+  vm.runInNewContext(`${source.slice(source.indexOf("function trackBetween("), source.indexOf("function trainSegment("))}; this.trackBetween = trackBetween;`, context);
+  return (tracks, ids) => { const line = context.trackBetween(tracks, ids); return line && Array.from(line, (point) => Array.from(point)); };
+}
+
+test("a train follows the track holding most of its stations, cut at the stations it uses", () => {
+  const trackBetween = loadTrackBetween();
+  const other = { at: { 1: 0, 3: 1 }, points: [[1, 1], [3, 3]] };
+  const line = { at: { 1: 0, 2: 2, 3: 3, 4: 4 }, points: [[1, 1], [1.5, 1.5], [2, 2], [3, 3], [4, 4]] };
+  assert.deepEqual(trackBetween([other, line], [1, 2, 3]), [[1, 1], [1.5, 1.5], [2, 2], [3, 3]]);
+});
+
+test("a train can use a track laid out in the opposite direction", () => {
+  const line = { at: { 1: 0, 2: 1 }, points: [[1, 1], [2, 2]] };
+  assert.deepEqual(loadTrackBetween()([line], [2, 1]), [[2, 2], [1, 1]]);
+});
+
+test("a train with no matching track has no line of its own", () => {
+  assert.equal(loadTrackBetween()([{ at: { 1: 0 }, points: [[1, 1]] }], [1, 2]), null);
+});
 
 const stations = ["Kraków Płaszów", "Kraków Główny", "Krakówek", "Tarnów", "Rzeszów Załęże", "Rzeszów Główny"];
 
@@ -72,6 +437,12 @@ test("the train planner respects direction, departure time, and cancellations", 
   assert.deepEqual(Array.from(plan("A", "B", 1000), (result) => result.t.key), ["ok"]);
 });
 
+test("a train search with a deadline keeps the latest trains that still arrive on time", () => {
+  const plan = loadTrainPlanner(Array.from({ length: 10 }, (_, i) => train(`t${i}`, [stop("A", 1000 + i * 100), stop("B", 1500 + i * 100)])));
+  assert.deepEqual(Array.from(plan("A", "B", 900, 1900), (result) => result.t.key), ["t0", "t1", "t2", "t3", "t4"]);
+  assert.deepEqual(Array.from(plan("A", "B", 900, 2400), (result) => result.t.key), ["t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9"].slice(-7));
+});
+
 function loadPaging() {
   const context = {};
   vm.runInNewContext(source.slice(source.indexOf("function paginate("), source.indexOf("function pagerHtml(")), context);
@@ -101,13 +472,26 @@ test("the timetable opens on the page with the next departure", () => {
 });
 
 function loadTripModes() {
-  const context = {};
+  const context = { RAIL_CHANGE_SEC: 300 };
   const start = source.indexOf("const WALK_MAX_KM=");
-  vm.runInNewContext(`${source.slice(start, source.indexOf("function fmtKm("))}; this.tripModes = tripModes; this.bestMode = bestMode; this.transitName = transitName;`, context);
+  vm.runInNewContext(`${source.slice(start, source.indexOf("function fmtKm("))}; this.tripModes = tripModes; this.bestMode = bestMode; this.returnStart = returnStart; this.transitName = transitName;`, context);
   return context;
 }
 
 const none = { transit: false, rail: false, flights: false };
+
+test("the car appears only when it is ticked, and a short walk does not need it", () => {
+  const { tripModes } = loadTripModes();
+  assert.deepEqual([...tripModes(90, { ...none, transit: true })], ["transit", "car"]);
+  assert.deepEqual([...tripModes(90, none, new Set(["bus"]))], []);
+  assert.deepEqual([...tripModes(2, { ...none, transit: true })], ["walk", "transit"]);
+});
+
+test("a return starts after arriving, and a later day keeps its morning start", () => {
+  const { returnStart } = loadTripModes();
+  assert.equal(returnStart({ at: 8000 }, 13000), 13300);
+  assert.equal(returnStart({ at: 90000 }, 13000), 90000);
+});
 
 test("a short trip offers walking and a nearby bus", () => {
   const { tripModes, bestMode } = loadTripModes();
@@ -119,7 +503,7 @@ test("a short trip offers walking and a nearby bus", () => {
 test("the fastest option is recommended when walking is not obvious", () => {
   const { tripModes, bestMode } = loadTripModes();
   const modes = tripModes(12, { ...none, transit: true, rail: true });
-  assert.deepEqual([...modes], ["transit", "rail"]);
+  assert.deepEqual([...modes], ["transit", "rail", "car"]);
   assert.equal(bestMode(12, modes, { transit: 2000, rail: 1500 }), "rail");
 });
 
@@ -127,7 +511,7 @@ test("a car is suggested only when nothing else is available", () => {
   const { tripModes } = loadTripModes();
   assert.deepEqual([...tripModes(90, none)], ["car"]);
   assert.deepEqual([...tripModes(2, none)], ["walk"]);
-  assert.deepEqual([...tripModes(90, { ...none, rail: true })], ["rail"]);
+  assert.deepEqual([...tripModes(90, { ...none, rail: true }, new Set(["train"]))], ["rail"]);
   assert.deepEqual([...tripModes(null, none)], ["car"]);
 });
 
@@ -135,13 +519,12 @@ test("a flight is the recommendation for a far destination, and no car appears w
   const { tripModes, bestMode } = loadTripModes();
   const modes = tripModes(1800, { ...none, flights: true });
   assert.equal(bestMode(1800, modes, {}), "flight");
-  assert.deepEqual([...tripModes(1800, { ...none, pending: true })], []);
   assert.deepEqual([...tripModes(1800, none)], ["car"]);
 });
 
 test("airports are grouped by country, Poland first, and only compatible ones count as served", () => {
   const context = { natSort: (a, b) => a.localeCompare(b) };
-  vm.runInNewContext(`${source.slice(source.indexOf("function airportGroups("), source.indexOf("function airportSelect("))}; this.airportGroups = airportGroups;`, context);
+  vm.runInNewContext(`${source.slice(source.indexOf("function airportGroups("), source.indexOf("function airportOptions("))}; this.airportGroups = airportGroups;`, context);
   const airports = [
     { code: "BCN", label: "Barcelona (BCN)", country: "Hiszpania" },
     { code: "ALC", label: "Alicante (ALC)", country: "Hiszpania" },
@@ -159,20 +542,44 @@ test("airports are grouped by country, Poland first, and only compatible ones co
   assert.deepEqual([...origins[0].items].map((airport) => [airport.code, airport.served]), [["RZE", true], ["KRK", true]]);
 });
 
-test("the earliest return counts the start day as a day at the destination", () => {
-  const context = {};
-  const start = source.indexOf("function earliestReturnDay(");
-  vm.runInNewContext(`${source.slice(start, source.indexOf("function syncReturn("))}; this.earliestReturnDay = earliestReturnDay;`, context);
-  assert.equal(context.earliestReturnDay("2026-12-01", 3), "2026-12-03");
-  assert.equal(context.earliestReturnDay("2026-12-01", 1), "2026-12-01");
-  assert.equal(context.earliestReturnDay("2026-12-30", 5), "2027-01-03");
-});
-
 test("a trip is named after what it uses", () => {
   const { transitName } = loadTripModes();
   assert.equal(transitName({ legs: [{ agency: "ztm" }] }), "Autobus");
   assert.equal(transitName({ legs: [{ agency: "pks" }] }), "PKS");
   assert.equal(transitName({ legs: [{ agency: "ztm" }, { agency: "pks" }] }), "Autobus + PKS");
+});
+
+test("the trip planner is the first tab and the default page", () => {
+  assert.match(source, /function viewFromPath\(\)\{ return Object\.keys\(VIEWS\)\.find\(k=>VIEWS\[k\]\.path===location\.pathname\)\|\|'podroz'; \}/);
+  const tabs = [...html.matchAll(/data-view="(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual(tabs, ["podroz", "ztm", "pks", "kolej"]);
+  assert.doesNotMatch(html, /id="flightForm"|id="plStay"|Wpisz przystanek, aby zobaczyć/);
+  assert.doesNotMatch(source, /Wpisz przystanek, aby zobaczyć|placeSummary/);
+});
+
+test("PKS destinations come from the towns in line names, without Rzeszów", () => {
+  const context = { natSort: (a, b) => a.localeCompare(b, "pl", { numeric: true }) };
+  vm.runInNewContext(`${source.slice(source.indexOf("function pksDestinations("), source.indexOf("function renderPksDestinations("))}; this.pksDestinations = pksDestinations;`, context);
+  const routes = [
+    { id: "p108", agency: "pks", short: "108", long: "Rzeszów D.A. - Boguchwała - Niebylec - Gwoźnica Górna" },
+    { id: "p253", agency: "pks", short: "253", long: "Rzeszów, Staroniwska - Racławówka - Boguchwała D.A." },
+    { id: "z1", agency: "ztm", short: "1", long: "Baranówka - Kielnarowa" },
+  ];
+  const towns = JSON.parse(JSON.stringify(context.pksDestinations(routes))).map((d) => [d.name, d.routes.map((r) => r.short)]);
+  assert.deepEqual(towns, [["Boguchwała", ["108", "253"]], ["Gwoźnica Górna", ["108"]], ["Niebylec", ["108"]], ["Racławówka", ["253"]]]);
+});
+
+test("the day strip covers two weeks either side and marks the cheapest day", () => {
+  const context = { ymdOf: () => "2026-11-09", lastPlanDay: () => "2027-02-07", esc: (s) => s, document: { documentElement: { lang: "pl" } } };
+  const part = (from, to) => source.slice(source.indexOf(from), source.indexOf(to));
+  vm.runInNewContext(`${part("function addDays(", "// Grupy filtrów")}${part("const STRIP_DAYS=", "function centerStrip(")}function fmtDay(day){ return day.slice(8,10)+'.'+day.slice(5,7); }; this.dateStrip = dateStrip;`, context);
+  const strip = context.dateStrip("plan", "2026-11-20", new Map([["2026-11-15", 452], ["2026-11-20", 722]]));
+  const days = [...strip.matchAll(/data-day="([\d-]+)"/g)].map((m) => m[1]);
+  assert.equal(days[0], "2026-11-09"); // nothing before today
+  assert.equal(days.at(-1), "2026-12-04");
+  assert.equal(days.length, 26);
+  assert.match(strip, /class="ds-day  cheap" data-day="2026-11-15"><em>Najtaniej<\/em>/);
+  assert.match(strip, /class="ds-day on " data-day="2026-11-20">/);
 });
 
 test("each category has its own page and weather refreshes every 45 minutes", () => {
@@ -182,4 +589,60 @@ test("each category has its own page and weather refreshes every 45 minutes", ()
   assert.match(source, /podroz:\{path:'\/podroz'/);
   assert.doesNotMatch(source, /koncowe/);
   assert.match(source, /weatherTick\(\); \}, 45\*60\*1000\)/);
+});
+
+test("nothing calls the removed train map or late list", () => {
+  for (const name of ["renderTrainsOnMap", "renderLateTrains", "trainMatches", "trainsVisible"]) assert.equal(source.includes(name), false, name);
+});
+
+test("result filters count each choice and an empty choice lets everything through", () => {
+  const context = {};
+  const part = (from, to) => source.slice(source.indexOf(from), source.indexOf(to));
+  vm.runInNewContext(`${part("const DAY_PARTS=", "function filterPanel(")}${part("function countText(", "// Pasek kolejnych dni")}; this.tools = { dayPart, filterGroups, passesFilters, countText };`, context);
+  const { dayPart, filterGroups, passesFilters, countText } = context.tools;
+  assert.deepEqual(["00:10", "05:59", "06:00", "13:30", "18:00", "23:59"].map(dayPart), ["night", "night", "morning", "afternoon", "evening", "evening"]);
+  const defs = [{ key: "changes", title: "Przesiadki", of: (f) => [String(Math.min(f.changes, 2))], order: ["0", "1", "2"], label: (v) => v }];
+  const facts = [{ changes: 0 }, { changes: 1 }, { changes: 3 }, { changes: 0 }];
+  assert.deepEqual(JSON.parse(JSON.stringify(filterGroups(facts, defs)[0].options)), [{ value: "0", label: "0", count: 2 }, { value: "1", label: "1", count: 1 }, { value: "2", label: "2", count: 1 }]);
+  assert.equal(facts.filter((f) => passesFilters(f, defs, {})).length, 4);
+  assert.equal(facts.filter((f) => passesFilters(f, defs, { changes: new Set(["0", "2"]) })).length, 3);
+  assert.deepEqual([1, 2, 5, 12, 22, 25].map(countText), ["1 wynik", "2 wyniki", "5 wyników", "12 wyników", "22 wyniki", "25 wyników"]);
+});
+
+test("a bus and a short walk beats two buses that reach a closer stop later", () => {
+  const context = {};
+  vm.runInNewContext(`${source.slice(source.indexOf("const WALK_MPS="), source.indexOf("function walkText("))}; this.withoutWorse = withoutWorse; this.walkSec = walkSec;`, context);
+  const trip = (name, dep, arr, legs, walkFromM, walkToM) => ({ name, dep, arr, legs: Array(legs).fill({}), walkFrom: context.walkSec(walkFromM), walkTo: context.walkSec(walkToM) });
+  const walkFromStop = trip("one bus, 400 m walk", 1000, 1600, 1, 300, 400);
+  const twoBuses = trip("two buses to the door", 1000, 3400, 2, 300, 50);
+  const earlierStart = trip("leaves earlier, later at the door", 700, 3500, 1, 300, 0);
+  const kept = context.withoutWorse([walkFromStop, twoBuses, earlierStart]).map((o) => o.name);
+  assert.deepEqual(kept, ["one bus, 400 m walk"]);
+  const laterButSlower = trip("leaves later, arrives later", 1200, 3600, 1, 300, 0);
+  assert.deepEqual(context.withoutWorse([walkFromStop, laterButSlower]).map((o) => o.name), ["one bus, 400 m walk", "leaves later, arrives later"]);
+  assert.equal(context.walkSec(934), 747);
+});
+
+test("a train trip that a bus beats from door to door is not offered", () => {
+  const context = { railParts: (r) => r.parts };
+  vm.runInNewContext(`${source.slice(source.indexOf("function railWorthIt("), source.indexOf("function walkText("))}; this.railWorthIt = railWorthIt;`, context);
+  const bus = { dep: 1000, walkFrom: 100, arr: 3000, walkTo: 60 };
+  const slowTrain = { name: "slow", leave: 800, doorArr: 6000, parts: [{}], access: { legs: [{}, {}] } };
+  const fastTrain = { name: "fast", leave: 900, doorArr: 2500, parts: [{}] };
+  const worseTrain = { name: "worse", leave: 850, doorArr: 2600, parts: [{}, {}] };
+  assert.deepEqual(Array.from(context.railWorthIt([slowTrain, fastTrain, worseTrain], [bus]), (r) => r.name), ["fast"]);
+  assert.deepEqual(Array.from(context.railWorthIt([slowTrain], []), (r) => r.name), ["slow"]);
+});
+
+test("a bus that passes several nearby stops is boarded where you can leave home latest", () => {
+  const context = {};
+  vm.runInNewContext(`${source.slice(source.indexOf("function bestBoardings("), source.indexOf("// Spacer: odległości"))}; this.bestBoardings = bestBoardings;`, context);
+  const walk = { far: 960, near: 780, other: 300 };
+  const walkFrom = (d) => walk[d.stop];
+  const deps = [
+    { tid: "58", stop: "far", L: { pred: 45000 } },
+    { tid: "8", stop: "other", L: { pred: 45060 } },
+    { tid: "58", stop: "near", L: { pred: 45120 } },
+  ];
+  assert.deepEqual(Array.from(context.bestBoardings(deps, walkFrom), (d) => `${d.tid}@${d.stop}`), ["8@other", "58@near"]);
 });

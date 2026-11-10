@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const zlib = require("node:zlib");
 const { once } = require("node:events");
 const test = require("node:test");
 const { createServer } = require("../src/server");
@@ -331,25 +332,6 @@ test("timetables are served to guests and revalidated with an ETag", async (t) =
   assert.equal((await fetch(`${base}/other`)).status, 401);
 });
 
-test("the rail proxy forwards only known routes and the visitor's key", async (t) => {
-  const { createServer } = require("../src/server");
-  const calls = [];
-  const server = createServer({
-    database: {},
-    auth: { resolveSession: async () => null },
-    fetchSource: async (url, options) => { calls.push({ url: url.href, key: options.headers["X-API-Key"] }); return new Response('{"routes":[]}', { status: 200 }); },
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => server.close());
-  const base = `http://127.0.0.1:${server.address().port}/api/plk`;
-  assert.equal((await fetch(`${base}/schedules`)).status, 401);
-  const ok = await fetch(`${base}/schedules?dateFrom=2026-11-05`, { headers: { "X-API-Key": "secret" } });
-  assert.equal(ok.status, 200);
-  assert.deepEqual(calls, [{ url: "https://pdp-api.plk-sa.pl/api/v1/schedules?dateFrom=2026-11-05", key: "secret" }]);
-  assert.equal((await fetch(`${base}/other`, { headers: { "X-API-Key": "secret" } })).status, 401);
-  assert.equal(calls.length, 1);
-});
-
 test("favourites need an account and are cleaned before saving", async (t) => {
   const saved = [];
   const baseUrl = await startServer(t, {}, {
@@ -469,30 +451,194 @@ test("flights and driving routes are public, validated, and old end-stop links m
   assert.equal(old.headers.get("location"), "/podroz");
 });
 
-test("anyone can start a flight refresh, from this site and with valid details", async (t) => {
+test("only an administrator starts a flight refresh, choosing what, which days and which way", async (t) => {
   const requests = [];
+  const users = { admin: { id: "1", email: "boss@example.invalid", isAdmin: true }, rider: { id: "3", email: "rider@example.invalid", isAdmin: false } };
+  const routes = [{ from: "RZE", to: "BCN", airlines: ["WIZZ"] }, { from: "BCN", to: "RZE", airlines: ["WIZZ"] }];
   const server = createServer({
     database: {},
-    auth: { resolveSession: async () => null },
-    flights: { search: () => ({}), pairsFor: ({ from, to }) => (to === "XXX" ? [] : [{ from, to, airlines: ["WIZZ"] }]) },
+    auth: { resolveSession: async (token) => users[token] || null },
+    flights: { search: () => ({}), pairsFor: ({ from, to }) => routes.filter((r) => (!from || r.from === from) && (!to || r.to === to)) },
     collector: { status: () => ({ available: true, running: false }), request: (target) => { requests.push(target); return "started"; } },
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const post = (body) => fetch(`${base}/api/flights/refresh`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify(body) });
+  const post = (body, who = "admin", origin = base) => fetch(`${base}/api/flights/refresh`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin, Cookie: `rzbus_session=${who}` }, body: JSON.stringify(body) });
+  const period = { start: "2026-12-01", end: "2026-12-10" };
+  const wizz = { airlines: ["WIZZ"] };
 
   assert.equal((await (await fetch(`${base}/api/flights/status`)).json()).available, true);
-  const foreign = await fetch(`${base}/api/flights/refresh`, { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://evil.example" }, body: "{}" });
-  assert.equal(foreign.status, 403);
-  assert.equal((await post({})).status, 202);
-  requests.length = 0;
-  const period = { start: "2026-12-01", end: "2026-12-10" };
-  assert.equal((await post({ from: "rze", ...period })).status, 400);
-  assert.equal((await post({ from: "RZE", to: "BCN" })).status, 400);
-  assert.equal((await post({ from: "RZE", to: "BCN", start: "2026-12-10", end: "2026-12-01" })).status, 400);
-  assert.equal((await post({ from: "RZE", to: "BCN", start: "2026-12-01", end: "2027-06-01" })).status, 400);
-  assert.equal((await post({ from: "RZE", to: "XXX", ...period })).status, 400);
-  assert.equal((await post({ from: "RZE", to: "BCN", ...period })).status, 202);
-  assert.deepEqual(requests, [{ pairs: [{ from: "RZE", to: "BCN", airlines: ["WIZZ"] }], ...period, target: { from: "RZE", to: "BCN", ...period } }]);
+  assert.equal((await post({ scope: "network" }, "nobody")).status, 401);
+  assert.equal((await post({ scope: "network" }, "rider")).status, 403);
+  assert.equal((await post({ scope: "network" }, "admin", "https://evil.example")).status, 403);
+  assert.equal(requests.length, 0);
+
+  assert.equal((await post({ scope: "network" })).status, 202);
+  assert.deepEqual(requests.pop(), { networkOnly: true, target: { scope: "network" } });
+  assert.equal((await post({ scope: "all", ...period, ...wizz })).status, 202);
+  assert.deepEqual(requests.pop(), { start: "2026-12-01", end: "2026-12-10", airlines: ["WIZZ"], target: { scope: "all", from: "", to: "", direction: "out", ...period, ...wizz } });
+  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", direction: "both", ...period, ...wizz })).status, 202);
+  assert.deepEqual(requests.pop().pairs, routes);
+  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", direction: "back", ...period, ...wizz })).status, 202);
+  assert.deepEqual(requests.pop().pairs, [routes[1]]);
+
+  assert.equal((await post({ scope: "everything", ...period, ...wizz })).status, 400);
+  assert.equal((await post({ scope: "route", from: "rze", ...period, ...wizz })).status, 400);
+  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", ...period, airlines: [] })).status, 400);
+  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", ...period, airlines: ["LOT"] })).status, 400);
+  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", start: "2026-12-10", end: "2026-12-01", ...wizz })).status, 400);
+  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", start: "2026-12-01", end: "2027-06-01", ...wizz })).status, 400);
+  assert.equal((await post({ scope: "route", ...period, ...wizz })).status, 400);
+  assert.equal((await post({ scope: "route", from: "RZE", to: "XXX", ...period, ...wizz })).status, 400);
+  assert.equal(requests.length, 0);
+  const me = await (await fetch(`${base}/api/auth/me`, { headers: { Cookie: "rzbus_session=admin" } })).json();
+  assert.equal(me.user.canAdminister, true);
+});
+
+test("the rail key can be replaced only by an administrator and is never sent back", async (t) => {
+  const { createServer } = require("../src/server");
+  const saved = [];
+  const plk = { status: async () => ({ configured: true, updatedAt: "2026-11-06T10:00:00.000Z" }), setKey: async (key) => { if (key === "bad-key") return false; saved.push(key); return true; } };
+  const users = { admin: { id: "1", email: "boss@example.invalid", isAdmin: true }, listed: { id: "2", email: "listed@example.invalid", isAdmin: false }, rider: { id: "3", email: "rider@example.invalid", isAdmin: false } };
+  const previous = process.env.ADMIN_EMAILS;
+  process.env.ADMIN_EMAILS = "listed@example.invalid";
+  t.after(() => { if (previous === undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS = previous; });
+  const server = createServer({ database: {}, auth: { resolveSession: async (token) => users[token] || null }, plk });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const as = (who, method = "GET", body, origin = base) => fetch(`${base}/api/settings/plk-key`, { method, headers: { "Content-Type": "application/json", Origin: origin, Cookie: `rzbus_session=${who}` }, body: body && JSON.stringify(body) });
+  assert.equal((await as("nobody")).status, 401);
+  assert.equal((await as("rider")).status, 403);
+  assert.equal((await as("rider", "PUT", { key: "stolen-key" })).status, 403);
+  const status = await (await as("admin")).json();
+  assert.deepEqual(status, { configured: true, updatedAt: "2026-11-06T10:00:00.000Z" });
+  assert.equal((await as("listed")).status, 200);
+  assert.equal((await as("admin", "PUT", { key: "new-key" }, "https://evil.example")).status, 403);
+  assert.equal((await as("admin", "PUT", { key: "  " })).status, 400);
+  assert.equal((await as("admin", "PUT", { key: "bad-key" })).status, 422);
+  assert.equal((await as("admin", "PUT", { key: " new-key " })).status, 200);
+  assert.deepEqual(saved, ["new-key"]);
+});
+
+test("rail data is read from the database, with no visitor key or session", async (t) => {
+  const { createServer } = require("../src/server");
+  const asked = [];
+  const body = zlib.gzipSync("[]");
+  const snapshots = {
+    info: async (key) => { asked.push(key); return key === "plk:schedule:2026-11-05" ? { etag: '"v1"', type: "application/json", fetchedAt: new Date() } : null; },
+    read: async () => body,
+  };
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, snapshots, fetchSource: async () => { throw new Error("visitors must not reach outside services"); } });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/plk`;
+  const first = await fetch(`${base}/schedules?date=2026-11-05`);
+  assert.equal(first.status, 200);
+  assert.deepEqual(await first.json(), []);
+  assert.equal((await fetch(`${base}/schedules?date=2026-11-05`, { headers: { "If-None-Match": '"v1"' } })).status, 304);
+  assert.equal((await fetch(`${base}/schedules?date=2026-11-06`)).status, 503);
+  assert.equal((await fetch(`${base}/schedules?date=nonsense`)).status, 503);
+  assert.equal((await fetch(`${base}/operations`)).status, 503);
+  assert.equal((await fetch(`${base}/other`)).status, 401);
+  assert.deepEqual(asked, ["plk:schedule:2026-11-05", "plk:schedule:2026-11-05", "plk:schedule:2026-11-06", "plk:operations"]);
+});
+
+test("live data is public, read from the database, and honest when it is missing or too old", async (t) => {
+  const { createServer } = require("../src/server");
+  const fetchedAt = { ztm: new Date(), pks: new Date(Date.now() - 6 * 60 * 1000) };
+  const snapshots = {
+    info: async (key) => { const name = key.split(":")[1]; return fetchedAt[name] ? { etag: '"v1"', type: "application/octet-stream", fetchedAt: fetchedAt[name] } : null; },
+    read: async () => zlib.gzipSync("feed"),
+  };
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, snapshots });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/live`;
+  const feed = await fetch(`${base}/ztm`);
+  assert.equal(feed.status, 200);
+  assert.equal(await feed.text(), "feed");
+  assert.equal(feed.headers.get("x-fetched-at"), fetchedAt.ztm.toISOString());
+  assert.equal((await fetch(`${base}/pks`)).status, 503);
+  assert.equal((await fetch(`${base}/weather`)).status, 503);
+  assert.equal((await fetch(`${base}/other`)).status, 401);
+});
+
+test("walking distances to many stops come from one routing request, are cached and validated", async (t) => {
+  const { createWalkTable } = require("../src/driving");
+  const asked = [];
+  const walkDistances = createWalkTable({ fetchSource: async (url) => { asked.push(String(url)); return new Response(JSON.stringify({ code: "Ok", distances: [[0, 900, null]], sources: [{ distance: 17 }], destinations: [{ distance: 0 }, { distance: 5 }, { distance: 3 }] }), { headers: { "Content-Type": "application/json" } }); } });
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, walkDistances });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const ask = (query) => fetch(`${base}/api/walk?${query}`);
+  const first = await ask("from=49.9745,22.0345&to=49.9739,22.0254;49.9721,22.0266");
+  assert.equal(first.status, 200);
+  assert.deepEqual(await first.json(), { meters: [922, null] });
+  assert.equal((await ask("from=49.9745,22.0345&to=49.9739,22.0254;49.9721,22.0266")).status, 200);
+  assert.equal(asked.length, 1);
+  assert.match(asked[0], /routed-foot\/table\/v1\/foot\/22\.0345,49\.9745;22\.0254,49\.9739;22\.0266,49\.9721\?sources=0&annotations=distance$/);
+  assert.equal((await ask("from=49.9745,22.0345")).status, 400);
+  assert.equal((await ask("from=x&to=49.9739,22.0254")).status, 400);
+  assert.equal((await ask(`from=49.9745,22.0345&to=${Array(26).fill("49.97,22.02").join(";")}`)).status, 400);
+});
+
+test("walking distance requests wait their turn and stop for a while after the router refuses", async () => {
+  const { createWalkTable } = require("../src/driving");
+  let clock = 0;
+  const calls = [];
+  const answers = [429, 200, 200];
+  const walkDistances = createWalkTable({
+    gapMs: 1000, pauseMs: 60000, now: () => clock, wait: async (ms) => { clock += ms; },
+    fetchSource: async () => { calls.push(clock); const status = answers.shift(); return new Response(JSON.stringify({ code: "Ok", distances: [[0, 100]] }), { status }); },
+  });
+  const a = { lat: 50, lon: 22 };
+  await assert.rejects(walkDistances(a, [{ lat: 50.001, lon: 22 }]), /429/);
+  await assert.rejects(walkDistances(a, [{ lat: 50.002, lon: 22 }]), /paused/);
+  assert.equal(calls.length, 1);
+  clock += 60000;
+  const [first, second] = await Promise.all([walkDistances(a, [{ lat: 50.003, lon: 22 }]), walkDistances(a, [{ lat: 50.004, lon: 22 }])]);
+  assert.deepEqual([first, second], [[100], [100]]);
+  assert.equal(calls[2] - calls[1] >= 1000, true);
+});
+
+test("a signed-in trip search asks the airlines only about its own routes and days, and not twice", async (t) => {
+  const requests = [];
+  const users = { rider: { id: "3", email: "rider@example.invalid", isAdmin: false } };
+  const out = [{ from: "KRK", to: "BGY", airlines: ["RYANAIR"] }];
+  let reply = "started";
+  const server = createServer({
+    database: {},
+    auth: { resolveSession: async (token) => users[token] || null },
+    flights: { tripPairs: () => out, returnPairs: (pairs) => pairs.map((p) => ({ from: p.to, to: p.from, airlines: p.airlines })) },
+    collector: { status: () => ({ available: true, running: false }), request: (target) => { requests.push(target); return reply; } },
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  const post = (body, who = "rider") => fetch(`${base}/api/flights/trip`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base, Cookie: `rzbus_session=${who}` }, body: JSON.stringify(body) });
+  const trip = { origin: "50.04,22.00", dest: "45.67,9.70", date: day(7), back: day(14) };
+
+  assert.equal((await post(trip, "nobody")).status, 401);
+  assert.equal((await post({ ...trip, back: day(3) })).status, 400);
+  assert.equal((await post({ ...trip, date: day(400), back: day(401) })).status, 400); // more than a year ahead
+  assert.equal(requests.length, 0);
+
+  assert.equal((await post(trip)).status, 202);
+  const run = requests.pop();
+  assert.deepEqual(run.jobs, [{ pairs: out, start: day(7), end: day(7) }, { pairs: [{ from: "BGY", to: "KRK", airlines: ["RYANAIR"] }], start: day(14), end: day(14) }]);
+  assert.equal(run.target.scope, "trip");
+  // the same days again are already fresh
+  assert.deepEqual(await (await post(trip)).json(), { started: false, reason: "fresh" });
+  // another day only asks about that day
+  assert.equal((await post({ ...trip, back: "" , date: day(8) })).status, 202);
+  assert.deepEqual(requests.pop().jobs, [{ pairs: out, start: day(8), end: day(8) }]);
+  reply = "busy";
+  assert.equal((await post({ ...trip, back: "", date: day(9) })).status, 409);
+  // a busy run does not count as asked
+  reply = "started";
+  assert.equal((await post({ ...trip, back: "", date: day(9) })).status, 202);
 });

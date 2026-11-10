@@ -3,31 +3,27 @@
 const { spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { WINDOW_DAYS, lastChange } = require("./flights");
 
 const TRACKER_DB = path.join("data", "flights.db");
 const WATCH_PREFIX = "komunikacja: ";
 const DEFAULT_ROUTES = "RZE:STN,LTN,EDI,DUB,ALC,BGY;KRK:STN,DUB,BCN,BGY;KTW:LTN,EIN,BCN,BGY";
-const DEFAULT_INTERVAL_HOURS = 24;
-const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const RUN_TIMEOUT_MS = 30 * 60 * 1000;
 const WIZZ_DAY_TIMEOUT_MS = 30 * 1000;
 const STAY_DAYS = 3;
 const SCAN_STAY_DAYS = 1;
-const FULL_RUN_MARKER = path.join("data", "komunikacja-last-full-run");
 
 const isoDay = (date) => date.toISOString().slice(0, 10);
+const AIRLINES = ["RYANAIR", "WIZZ"];
 
 function trackerDatabase(dir) {
   return path.join(dir, TRACKER_DB);
 }
 
-function buildWatches(routes, now, days = WINDOW_DAYS) {
-  const start = isoDay(now);
-  const end = isoDay(new Date(now.getTime() + days * 86400000));
+// The whole route list for the days an administrator picked.
+function buildWatches(routes, start, end, airlines = AIRLINES) {
   return routes.split(";").map((part) => part.trim()).filter(Boolean).map((part) => {
     const [origin, destinations] = part.split(":");
-    return { name: `${WATCH_PREFIX}${origin}`, origin, destinations, start, end, min_days: STAY_DAYS, max_days: STAY_DAYS, airlines: "RYANAIR,WIZZ" };
+    return { name: `${WATCH_PREFIX}${origin}`, origin, destinations, start, end, min_days: STAY_DAYS, max_days: STAY_DAYS, airlines: airlines.join(",") };
   });
 }
 
@@ -44,6 +40,11 @@ function watchesForPairs(pairs, start, end) {
     }
   }
   return [...groups.values()].map((watch) => ({ ...watch, destinations: watch.destinations.join(",") }));
+}
+
+// Several routes with their own days in one run, e.g. the way out on the 16th and back on the 23rd.
+function watchesForJobs(jobs) {
+  return jobs.flatMap((job) => watchesForPairs(job.pairs, job.start, job.end).map((watch) => ({ ...watch, name: `${watch.name} ${job.start}` })));
 }
 
 // The tracker reads watches.json only while it has no watches, so later runs move the dates in its database instead.
@@ -65,9 +66,12 @@ async function writeWatches(dir, watches) {
   }
 }
 
-function scanTimeout(pairs, start, end) {
+function wizzTime(pairs, start, end) {
   const days = (Date.parse(end) - Date.parse(start)) / 86400000 + 1;
-  return RUN_TIMEOUT_MS + pairs.filter((pair) => pair.airlines.includes("WIZZ")).length * days * WIZZ_DAY_TIMEOUT_MS;
+  return pairs.filter((pair) => pair.airlines.includes("WIZZ")).length * days * WIZZ_DAY_TIMEOUT_MS;
+}
+function scanTimeout(jobs) {
+  return RUN_TIMEOUT_MS + jobs.reduce((sum, job) => sum + wizzTime(job.pairs, job.start, job.end), 0);
 }
 
 function runTracker(dir, { wizzMode = "", timeoutMs = RUN_TIMEOUT_MS } = {}) {
@@ -84,39 +88,34 @@ function runTracker(dir, { wizzMode = "", timeoutMs = RUN_TIMEOUT_MS } = {}) {
   });
 }
 
+// Flights are fetched only on request (an administrator, or a trip search for its own days): each run opens a browser and calls the airlines.
 function createFlightCollector({
   flights,
   dir = process.env.FLIGHT_TRACKER_DIR || "",
   routes = process.env.FLIGHT_ROUTES || DEFAULT_ROUTES,
-  intervalMs = Number(process.env.FLIGHT_COLLECT_HOURS || DEFAULT_INTERVAL_HOURS) * 3600000,
   prepare = writeWatches,
   collect = runTracker,
-  statFile = (file) => (file.endsWith(TRACKER_DB) ? lastChange(file) : fs.stat(file)),
-  markFullRun = (folder) => fs.writeFile(path.join(folder, FULL_RUN_MARKER), new Date().toISOString()),
   updateNetwork = async () => {},
   now = () => new Date(),
-  checkIntervalMs = CHECK_INTERVAL_MS,
 }) {
   let running = false;
-  let timer = null;
   let last = { target: null, startedAt: null, finishedAt: null, error: null };
 
-  // A refresh of one route must not postpone the daily run, so full runs leave their own marker.
-  async function isDue() {
-    const stats = await statFile(path.join(dir, FULL_RUN_MARKER)).catch(() => statFile(trackerDatabase(dir))).catch(() => null);
-    return !stats || now().getTime() - stats.mtimeMs >= intervalMs;
-  }
-
-  async function run({ pairs = null, start = "", end = "", target = null } = {}) {
+  // pairs: chosen routes, or jobs: routes each with their own days; without them the configured route list. networkOnly: only the airlines' route list.
+  async function run({ pairs = null, jobs = null, start = "", end = "", airlines = AIRLINES, target = null, networkOnly = false } = {}) {
     if (!dir || running) return false;
     running = true;
     last = { target, startedAt: now().toISOString(), finishedAt: null, error: null };
     try {
+      if (networkOnly) {
+        await updateNetwork({ force: true });
+        return true;
+      }
       await updateNetwork().catch((error) => console.error("Route list update failed:", error.message));
-      await prepare(dir, pairs ? watchesForPairs(pairs, start, end) : buildWatches(routes, now(), WINDOW_DAYS));
-      await collect(dir, pairs ? { wizzMode: "detailed", timeoutMs: scanTimeout(pairs, start, end) } : {});
+      const chosen = jobs || (pairs ? [{ pairs, start, end }] : null);
+      await prepare(dir, chosen ? watchesForJobs(chosen) : buildWatches(routes, start, end, airlines));
+      await collect(dir, chosen ? { wizzMode: "detailed", timeoutMs: scanTimeout(chosen) } : {});
       await flights.sync();
-      if (!pairs) await markFullRun(dir);
       return true;
     } catch (error) {
       last.error = error.message;
@@ -139,24 +138,7 @@ function createFlightCollector({
     return "started";
   }
 
-  async function tick() {
-    if (!dir || !(await isDue())) return false;
-    return run();
-  }
-
-  function start() {
-    if (!dir) return;
-    const safely = () => tick().catch((error) => console.error("Flight collection failed:", error.message));
-    safely();
-    timer = setInterval(safely, checkIntervalMs);
-    timer.unref?.();
-  }
-
-  function stop() {
-    clearInterval(timer);
-  }
-
-  return { request, run, start, status, stop, tick };
+  return { request, run, status };
 }
 
-module.exports = { buildWatches, createFlightCollector, trackerDatabase, watchesForPairs, writeWatches };
+module.exports = { buildWatches, createFlightCollector, trackerDatabase, watchesForJobs, watchesForPairs, writeWatches };

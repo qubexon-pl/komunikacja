@@ -6,13 +6,18 @@ const path = require("node:path");
 const { pipeline } = require("node:stream/promises");
 const crypto = require("node:crypto");
 const tls = require("node:tls");
-const { AGENCIES, createSqlConfig, getSchedule, importedHash, readFlightFares, readFlightNetwork, readSchedule, replaceFlightFares, replaceSchedule, saveFlightNetwork } = require("./database");
-const { PATH_URLS, createDrivingRouter, createPathRouter, parsePoint } = require("./driving");
+const { AGENCIES, createSnapshots, createSqlConfig, getSchedule, importedHash, readFlightFares, readFlightNetwork, readSchedule, readSetting, replaceFlightFares, replaceSchedule, saveFlightNetwork, saveSetting } = require("./database");
+const { MAX_WALK_TARGETS, PATH_URLS, createDrivingRouter, createPathRouter, createWalkTable, parsePoint } = require("./driving");
 const { createFlightCollector, trackerDatabase } = require("./flight-collector");
 const { readNetwork } = require("./flight-network");
 const { createFlightStore } = require("./flights");
+const { createLiveFlightSearch, providersFromEnv } = require("./flight-providers");
+const { createAlertDatabase, createPriceAlerts } = require("./price-alerts");
 const { createGeocoder, createStreetSuggester } = require("./geocode");
 const { normalizeFavorites } = require("./favorites");
+const { LIVE_SOURCES, createLiveCollector } = require("./live-data");
+const { OPERATIONS_KEY, createPlkCollector, scheduleKey } = require("./plk");
+const { ageOf } = require("./snapshots");
 const { createScheduleStore } = require("./schedule");
 const { createTimetableStore } = require("./timetable");
 const { AuthError, SESSION_TTL_SECONDS, createAuthService, isEmailConfigured, safeReturnTo } = require("./auth");
@@ -30,11 +35,12 @@ const MAX_AUTH_BODY_BYTES = 16 * 1024;
 const MAX_FEED_BYTES = 50 * 1024 * 1024;
 const SESSION_COOKIE = "rzbus_session";
 const OAUTH_COOKIE = "rzbus_oauth_state";
-const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/podroz"]);
+const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/podroz", "/ulubione"]);
 const MAX_FAVORITES_BYTES = 64 * 1024;
-const PLK_API = "https://pdp-api.plk-sa.pl/api/v1/";
 const PLK_ROUTES = new Set(["schedules", "operations"]);
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, flights: 120, driving: 30, path: 120 };
+const PLK_KEY_SETTING = "plk_api_key";
+const PLK_KEY_MAX_LENGTH = 512;
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -42,15 +48,13 @@ const GTFS_SOURCE_PATHS = new Map([
   ["cdn.zbiorkom.live", new Set(["/gtfs/rzeszow.zip"])],
   ["kmrzeszow.live", new Set([
     "/gtfs/rt/gtfsrt.pb",
-    "/gtfs/rt/pks/gtfsrt.pb",
-    "/gtfs/pks/rt/gtfsrt.pb",
-    "/gtfs/pks.zip",
-    "/gtfs/pks/gtfs.zip",
+    "/gtfs-pks/rt/gtfsrt.pb",
+    "/gtfs-pks/latest.zip",
   ])],
   ["www.mpkrzeszow.pl", new Set([
     "/gtfs/rt/gtfsrt.pb",
-    "/gtfs/rt/pks/gtfsrt.pb",
-    "/gtfs/pks.zip",
+    "/gtfs-pks/rt/gtfsrt.pb",
+    "/gtfs-pks/latest.zip",
   ])],
 ]);
 
@@ -175,6 +179,8 @@ function authRedirect(res, pathname, search = "") {
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SCAN_DAYS = 90;
+// Trips, single prices and alerts can be planned a year ahead; an admin scan still covers at most 90 days at once.
+const PLAN_AHEAD_DAYS = 366;
 
 function serveFlights(res, url, action, flights) {
   if (!flights) {
@@ -198,30 +204,195 @@ function serveFlights(res, url, action, flights) {
     json(res, 400, { error: "Podaj współrzędne początku i celu." });
     return;
   }
-  const stay = Math.min(Math.max(Number.parseInt(url.searchParams.get("stay"), 10) || 0, 0), MAX_SCAN_DAYS);
-  json(res, 200, flights.options({ origin, dest, date, stay, back }));
+  if (back && date && back < date) {
+    json(res, 400, { error: "Powrót nie może być przed wyjazdem." });
+    return;
+  }
+  json(res, 200, flights.options({ origin, dest, date, back }));
 }
 
-// Open to everyone during development; each run opens a browser and calls the airlines, so limit this before a public launch.
+const FLIGHT_SCOPES = new Set(["route", "all", "network"]);
+const FLIGHT_DIRECTIONS = new Set(["out", "back", "both"]);
+const FLIGHT_AIRLINES = new Set(["RYANAIR", "WIZZ"]);
+
+// Only an administrator starts a run: it opens a browser and calls the airlines. They choose what, which days and which way.
 async function refreshFlights(req, res, collector, flights) {
-  const { from = "", to = "", start = "", end = "", airlines = [] } = await readJson(req);
+  if (!isAppAdmin(req.user)) {
+    json(res, 403, { error: "Loty może odświeżyć tylko administrator." });
+    return;
+  }
+  const { scope = "route", from = "", to = "", direction = "out", start = "", end = "", airlines = [] } = await readJson(req);
   const iata = /^[A-Z]{3}$/;
-  const scan = Boolean(from || to);
-  if ((from && !iata.test(from)) || (to && !iata.test(to)) || !Array.isArray(airlines)) {
+  if (!FLIGHT_SCOPES.has(scope) || !FLIGHT_DIRECTIONS.has(direction) || !Array.isArray(airlines) || airlines.some((code) => !FLIGHT_AIRLINES.has(code))) {
+    json(res, 400, { error: "Nieprawidłowe ustawienia pobierania." });
+    return;
+  }
+  if ((from && !iata.test(from)) || (to && !iata.test(to))) {
     json(res, 400, { error: "Nieprawidłowe lotnisko." });
     return;
   }
+  if (scope === "network") {
+    respondToRun(res, collector ? collector.request({ networkOnly: true, target: { scope } }) : "unavailable");
+    return;
+  }
+  if (!airlines.length) {
+    json(res, 400, { error: "Wybierz co najmniej jedną linię." });
+    return;
+  }
   const days = (Date.parse(end) - Date.parse(start)) / 86400000;
-  if (scan && !(ISO_DAY.test(start) && ISO_DAY.test(end) && days >= 0 && days <= MAX_SCAN_DAYS)) {
+  if (!(ISO_DAY.test(start) && ISO_DAY.test(end) && days >= 0 && days <= MAX_SCAN_DAYS)) {
     json(res, 400, { error: `Podaj okres do ${MAX_SCAN_DAYS} dni.` });
     return;
   }
-  const pairs = scan ? flights.pairsFor({ from, to, airlines }) : null;
-  if (scan && !pairs.length) {
-    json(res, 400, { error: "Żadna z linii nie lata tą trasą." });
+  const target = { scope, from, to, direction, start, end, airlines };
+  if (scope === "all") {
+    respondToRun(res, collector ? collector.request({ start, end, airlines, target }) : "unavailable");
     return;
   }
-  const result = collector ? collector.request(scan ? { pairs, start, end, target: { from, to, start, end } } : {}) : "unavailable";
+  if (!from && !to) {
+    json(res, 400, { error: "Wybierz lotnisko wylotu albo przylotu." });
+    return;
+  }
+  const ways = { out: [[from, to]], back: [[to, from]], both: [[from, to], [to, from]] }[direction];
+  const found = new Map();
+  for (const [a, b] of ways) for (const pair of flights.pairsFor({ from: a, to: b, airlines })) found.set(`${pair.from}|${pair.to}`, pair);
+  const pairs = [...found.values()];
+  if (!pairs.length) {
+    json(res, 400, { error: "Żadna z wybranych linii nie lata tą trasą." });
+    return;
+  }
+  respondToRun(res, collector ? collector.request({ pairs, start, end, target }) : "unavailable");
+}
+
+// A trip search asks the airlines only about its own routes and days, and the same day of a route at most every 6 hours.
+const TRIP_FETCH_FRESH_MS = 6 * 60 * 60 * 1000;
+async function fetchTripFlights(req, res, collector, flights, asked, liveSearch) {
+  const { origin = "", dest = "", date = "", back = "" } = await readJson(req);
+  const from = parsePoint(origin);
+  const to = parsePoint(dest);
+  const today = new Date().toISOString().slice(0, 10);
+  const ahead = (day) => (Date.parse(day) - Date.parse(today)) / 86400000;
+  if (!from || !to || !ISO_DAY.test(date) || (back && !ISO_DAY.test(back)) || ahead(date) < -1 || ahead(back || date) > PLAN_AHEAD_DAYS || (back && back < date)) {
+    json(res, 400, { error: "Nieprawidłowe miejsca lub daty podróży." });
+    return;
+  }
+  if (!flights || (!collector && !liveSearch)) {
+    respondToRun(res, "unavailable");
+    return;
+  }
+  // The official APIs also find flights with changes, so they are asked even where no low-cost airline flies.
+  const target = { scope: "trip", from: "", to: "", direction: back ? "both" : "out", start: date, end: back || date };
+  const apis = liveSearch ? liveSearch.request({ origin: from, dest: to, date, back }, target) : "unavailable";
+  const out = collector ? flights.tripPairs({ origin: from, dest: to }) : [];
+  if (!out.length) {
+    if (apis === "started" || apis === "busy") respondToRun(res, apis);
+    else if (apis === "fresh") json(res, 200, { started: false, reason: "fresh" });
+    else json(res, 200, { started: false, reason: "no-routes" });
+    return;
+  }
+  const now = Date.now();
+  for (const [key, at] of asked) if (now - at >= TRIP_FETCH_FRESH_MS) asked.delete(key);
+  const key = (pair, day) => `${pair.from}|${pair.to}|${day}`;
+  const jobs = [{ pairs: out, start: date, end: date }, ...(back ? [{ pairs: flights.returnPairs(out), start: back, end: back }] : [])]
+    .map((job) => ({ ...job, pairs: job.pairs.filter((pair) => !asked.has(key(pair, job.start))) }))
+    .filter((job) => job.pairs.length);
+  const codes = (list) => [...new Set(list)].join(",");
+  Object.assign(target, { from: codes(out.map((pair) => pair.from)), to: codes(out.map((pair) => pair.to)) });
+  const result = jobs.length ? collector.request({ jobs, target }) : "fresh";
+  if (result === "started") for (const job of jobs) for (const pair of job.pairs) asked.set(key(pair, job.start), now);
+  // Either source working is enough; the planner then waits for both.
+  const best = [result, apis].find((r) => r === "started") || [result, apis].find((r) => r === "busy") || (result === "fresh" || apis === "fresh" ? "fresh" : "unavailable");
+  if (best === "fresh") json(res, 200, { started: false, reason: "fresh" });
+  else respondToRun(res, best);
+}
+
+// "Update the price" of one flight: the flight-tracker asks the airline about that route and day only.
+// An explicit request may repeat a route and day after an hour, a trip search only after 6 hours.
+const FARE_REFRESH_FRESH_MS = 60 * 60 * 1000;
+async function refreshFare(req, res, collector, flights, asked) {
+  const { from = "", to = "", day = "", back = "", airline = "" } = await readJson(req);
+  const code = (value) => String(value).trim().toUpperCase();
+  const a = code(from);
+  const b = code(to);
+  const today = new Date().toISOString().slice(0, 10);
+  const ahead = (value) => (Date.parse(value) - Date.parse(today)) / 86400000;
+  if (!/^[A-Z]{3}$/.test(a) || !/^[A-Z]{3}$/.test(b) || a === b || !ISO_DAY.test(day) || (back && !ISO_DAY.test(back)) || ahead(day) < 0 || ahead(back || day) > PLAN_AHEAD_DAYS || (back && back < day)) {
+    json(res, 400, { error: "Nieprawidłowa trasa lub data lotu." });
+    return;
+  }
+  if (!collector || !flights) {
+    respondToRun(res, "unavailable");
+    return;
+  }
+  const airlines = ["RYANAIR", "WIZZ"].includes(code(airline)) ? [code(airline)] : [];
+  const out = flights.pairsFor({ from: a, to: b, airlines });
+  if (!out.length) {
+    json(res, 200, { started: false, reason: "no-routes" });
+    return;
+  }
+  const now = Date.now();
+  const key = (pair, value) => `${pair.from}|${pair.to}|${value}`;
+  const jobs = [{ pairs: out, start: day, end: day }, ...(back ? [{ pairs: flights.returnPairs(out), start: back, end: back }] : [])]
+    .map((job) => ({ ...job, pairs: job.pairs.filter((pair) => !(now - (asked.get(key(pair, job.start)) || 0) < FARE_REFRESH_FRESH_MS)) }))
+    .filter((job) => job.pairs.length);
+  if (!jobs.length) {
+    json(res, 200, { started: false, reason: "fresh" });
+    return;
+  }
+  const result = collector.request({ jobs, target: { scope: "trip", from: a, to: b, direction: back ? "both" : "out", start: day, end: back || day } });
+  if (result === "started") for (const job of jobs) for (const pair of job.pairs) asked.set(key(pair, job.start), now);
+  respondToRun(res, result);
+}
+
+// Fuel price used to compare driving with the train. FUEL_PRICE_PB95 / _ON / _LPG override the defaults.
+const FUEL_DEFAULTS = { pb95: 6.04, on: 7.74, lpg: null, date: "2026-11-10", source: "Ministerstwo Energii — maksymalna cena detaliczna" };
+function fuelPrices(env = process.env) {
+  const value = (name, fallback) => {
+    const number = Number(String(env[name] || "").replace(",", "."));
+    return number > 0 && number < 50 ? number : fallback;
+  };
+  const custom = ["FUEL_PRICE_PB95", "FUEL_PRICE_ON", "FUEL_PRICE_LPG"].some((name) => env[name]);
+  return {
+    pb95: value("FUEL_PRICE_PB95", FUEL_DEFAULTS.pb95),
+    on: value("FUEL_PRICE_ON", FUEL_DEFAULTS.on),
+    lpg: value("FUEL_PRICE_LPG", FUEL_DEFAULTS.lpg),
+    date: custom ? env.FUEL_PRICE_DATE || "" : FUEL_DEFAULTS.date,
+    source: custom ? env.FUEL_PRICE_SOURCE || "ustawienia serwera" : FUEL_DEFAULTS.source,
+  };
+}
+
+// Price alerts of the signed-in user: list, add, remove.
+async function serveAlerts(req, res, alerts, segments) {
+  if (!alerts) {
+    json(res, 503, { error: "Alerty cenowe są niedostępne na tym serwerze." });
+    return;
+  }
+  try {
+    if (segments.length === 2 && req.method === "GET") {
+      json(res, 200, { alerts: await alerts.list(req.user.id) });
+      return;
+    }
+    if (segments.length === 2 && req.method === "POST") {
+      requireSameOrigin(req);
+      json(res, 201, { alert: await alerts.create(req.user.id, await readJson(req)) });
+      return;
+    }
+    if (segments.length === 3 && req.method === "DELETE") {
+      requireSameOrigin(req);
+      await alerts.remove(req.user.id, segments[2]);
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    res.setHeader("Allow", "GET, POST, DELETE");
+    json(res, 405, { error: "Method not allowed." });
+  } catch (error) {
+    if (error.status && error.status < 500) json(res, error.status, { error: error.message });
+    else throw error;
+  }
+}
+
+function respondToRun(res, result) {
   if (result === "unavailable") json(res, 503, { error: "Na tym serwerze nie działa pobieranie lotów." });
   else if (result === "busy") json(res, 409, { error: "Loty są już pobierane." });
   else json(res, 202, { started: true });
@@ -255,6 +426,22 @@ async function servePath(res, url, findPath) {
   } catch (error) {
     console.error("Route path failed:", error.message);
     json(res, 502, { error: "Wyznaczanie trasy jest chwilowo niedostępne." });
+  }
+}
+
+// to: up to 25 stops as lat,lon;lat,lon. Answers metres on foot, null where no path was found.
+async function serveWalk(res, url, walkDistances) {
+  const from = parsePoint(url.searchParams.get("from"));
+  const targets = String(url.searchParams.get("to") || "").split(";").filter(Boolean).map(parsePoint);
+  if (!from || !targets.length || targets.length > MAX_WALK_TARGETS || targets.some((p) => !p)) {
+    json(res, 400, { error: `Podaj punkt startu i do ${MAX_WALK_TARGETS} przystanków.` });
+    return;
+  }
+  try {
+    json(res, 200, { meters: await walkDistances(from, targets) });
+  } catch (error) {
+    console.error("Walking distances failed:", error.message);
+    json(res, 502, { error: "Wyznaczanie dojścia jest chwilowo niedostępne." });
   }
 }
 
@@ -402,7 +589,7 @@ async function handleAuth(req, res, url, auth) {
   }
   if (route === "/api/auth/me" && req.method === "GET") {
     const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
-    json(res, 200, { user });
+    json(res, 200, { user: user && { ...user, canAdminister: isAppAdmin(user) } });
     return true;
   }
   if (route === "/api/auth/register" && req.method === "POST") {
@@ -519,20 +706,22 @@ async function handleAuth(req, res, url, auth) {
   return false;
 }
 
-function serveSchedule(req, res, agency, schedules) {
-  const copy = schedules?.get(agency);
-  if (!copy) {
-    json(res, 503, { error: "Rozkład jest chwilowo niedostępny." });
+// Every visitor request ends here: it reads the database and never reaches an outside service.
+async function serveSnapshot(req, res, snapshots, key, maxAgeMs = Infinity) {
+  const info = key ? await snapshots?.info(key) : null;
+  if (!info || ageOf(info, Date.now()) > maxAgeMs) {
+    json(res, 503, { error: "Dane są chwilowo niedostępne." });
     return;
   }
-  const headers = { ETag: copy.etag, "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff" };
-  if (req.headers["if-none-match"] === copy.etag) {
+  const headers = { ETag: info.etag, "Cache-Control": "no-cache", "X-Fetched-At": new Date(info.fetchedAt).toISOString(), "X-Content-Type-Options": "nosniff" };
+  if (req.headers["if-none-match"] === info.etag) {
     res.writeHead(304, headers);
     res.end();
     return;
   }
-  res.writeHead(200, { ...headers, "Content-Type": "application/json; charset=utf-8", "Content-Encoding": "gzip", "Content-Length": copy.body.length });
-  res.end(copy.body);
+  const body = await snapshots.read(key);
+  res.writeHead(200, { ...headers, "Content-Type": info.type, "Content-Encoding": "gzip", "Content-Length": body.length });
+  res.end(body);
 }
 
 async function serveTimetable(req, res, agency, timetables) {
@@ -551,23 +740,43 @@ async function serveTimetable(req, res, agency, timetables) {
   res.end(feed.buffer);
 }
 
-// The rail API does not allow browser calls, and its key must not pass through third parties.
-async function proxyPlk(req, res, url, route, fetchSource) {
-  const key = req.headers["x-api-key"];
-  if (!key) {
-    json(res, 401, { error: "Brak klucza PKP PLK." });
+function isAppAdmin(user) {
+  const admins = (process.env.ADMIN_EMAILS || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean);
+  return Boolean(user.isAdmin || admins.includes(String(user.email).toLowerCase()));
+}
+
+// The saved key is never sent back: an administrator can replace it but not read it.
+async function servePlkKey(req, res, plk) {
+  if (!isAppAdmin(req.user)) {
+    json(res, 403, { error: "Klucz może zmienić tylko administrator." });
+    return;
+  }
+  if (!plk) {
+    json(res, 503, { error: "Pociągi nie są skonfigurowane na tym serwerze." });
+    return;
+  }
+  if (req.method === "GET") {
+    json(res, 200, await plk.status());
+    return;
+  }
+  if (req.method !== "PUT") {
+    res.setHeader("Allow", "GET, PUT");
+    json(res, 405, { error: "Method not allowed." });
+    return;
+  }
+  requireSameOrigin(req);
+  const { key } = await readJson(req);
+  const value = typeof key === "string" ? key.trim() : "";
+  if (!value || value.length > PLK_KEY_MAX_LENGTH) {
+    json(res, 400, { error: "Wklej klucz API PKP PLK." });
     return;
   }
   try {
-    const upstream = await fetchSource(new URL(`${PLK_API}${route}${url.search}`), {
-      headers: { "X-API-Key": key, Accept: "application/json" },
-      signal: AbortSignal.timeout(25000),
-    });
-    res.writeHead(upstream.status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
-    res.end(await upstream.text());
+    if (await plk.setKey(value)) json(res, 200, { saved: true });
+    else json(res, 422, { error: "PKP PLK odrzuciło ten klucz. Sprawdź, czy jest poprawny." });
   } catch (error) {
-    console.error("Rail API request failed:", error.message);
-    json(res, 502, { error: "API PKP PLK jest chwilowo niedostępne." });
+    console.error("Rail key could not be saved:", error.message);
+    json(res, 502, { error: "Nie udało się sprawdzić ani zapisać klucza. Spróbuj ponownie." });
   }
 }
 
@@ -622,8 +831,9 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, schedules = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), liveSearch = null, alerts = null, staticRoot = ROOT }) {
   const root = path.resolve(staticRoot);
+  const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, "http://localhost");
@@ -648,28 +858,38 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "timetable" && segments.length === 3 && AGENCIES.has(segments[2]))
           || (segments[1] === "schedule" && segments.length === 3 && AGENCIES.has(segments[2]))
           || (segments[1] === "plk" && segments.length === 3 && PLK_ROUTES.has(segments[2]))
+          || (segments[1] === "live" && segments.length === 3 && Object.hasOwn(LIVE_SOURCES, segments[2]))
           || (segments[1] === "flights" && (segments.length === 2 || (segments.length === 3 && ["options", "status", "network"].includes(segments[2]))))
           || (segments[1] === "driving" && segments.length === 2)
           || (segments[1] === "path" && segments.length === 2)
+          || (segments[1] === "walk" && segments.length === 2)
+          || (segments[1] === "fuel" && segments.length === 2)
         ) ? (segments[1] === "feeds" ? "feeds" : segments[1]) : null;
         if (publicRoute && !takePublicRequest(req, publicRoute)) {
           json(res, 429, { error: "Zbyt wiele zapytań. Spróbuj ponownie za chwilę." });
           return;
         }
         if (publicRoute === "schedule") {
-          serveSchedule(req, res, segments[2], schedules);
+          await serveSnapshot(req, res, snapshots, `schedule:${segments[2]}`);
           return;
         }
         if (publicRoute === "timetable") {
           await serveTimetable(req, res, segments[2], timetables);
           return;
         }
+        if (publicRoute === "live") {
+          await serveSnapshot(req, res, snapshots, `live:${segments[2]}`, LIVE_SOURCES[segments[2]].maxAgeMs);
+          return;
+        }
         if (publicRoute === "plk") {
-          await proxyPlk(req, res, url, segments[2], fetchSource);
+          await serveSnapshot(req, res, snapshots, segments[2] === "operations" ? OPERATIONS_KEY : scheduleKey(url.searchParams.get("date")));
           return;
         }
         if (publicRoute === "flights" && segments[2] === "status") {
-          json(res, 200, collector ? collector.status() : { available: false, running: false });
+          const a = collector ? collector.status() : { available: false, running: false };
+          const b = liveSearch ? liveSearch.status() : { available: false, running: false };
+          // The admin panel reads the tracker; a trip search waits for both.
+          json(res, 200, { ...a, available: a.available || b.available, running: a.running || b.running, tracker: a, apis: b });
           return;
         }
         if (publicRoute === "flights" && segments[2] === "network") {
@@ -680,6 +900,10 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           serveFlights(res, url, segments[2], flights);
           return;
         }
+        if (publicRoute === "fuel") {
+          json(res, 200, fuelPrices());
+          return;
+        }
         if (publicRoute === "driving") {
           await serveDriving(res, url, drive);
           return;
@@ -688,14 +912,8 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           await servePath(res, url, findPath);
           return;
         }
-        if (segments[1] === "flights" && segments[2] === "refresh" && segments.length === 3) {
-          if (req.method !== "POST") {
-            res.setHeader("Allow", "POST");
-            json(res, 405, { error: "Method not allowed." });
-            return;
-          }
-          requireSameOrigin(req);
-          await refreshFlights(req, res, collector, flights);
+        if (publicRoute === "walk") {
+          await serveWalk(res, url, walkDistances);
           return;
         }
         if (segments[1] === "streets" && segments.length === 2 && req.method === "GET") {
@@ -733,6 +951,44 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         req.user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
         if (!req.user) {
           json(res, 401, { error: "Zaloguj się, aby kontynuować." });
+          return;
+        }
+        if (segments[1] === "flights" && segments[2] === "trip" && segments.length === 3) {
+          if (req.method !== "POST") {
+            res.setHeader("Allow", "POST");
+            json(res, 405, { error: "Method not allowed." });
+            return;
+          }
+          requireSameOrigin(req);
+          await fetchTripFlights(req, res, collector, flights, tripAsked, liveSearch);
+          return;
+        }
+        if (segments[1] === "alerts" && segments.length <= 3) {
+          await serveAlerts(req, res, alerts, segments);
+          return;
+        }
+        if (segments[1] === "flights" && segments[2] === "fare" && segments.length === 3) {
+          if (req.method !== "POST") {
+            res.setHeader("Allow", "POST");
+            json(res, 405, { error: "Method not allowed." });
+            return;
+          }
+          requireSameOrigin(req);
+          await refreshFare(req, res, collector, flights, tripAsked);
+          return;
+        }
+        if (segments[1] === "flights" && segments[2] === "refresh" && segments.length === 3) {
+          if (req.method !== "POST") {
+            res.setHeader("Allow", "POST");
+            json(res, 405, { error: "Method not allowed." });
+            return;
+          }
+          requireSameOrigin(req);
+          await refreshFlights(req, res, collector, flights);
+          return;
+        }
+        if (segments[1] === "settings" && segments[2] === "plk-key" && segments.length === 3) {
+          await servePlkKey(req, res, plk);
           return;
         }
         if (segments[1] === "favorites" && segments.length === 2) {
@@ -825,8 +1081,10 @@ async function main() {
   const auth = createAuthService(pool);
   const timetables = createTimetableStore();
   timetables.start();
+  const snapshots = createSnapshots(pool);
   const schedules = createScheduleStore({
     timetables,
+    snapshots,
     database: {
       importedHash: (agency) => importedHash(pool, agency),
       read: (agency) => readSchedule(pool, agency),
@@ -834,6 +1092,10 @@ async function main() {
     },
   });
   schedules.start();
+  const plk = createPlkCollector({ snapshots, readKey: () => readSetting(pool, PLK_KEY_SETTING), saveKey: (value) => saveSetting(pool, PLK_KEY_SETTING, value) });
+  plk.start();
+  const live = createLiveCollector({ snapshots });
+  live.start();
   const trackerDir = process.env.FLIGHT_TRACKER_DIR;
   const flights = createFlightStore({
     file: process.env.FLIGHT_FARES_FILE || (trackerDir ? trackerDatabase(trackerDir) : ""),
@@ -847,17 +1109,23 @@ async function main() {
   flights.start();
   const collector = createFlightCollector({
     flights,
-    updateNetwork: async () => {
-      if (flights.networkIsStale()) await flights.saveNetwork(await readNetwork({ dir: trackerDir, previous: flights.network() }));
+    updateNetwork: async ({ force = false } = {}) => {
+      if (force || flights.networkIsStale()) await flights.saveNetwork(await readNetwork({ dir: trackerDir, previous: flights.network() }));
     },
   });
-  collector.start();
+  const alerts = createPriceAlerts({ db: createAlertDatabase(pool), flights, collector, sendEmail: (message) => auth.sendNotice(message) });
+  alerts.start();
+  const providers = providersFromEnv();
+  if (providers.length) console.log(`Flight APIs: ${providers.map((p) => p.name).join(", ")}`);
   const server = createServer({
     auth,
     timetables,
-    schedules,
+    snapshots,
+    plk,
     flights,
     collector,
+    liveSearch: providers.length ? createLiveFlightSearch({ providers, flights }) : null,
+    alerts,
     database: {
       health: async () => pool.request().query("SELECT 1 AS ok"),
       getSchedule: (agency, sourceKey) => getSchedule(pool, agency, sourceKey),
@@ -869,8 +1137,10 @@ async function main() {
   const close = () => server.close(async () => {
     timetables.stop();
     schedules.stop();
+    plk.stop();
+    live.stop();
     flights.stop();
-    collector.stop();
+    alerts.stop();
     await pool.close();
     process.exit(0);
   });

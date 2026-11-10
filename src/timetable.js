@@ -12,9 +12,8 @@ const DEFAULT_DIR = path.resolve(__dirname, "..", ".cache", "timetables");
 const SOURCES = {
   ztm: ["https://mkuran.pl/gtfs/rzeszow.zip"],
   pks: [
-    "https://kmrzeszow.live/gtfs/pks.zip",
-    "https://kmrzeszow.live/gtfs/pks/gtfs.zip",
-    "https://www.mpkrzeszow.pl/gtfs/pks.zip",
+    "https://kmrzeszow.live/gtfs-pks/latest.zip",
+    "https://www.mpkrzeszow.pl/gtfs-pks/latest.zip",
   ],
 };
 

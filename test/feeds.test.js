@@ -10,8 +10,8 @@ const source = fs.readFileSync(path.resolve(__dirname, "../assets/app.js"), "utf
 const start = source.indexOf("const FEED_GRACE_MS=");
 const end = source.indexOf("async function refreshLive(){");
 
-function loadFeeds(fetchFirst) {
-  const context = { fetchFirst, setTimeout, Promise, Map, Error };
+function loadFeeds(fetchFirst, fetchTimeout) {
+  const context = { fetchFirst, fetchTimeout, DEFAULTS: { rtUrls: ["default"], pksRtUrls: ["default-pks"] }, setTimeout, Promise, Map, Error };
   vm.runInNewContext(`${source.slice(start, end).replace("FEED_GRACE_MS=2500", "FEED_GRACE_MS=20")}; this.feedResult = feedResult;`, context);
   return context.feedResult;
 }
@@ -19,6 +19,15 @@ function loadFeeds(fetchFirst) {
 const ztm = { urls: ["ztm"] };
 const pks = { urls: ["pks"] };
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("default feeds are read from the server's shared copy, and custom addresses directly", async () => {
+  const asked = [];
+  const feedResult = loadFeeds(async (urls) => { asked.push(urls[0]); return { url: urls[0] }; }, async (url) => { asked.push(url); return "data"; });
+  assert.equal((await feedResult({ name: "ztm", urls: ["default"] }, 0)).url, "/api/live/ztm");
+  await feedResult({ name: "pks", urls: ["default-pks"] }, 0);
+  await feedResult({ name: "ztm", urls: ["https://my.example/feed"] }, 0);
+  assert.deepEqual(asked, ["/api/live/ztm", "/api/live/pks", "https://my.example/feed"]);
+});
 
 test("a slow second feed does not hold up the first", async () => {
   let finishPks;

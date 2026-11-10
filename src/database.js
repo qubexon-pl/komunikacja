@@ -394,15 +394,65 @@ async function saveFlightNetwork(pool, network) {
       IF @@ROWCOUNT = 0 INSERT INTO dbo.FlightNetwork (network, updated_at) VALUES (@network, @updatedAt);`);
 }
 
+async function readSetting(pool, key) {
+  const result = await pool.request()
+    .input("key", sql.NVarChar(64), key)
+    .query("SELECT setting_value AS value, updated_at AS updatedAt FROM dbo.AppSetting WHERE setting_key = @key;");
+  return result.recordset[0] || null;
+}
+
+async function saveSetting(pool, key, value) {
+  await pool.request()
+    .input("key", sql.NVarChar(64), key)
+    .input("value", sql.NVarChar(4000), value)
+    .query(`
+      UPDATE dbo.AppSetting SET setting_value = @value, updated_at = SYSUTCDATETIME() WHERE setting_key = @key;
+      IF @@ROWCOUNT = 0 INSERT INTO dbo.AppSetting (setting_key, setting_value, updated_at) VALUES (@key, @value, SYSUTCDATETIME());`);
+}
+
+// Prepared datasets. Background jobs write them; requests only read them.
+function createSnapshots(pool) {
+  return {
+    async info(key) {
+      const result = await pool.request().input("key", sql.NVarChar(64), key)
+        .query("SELECT etag, content_type AS type, fetched_at AS fetchedAt FROM dbo.DataSnapshot WHERE snapshot_key = @key;");
+      return result.recordset[0] || null;
+    },
+    async read(key) {
+      const result = await pool.request().input("key", sql.NVarChar(64), key).query("SELECT body FROM dbo.DataSnapshot WHERE snapshot_key = @key;");
+      return result.recordset[0]?.body || null;
+    },
+    async save(key, { body, type, etag }) {
+      await pool.request()
+        .input("key", sql.NVarChar(64), key)
+        .input("type", sql.NVarChar(64), type)
+        .input("etag", sql.Char(34), etag)
+        .input("body", sql.VarBinary(sql.MAX), body)
+        .query(`
+          UPDATE dbo.DataSnapshot SET content_type = @type, etag = @etag, body = @body, fetched_at = SYSUTCDATETIME() WHERE snapshot_key = @key;
+          IF @@ROWCOUNT = 0 INSERT INTO dbo.DataSnapshot (snapshot_key, content_type, etag, body, fetched_at) VALUES (@key, @type, @etag, @body, SYSUTCDATETIME());`);
+    },
+    async prune(prefix, before) {
+      await pool.request()
+        .input("prefix", sql.NVarChar(65), `${prefix}%`)
+        .input("before", sql.NVarChar(64), `${prefix}${before}`)
+        .query("DELETE FROM dbo.DataSnapshot WHERE snapshot_key LIKE @prefix AND snapshot_key < @before;");
+    },
+  };
+}
+
 module.exports = {
   AGENCIES,
+  createSnapshots,
   createSqlConfig,
   getSchedule,
   importedHash,
   readFlightFares,
   readFlightNetwork,
   saveFlightNetwork,
+  saveSetting,
   readSchedule,
+  readSetting,
   replaceFlightFares,
   replaceSchedule,
   sourceHash,

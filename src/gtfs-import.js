@@ -131,4 +131,4 @@ async function parseFeed(buffer, agency, sourceKey) {
   return { sourceKey, routes, trips, stops, stopTimes, calendar, calendarDates, shapes };
 }
 
-module.exports = { parseFeed };
+module.exports = { parseFeed, readCsv };

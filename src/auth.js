@@ -151,11 +151,17 @@ function createAuthService(pool, {
     }
   }
 
+  // Any other message to a user, such as a price alert.
+  async function sendNotice({ to, subject, text }) {
+    requireEmailConfiguration();
+    await deliverEmail({ to, subject, text });
+  }
+
   async function sendChallengeEmail(purpose, email, code) {
     const subjects = {
-      verify_email: "Potwierdź adres e-mail — Rzeszów Live",
-      password_reset: "Kod resetowania hasła — Rzeszów Live",
-      delete_account: "Kod usunięcia konta — Rzeszów Live",
+      verify_email: "Potwierdź adres e-mail — W drogę",
+      password_reset: "Kod resetowania hasła — W drogę",
+      delete_account: "Kod usunięcia konta — W drogę",
     };
     const explanations = {
       verify_email: "Użyj tego kodu, aby potwierdzić adres e-mail i utworzyć konto.",
@@ -456,9 +462,13 @@ function createAuthService(pool, {
       .input("userId", sql.UniqueIdentifier, userId)
       .input("favorites", sql.NVarChar(sql.MAX), JSON.stringify(favorites))
       .query(`
-        UPDATE dbo.UserFavorites SET favorites = @favorites, updated_at = SYSUTCDATETIME() WHERE user_id = @userId;
+        SET XACT_ABORT ON;
+        BEGIN TRANSACTION;
+        -- Two saves at once must not both try to insert the first row.
+        UPDATE dbo.UserFavorites WITH (UPDLOCK, SERIALIZABLE) SET favorites = @favorites, updated_at = SYSUTCDATETIME() WHERE user_id = @userId;
         IF @@ROWCOUNT = 0
           INSERT INTO dbo.UserFavorites (user_id, favorites) VALUES (@userId, @favorites);
+        COMMIT TRANSACTION;
       `);
   }
 
@@ -607,6 +617,7 @@ function createAuthService(pool, {
   }
 
   return {
+    sendNotice,
     startEmailVerification,
     verifyEmail,
     startPasswordReset,

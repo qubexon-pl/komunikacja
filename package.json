@@ -11,6 +11,7 @@
     "dev": "node --watch src/server.js",
     "db:migrate": "node src/migrate.js",
     "flights:import": "node src/flights-import.js",
+    "rail:build": "node --use-system-ca src/rail-map.js",
     "test": "node --test"
   },
   "dependencies": {

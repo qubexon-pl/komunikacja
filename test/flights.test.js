@@ -7,9 +7,9 @@ const path = require("node:path");
 const test = require("node:test");
 const { airportsNear } = require("../src/airports");
 const { createDrivingRouter, createPathRouter, parsePoint } = require("../src/driving");
-const { buildWatches, createFlightCollector, trackerDatabase, watchesForPairs, writeWatches } = require("../src/flight-collector");
+const { buildWatches, createFlightCollector, trackerDatabase, watchesForJobs, watchesForPairs, writeWatches } = require("../src/flight-collector");
 const { mergeNetwork, parseWizzMap, readNetwork, ryanairAirports } = require("../src/flight-network");
-const { createFlightStore, earliestReturn, inWindow, lastChange, normalizeFare, rankFares, readFareFile } = require("../src/flights");
+const { createFlightStore, inWindow, lastChange, normalizeFare, rankFares, readFareFile, withDepartureTimes } = require("../src/flights");
 const { normalizeFavorites } = require("../src/favorites");
 
 const TODAY = "2026-11-05";
@@ -33,9 +33,22 @@ test("a fare needs a route, a day and a price in PLN", () => {
   assert.equal(normalizeFare(null), null);
 });
 
-test("past days and days too far ahead are dropped", () => {
-  const rows = inWindow([fare({ day: "2026-11-04" }), fare({ day: TODAY }), fare({ day: "2027-02-03" }), fare({ day: "2027-02-04" })], TODAY);
-  assert.deepEqual(rows.map((row) => row.day), [TODAY, "2027-02-03"]);
+test("past days and days more than a year ahead are dropped", () => {
+  const rows = inWindow([fare({ day: "2026-11-04" }), fare({ day: TODAY }), fare({ day: "2027-02-03" }), fare({ day: "2027-11-06" }), fare({ day: "2027-11-07" })], TODAY);
+  assert.deepEqual(rows.map((row) => row.day), [TODAY, "2027-02-03", "2027-11-06"]);
+});
+
+test("a Wizz Air day becomes one fare at the day's cheapest price with all its departure times", () => {
+  const rows = withDepartureTimes([
+    normalizeFare(fare({ airline: "WIZZ", from: "KTW", to: "BCN", day: "2026-11-13", departure: "2026-11-13T19:35", pricePln: 209, priceType: "list", flightNumber: null })),
+    normalizeFare(fare({ airline: "WIZZ", from: "KTW", to: "BCN", day: "2026-11-13", departure: "2026-11-13T05:30", pricePln: 209, priceType: "list", flightNumber: null })),
+    normalizeFare(fare({ airline: "WIZZ", from: "KTW", to: "BCN", day: "2026-11-13", departure: "2026-11-13T15:25", pricePln: 209, priceType: "list", flightNumber: null })),
+    normalizeFare(fare({ airline: "RYANAIR", from: "KTW", to: "BCN", day: "2026-11-13", departure: "2026-11-13T07:00", pricePln: 150 })),
+  ]);
+  assert.equal(rows.length, 2);
+  const wizz = rows.find((row) => row.airline === "WIZZ");
+  assert.deepEqual([wizz.departure, wizz.times, wizz.pricePln], ["2026-11-13T05:30", ["2026-11-13T05:30", "2026-11-13T15:25", "2026-11-13T19:35"], 209]);
+  assert.equal(rows.find((row) => row.airline === "RYANAIR").times, undefined);
 });
 
 test("imported flights are stored and can be searched cheapest first", async () => {
@@ -168,10 +181,15 @@ test("only the newest run of a flight-tracker database is imported, and exact pr
   add.run(2, "WIZZ", "RZE", "TGD", "2026-11-13", null, 280, "wizz.farechart", 280);
   add.run(2, "RYANAIR", "RZE", "STN", "2027-06-01", "LATER", 99, "ryanair.availability.v4", 99);
   add.run(1, "RYANAIR", "RZE", "EDI", "2026-11-18", "OTHER DAY", 200, "ryanair.availability.v4", 200);
+  add.run(2, "WIZZ", "RZE", "TGD", "2026-11-14", null, 260, "wizz.farechart", 260);
+  const timed = db.prepare("INSERT INTO fares (run_id, airline, from_airport, to_airport, day, departure, price, currency, source, price_base, base_currency, collected_at) VALUES (2, 'WIZZ', 'RZE', 'TGD', '2026-11-14', ?, 260, 'PLN', 'wizz.timetable', 260, 'PLN', '2026-11-05 07:40:00')");
+  timed.run("2026-11-14T06:00");
+  timed.run("2026-11-14T18:00");
+  add.run(2, "RYANAIR", "RZE", "STN", "2027-12-01", "TOO FAR", 99, "ryanair.availability.v4", 99);
   db.close();
 
   const rows = inWindow(await readFareFile(file, TODAY), TODAY);
-  assert.deepEqual(rows.map((row) => [row.flightNumber, row.priceType]).sort(), [["NEW", "exact"], ["OTHER DAY", "exact"], ["W6 1", "exact"], [null, "list"]].sort());
+  assert.deepEqual(rows.map((row) => [row.flightNumber, row.priceType, row.departure]).sort(), [["NEW", "exact", null], ["OTHER DAY", "exact", null], ["W6 1", "exact", null], ["LATER", "exact", null], [null, "list", null], [null, "list", "2026-11-14T06:00"], [null, "list", "2026-11-14T18:00"]].sort());
   assert.equal(rows[0].collectedAt.toISOString(), "2026-11-05T07:40:00.000Z");
 });
 
@@ -204,34 +222,45 @@ test("destinations carry what the trip planner needs", async () => {
   assert.equal(unknown.lat, undefined);
 });
 
-test("watches follow a rolling two-week window", () => {
-  const watches = buildWatches("RZE:STN,EDI; KRK:BCN", new Date("2026-11-05T10:00:00Z"));
-  assert.deepEqual(watches.map((watch) => [watch.origin, watch.destinations, watch.start, watch.end]), [
-    ["RZE", "STN,EDI", "2026-11-05", "2026-11-19"],
-    ["KRK", "BCN", "2026-11-05", "2026-11-19"],
+test("a full run watches the route list for the chosen days and airlines", () => {
+  const watches = buildWatches("RZE:STN,EDI; KRK:BCN", "2026-12-01", "2026-12-20", ["WIZZ"]);
+  assert.deepEqual(watches.map((watch) => [watch.origin, watch.destinations, watch.start, watch.end, watch.airlines]), [
+    ["RZE", "STN,EDI", "2026-12-01", "2026-12-20", "WIZZ"],
+    ["KRK", "BCN", "2026-12-01", "2026-12-20", "WIZZ"],
   ]);
 });
 
-test("a run collects, then imports, and is skipped until the next one is due", async () => {
+test("a full run collects, then imports, and only when asked", async () => {
   const steps = [];
-  let mtimeMs = null;
+  const prepared = [];
   const collector = createFlightCollector({
     dir: "tracker",
+    routes: "RZE:STN",
     flights: { sync: async () => { steps.push("import"); } },
-    intervalMs: 3600000,
-    prepare: async () => { steps.push("watches"); },
+    prepare: async (dir, watches) => { steps.push("watches"); prepared.push(watches); },
     collect: async () => { steps.push("collect"); },
-    markFullRun: async () => { mtimeMs = Date.parse("2026-11-05T10:00:00Z"); },
-    statFile: async () => { if (mtimeMs == null) throw new Error("missing"); return { mtimeMs }; },
-    now: () => new Date("2026-11-05T10:30:00Z"),
   });
-  assert.equal(await collector.tick(), true);
+  assert.equal(typeof collector.start, "undefined");
+  assert.equal(await collector.run({ start: "2026-12-01", end: "2026-12-05", airlines: ["RYANAIR"] }), true);
   assert.deepEqual(steps, ["watches", "collect", "import"]);
-  assert.equal(await collector.tick(), false);
-  assert.equal(steps.length, 3);
+  assert.deepEqual(prepared[0].map((watch) => [watch.origin, watch.start, watch.end, watch.airlines]), [["RZE", "2026-12-01", "2026-12-05", "RYANAIR"]]);
 });
 
-test("a failed collection does not import, and the next tick can try again", async () => {
+test("a route list run only refreshes the airlines' routes", async () => {
+  const calls = [];
+  const collector = createFlightCollector({
+    dir: "tracker",
+    flights: { sync: async () => { calls.push("import"); } },
+    updateNetwork: async (options) => { calls.push(options); },
+    prepare: async () => { calls.push("watches"); },
+    collect: async () => { calls.push("collect"); },
+  });
+  await collector.run({ networkOnly: true, target: { scope: "network" } });
+  assert.deepEqual(calls, [{ force: true }]);
+  assert.deepEqual(collector.status().target, { scope: "network" });
+});
+
+test("a failed collection does not import, and the next run can try again", async () => {
   let imports = 0;
   let fail = true;
   const collector = createFlightCollector({
@@ -239,26 +268,25 @@ test("a failed collection does not import, and the next tick can try again", asy
     flights: { sync: async () => { imports += 1; } },
     prepare: async () => {},
     collect: async () => { if (fail) throw new Error("exit 1"); },
-    markFullRun: async () => {},
-    statFile: async () => { throw new Error("missing"); },
   });
-  await assert.rejects(collector.tick(), /exit 1/);
+  await assert.rejects(collector.run({ start: "2026-12-01", end: "2026-12-02" }), /exit 1/);
   assert.equal(imports, 0);
+  assert.equal(collector.status().error, "exit 1");
   fail = false;
-  assert.equal(await collector.tick(), true);
+  assert.equal(await collector.run({ start: "2026-12-01", end: "2026-12-02" }), true);
   assert.equal(imports, 1);
 });
 
 test("nothing runs when no tracker folder is configured", async () => {
   const collector = createFlightCollector({ dir: "", flights: {}, collect: async () => { throw new Error("should not run"); } });
-  assert.equal(await collector.tick(), false);
+  assert.equal(await collector.run(), false);
 });
 
 test("our watches are replaced on later runs and the user's own are left alone", async (t) => {
   const { DatabaseSync } = require("node:sqlite");
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "watches-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
-  await writeWatches(dir, buildWatches("RZE:STN", new Date("2026-11-05T10:00:00Z")));
+  await writeWatches(dir, buildWatches("RZE:STN", "2026-11-05", "2026-11-19"));
   assert.equal(JSON.parse(await fs.readFile(path.join(dir, "watches.json"), "utf8"))[0].origin, "RZE");
 
   await fs.mkdir(path.join(dir, "data"));
@@ -266,7 +294,7 @@ test("our watches are replaced on later runs and the user's own are left alone",
   db.exec("CREATE TABLE watches (id INTEGER PRIMARY KEY, name TEXT, origin TEXT, destinations TEXT, start_date TEXT, end_date TEXT, min_days INTEGER, max_days INTEGER, airlines TEXT)");
   db.exec("INSERT INTO watches (name, origin) VALUES ('Barcelona long weekend', 'KRK'), ('komunikacja: RZE', 'RZE')");
   db.close();
-  await writeWatches(dir, buildWatches("RZE:EDI", new Date("2026-11-06T10:00:00Z")));
+  await writeWatches(dir, buildWatches("RZE:EDI", "2026-11-06", "2026-11-20"));
   const check = new DatabaseSync(trackerDatabase(dir));
   const rows = check.prepare("SELECT name, destinations, start_date FROM watches ORDER BY name").all().map((row) => ({ ...row }));
   check.close();
@@ -276,16 +304,14 @@ test("our watches are replaced on later runs and the user's own are left alone",
   ]);
 });
 
-test("a scan of chosen routes asks each airline only about what it flies and does not postpone the daily run", async () => {
+test("a scan of chosen routes asks each airline only about what it flies", async () => {
   const prepared = [];
   const modes = [];
-  let marks = 0;
   const collector = createFlightCollector({
     dir: "tracker",
     flights: { sync: async () => {} },
     prepare: async (dir, watches) => { prepared.push(watches); },
     collect: async (dir, options) => { modes.push(options.wizzMode); },
-    markFullRun: async () => { marks += 1; },
   });
   const pairs = [{ from: "TIA", to: "CRL", airlines: ["RYANAIR", "WIZZ"] }, { from: "TIA", to: "BGY", airlines: ["WIZZ"] }];
   await collector.run({ pairs, start: "2026-12-01", end: "2026-12-10", target: { from: "TIA", to: "" } });
@@ -294,11 +320,8 @@ test("a scan of chosen routes asks each airline only about what it flies and doe
     ["TIA", "CRL,BGY", "WIZZ", "2026-12-01", "2026-12-11"],
   ]);
   assert.equal(prepared[0][0].min_days, 1);
-  assert.equal(marks, 0);
   assert.deepEqual(collector.status().target, { from: "TIA", to: "" });
-  await collector.run();
-  assert.equal(marks, 1);
-  assert.deepEqual(modes, ["detailed", undefined]);
+  assert.deepEqual(modes, ["detailed"]);
 });
 
 test("only one collection runs at a time, and the outcome can be read", async () => {
@@ -308,9 +331,8 @@ test("only one collection runs at a time, and the outcome can be read", async ()
     flights: { sync: async () => {} },
     prepare: async () => {},
     collect: () => new Promise((resolve) => { finish = resolve; }),
-    markFullRun: async () => {},
   });
-  assert.equal(collector.request({}), "started");
+  assert.equal(collector.request({ start: "2026-12-01", end: "2026-12-02" }), "started");
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(collector.request({}), "busy");
   assert.equal(collector.status().running, true);
@@ -365,28 +387,27 @@ test("a saved route list is used and becomes stale after a week", async () => {
   assert.equal(store.networkIsStale(), true);
 });
 
-test("the return day counts the stay inclusively", () => {
-  assert.equal(earliestReturn("2026-12-01", 3), "2026-12-03");
-  assert.equal(earliestReturn("2026-12-01", 1), "2026-12-01");
-  assert.equal(earliestReturn("2026-12-30", 5), "2027-01-03");
-});
-
-test("a round trip pairs each outbound with returns that respect the stay", async () => {
+test("a round trip pairs flights on the chosen days and prices nearby days with the same time away", async () => {
   const { store } = memoryStore();
   await store.importRows([
     fare({ day: "2026-11-11", pricePln: 100, flightNumber: "OUT" }),
-    fare({ from: "EDI", to: "RZE", day: "2026-11-12", departure: "2026-11-12T09:00", arrival: "2026-11-12T12:00", pricePln: 50, flightNumber: "TOO SOON" }),
+    fare({ day: "2026-11-09", departure: "2026-11-09T06:20", arrival: "2026-11-09T08:05", pricePln: 70, flightNumber: "EARLIER" }),
     fare({ from: "EDI", to: "RZE", day: "2026-11-13", departure: "2026-11-13T09:00", arrival: "2026-11-13T12:00", pricePln: 120, flightNumber: "OK" }),
-    fare({ from: "EDI", to: "RZE", day: "2026-11-15", departure: "2026-11-15T09:00", arrival: "2026-11-15T12:00", pricePln: 90, flightNumber: "CHEAPER" }),
+    fare({ from: "EDI", to: "RZE", day: "2026-11-13", departure: "2026-11-13T18:00", arrival: "2026-11-13T21:00", pricePln: 90, flightNumber: "CHEAPER" }),
+    fare({ from: "EDI", to: "RZE", day: "2026-11-15", departure: "2026-11-15T09:00", arrival: "2026-11-15T12:00", pricePln: 10, flightNumber: "OTHER DAY" }),
+    fare({ from: "EDI", to: "RZE", day: "2026-11-11", departure: "2026-11-11T09:00", arrival: "2026-11-11T12:00", pricePln: 40, flightNumber: "SAME DAY" }),
   ]);
   const near = { origin: { lat: 50.04, lon: 22.0 }, dest: { lat: 55.95, lon: -3.19 } };
-  const [trip] = store.options({ ...near, stay: 3 }).options;
-  assert.equal(trip.flightNumber, "OUT");
-  assert.equal(trip.ret.flightNumber, "CHEAPER");
-  assert.deepEqual(trip.returns.map((flight) => flight.flightNumber), ["CHEAPER", "OK"]);
-  assert.equal(trip.totalPln > trip.ret.totalPln, true);
-  assert.deepEqual(store.options({ ...near, stay: 3, back: "2026-11-14" }).options[0].returns.map((flight) => flight.flightNumber), ["CHEAPER"]);
-  assert.deepEqual(store.options({ ...near, stay: 8 }).options, []);
+  const result = store.options({ ...near, date: "2026-11-11", back: "2026-11-13" });
+  assert.deepEqual(result.options.map((trip) => trip.flightNumber), ["OUT"]);
+  assert.deepEqual(result.options[0].returns.map((flight) => flight.flightNumber), ["CHEAPER", "OK"]);
+  assert.equal(result.options[0].totalPln > result.options[0].ret.totalPln, true);
+  // 9th + return on the 11th (same two days away) and 11th + return on the 13th
+  assert.deepEqual(result.days, [{ day: "2026-11-09", cheapest: 110 }, { day: "2026-11-11", cheapest: 190 }]);
+  assert.deepEqual(store.options({ ...near, date: "2026-11-12", back: "2026-11-13" }).options, []);
+  const oneWay = store.options({ ...near, date: "2026-11-09" });
+  assert.deepEqual(oneWay.options.map((flight) => flight.flightNumber), ["EARLIER"]);
+  assert.deepEqual(oneWay.days, [{ day: "2026-11-09", cheapest: 70 }, { day: "2026-11-11", cheapest: 100 }]);
 });
 
 test("a one-day trip cannot return before it has landed", async () => {
@@ -396,7 +417,7 @@ test("a one-day trip cannot return before it has landed", async () => {
     fare({ from: "EDI", to: "RZE", departure: "2026-11-11T07:00", arrival: "2026-11-11T10:00", pricePln: 50, flightNumber: "BEFORE" }),
     fare({ from: "EDI", to: "RZE", departure: "2026-11-11T18:00", arrival: "2026-11-11T21:00", pricePln: 60, flightNumber: "AFTER" }),
   ]);
-  const [trip] = store.options({ origin: { lat: 50.04, lon: 22.0 }, dest: { lat: 55.95, lon: -3.19 }, stay: 1 }).options;
+  const [trip] = store.options({ origin: { lat: 50.04, lon: 22.0 }, dest: { lat: 55.95, lon: -3.19 }, date: "2026-11-11", back: "2026-11-11" }).options;
   assert.deepEqual(trip.returns.map((flight) => flight.flightNumber), ["AFTER"]);
 });
 
@@ -416,4 +437,33 @@ test("a path follows the router's line, walking and driving use their own router
   assert.equal(urls.length, 2);
   assert.match(urls[0], /routed-foot/);
   assert.match(urls[1], /project-osrm/);
+});
+
+test("a trip asks about the nearest airports that fly to the destination, and the way home where airlines fly it", async () => {
+  const saved = {};
+  const store = createFlightStore({ database: { readFares: async () => [], replaceFares: async () => {}, saveNetwork: async (value) => { saved.value = value; }, readNetwork: async () => saved.value }, now: () => new Date(`${TODAY}T10:00:00Z`) });
+  await store.saveNetwork({ airports: [], updatedAt: new Date().toISOString(), routes: [
+    { from: "KRK", to: "BGY", airlines: ["RYANAIR"] },
+    { from: "KTW", to: "BGY", airlines: ["RYANAIR", "WIZZ"] },
+    { from: "BGY", to: "KRK", airlines: ["RYANAIR"] },
+    { from: "RZE", to: "STN", airlines: ["RYANAIR"] },
+  ] });
+  const rzeszow = { lat: 50.04, lon: 22.0 };
+  const bergamo = { lat: 45.67, lon: 9.7 };
+  const pairs = store.tripPairs({ origin: rzeszow, dest: bergamo });
+  assert.deepEqual(pairs.map((p) => `${p.from}-${p.to}`), ["KRK-BGY", "KTW-BGY"]);
+  assert.deepEqual(store.returnPairs(pairs), [{ from: "BGY", to: "KRK", airlines: ["RYANAIR"] }, { from: "BGY", to: "KTW", airlines: ["RYANAIR", "WIZZ"] }]);
+  const { suggested } = store.options({ origin: rzeszow, dest: bergamo, date: "2026-11-16" });
+  assert.deepEqual([suggested.from.code, suggested.to.code, suggested.airlines], ["KRK", "BGY", ["RYANAIR"]]);
+});
+
+test("a trip run asks about the way out and the way home on their own days", () => {
+  const watches = watchesForJobs([
+    { pairs: [{ from: "KRK", to: "BGY", airlines: ["RYANAIR"] }], start: "2026-11-16", end: "2026-11-16" },
+    { pairs: [{ from: "BGY", to: "KRK", airlines: ["RYANAIR"] }], start: "2026-11-23", end: "2026-11-23" },
+  ]);
+  assert.deepEqual(watches.map((w) => [w.name, w.origin, w.destinations, w.start, w.end]), [
+    ["komunikacja: KRK RYANAIR 2026-11-16", "KRK", "BGY", "2026-11-16", "2026-11-17"],
+    ["komunikacja: BGY RYANAIR 2026-11-23", "BGY", "KRK", "2026-11-23", "2026-11-24"],
+  ]);
 });

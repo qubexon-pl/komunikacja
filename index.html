@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Rzeszów · Autobusy na żywo</title>
+<title>Zaplanuj podróż · W drogę</title>
 <script src="/assets/i18n.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Plus+Jakarta+Sans:wght@300..800&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#0B1A33">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
@@ -17,24 +18,42 @@
 
 <nav class="topbar">
   <div class="topbar-inner">
-    <span class="brand">RZESZÓW<b>/</b>LIVE</span>
+    <a class="brand" href="/podroz" data-brand>W<b>/</b>DROGĘ</a>
     <div class="view-tabs" aria-label="Kategorie">
-      <a class="view-tab" data-view="ztm" href="/autobusy">Autobusy</a>
-      <a class="view-tab" data-view="pks" href="/pks">PKS</a>
-      <a class="view-tab" data-view="kolej" href="/pociagi">Pociągi</a>
-      <a class="view-tab" data-view="podroz" href="/podroz">Zaplanuj podróż</a>
+      <a class="view-tab" data-view="podroz" href="/podroz"><i class="fa-solid fa-route" aria-hidden="true"></i> Zaplanuj podróż</a>
+      <div class="dropdown view-drop">
+        <a class="view-tab dropdown-toggle" data-view="ztm" href="/autobusy" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-bus" aria-hidden="true"></i> Autobusy</a>
+        <ul class="dropdown-menu">
+          <li><a class="dropdown-item" data-go="ztm" data-sub="" href="/autobusy"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj połączenia</a></li>
+          <li><a class="dropdown-item" data-go="ztm" data-sub="rozklad" href="/autobusy#rozklad"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
+          <li><a class="dropdown-item" data-go="ztm" data-sub="ulubione" href="/ulubione#autobusy"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione autobusy</a></li>
+        </ul>
+      </div>
+      <div class="dropdown view-drop">
+        <a class="view-tab dropdown-toggle" data-view="pks" href="/pks" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-bus-simple" aria-hidden="true"></i> PKS</a>
+        <ul class="dropdown-menu">
+          <li><a class="dropdown-item" data-go="pks" data-sub="" href="/pks"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Dokąd dojedziesz</a></li>
+          <li><a class="dropdown-item" data-go="pks" data-sub="rozklad" href="/pks#rozklad"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
+          <li><a class="dropdown-item" data-go="pks" data-sub="ulubione" href="/ulubione#pks"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione PKS</a></li>
+        </ul>
+      </div>
+      <div class="dropdown view-drop">
+        <a class="view-tab dropdown-toggle" data-view="kolej" href="/pociagi" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-train" aria-hidden="true"></i> Pociągi</a>
+        <ul class="dropdown-menu">
+          <li><a class="dropdown-item" data-go="kolej" data-sub="" href="/pociagi"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj połączenia</a></li>
+          <li><a class="dropdown-item" data-go="kolej" data-sub="rozklad" href="/pociagi#rozklad"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
+          <li><a class="dropdown-item" data-go="kolej" data-sub="ulubione" href="/ulubione#pociagi"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione pociągi</a></li>
+        </ul>
+      </div>
     </div>
     <div class="nav-links">
-      <a class="nav-link-btn hide-sm" href="#favBar">Ulubione</a>
-      <a class="nav-link-btn hide-sm not-kolej" href="#timetable-sec">Rozkład</a>
-      <a class="nav-link-btn hide-sm only-kolej" href="#trains-sec">Rozkład</a>
-      <a class="nav-link-btn hide-sm not-kolej" href="#lines-sec">Linie</a>
+      <a class="nav-fav" id="favLink" href="/ulubione"><i class="fa-solid fa-star" aria-hidden="true"></i> <span>Ulubione</span></a>
       <button class="nav-link-btn" id="alertsBtn" style="display:none"><span class="txt">Komunikaty</span> <span class="badge-num" id="alertsCount">0</span></button>
       <div class="dropdown">
         <button class="nav-link-btn dropdown-toggle" id="adminMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false">Admin</button>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminMenu">
           <li><button class="dropdown-item" id="refreshBtn" type="button" title="Odśwież teraz"><span class="ico">↻</span> Odśwież</button></li>
-          <li><button class="dropdown-item" id="refreshFlightsBtn" type="button"><i class="fa-solid fa-plane ico" aria-hidden="true"></i> Odśwież loty</button></li>
+          <li class="admin-only"><button class="dropdown-item" id="refreshFlightsBtn" type="button"><i class="fa-solid fa-plane ico" aria-hidden="true"></i> Pobieranie lotów</button></li>
           <li><button class="dropdown-item" id="settingsBtn" type="button">Ustawienia</button></li>
         </ul>
       </div>
@@ -56,13 +75,12 @@
   <div class="hero-inner">
     <div class="hero-left">
       <span class="kicker loading" id="liveKicker"><span class="dot"></span><span id="liveText">Łączenie…</span></span>
-      <h1 id="heroTitle">Autobusy w Rzeszowie</h1>
-      <p>Autobusy miejskie ZTM, podmiejskie PKS i pociągi w okolicy Rzeszowa — na żywo. Te, które spóźniają się względem rozkładu, są oznaczone na <strong>czerwono</strong>.</p>
-      <a class="discover" href="#map-sec">Odkryj mapę <span>→</span></a>
+      <h1 id="heroTitle">Zaplanuj podróż</h1>
+      <p id="heroLead">Wpisz, skąd i dokąd jedziesz. Porównamy autobusy, PKS, pociągi, samoloty i samochód.</p>
     </div>
     <div class="hero-right">
     <div class="wx" id="wx"></div>
-    <div class="countdown">
+    <div class="countdown map-part">
       <div class="cd-label">Następna aktualizacja za</div>
       <div class="cd-boxes">
         <div><span class="cd-num" id="cdM">00</span><span class="cd-unit">MM</span></div>
@@ -76,34 +94,91 @@
 </header>
 
 <main class="shell">
-  <div class="stats-band not-podroz">
+  <div class="stats-band only-live map-part">
     <div class="stat-card" data-filter="all"><div class="lbl">Na trasie</div><div class="num" id="stAll">–</div></div>
     <div class="stat-card" data-filter="ontime"><div class="lbl">Punktualne</div><div class="num" id="stOk">–</div></div>
     <div class="stat-card is-red" data-filter="late"><div class="lbl">Spóźnione</div><div class="num" id="stLate">–</div></div>
     <div class="stat-card" data-filter="late"><div class="lbl">Maks. opóźnienie</div><div class="num" id="stMax">–</div></div>
   </div>
 
-  <div class="fav-bar" id="favBar"></div>
-  <div class="sec-head only-podroz" id="plan-sec"><span class="sec-num">01</span><h2>Dokąd jedziesz?</h2><span class="sec-rule"></span></div>
-  <form id="planForm" class="planner only-podroz" autocomplete="off">
-    <div class="pl-field"><label for="plFrom">Skąd</label><div class="pl-inp"><input id="plFrom" placeholder="Adres, przystanek, stacja lub miasto"><button type="button" class="pl-map" data-pick="from" title="Wybierz przystanek na mapie"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button><button type="button" id="plGeo" title="Najbliższy przystanek">◎</button></div></div>
-    <button type="button" class="pl-swap" id="plSwap" title="Zamień kierunek">⇄</button>
-    <div class="pl-field"><label for="plTo">Dokąd</label><div class="pl-inp"><input id="plTo" placeholder="Adres, przystanek, stacja lub miasto"><button type="button" class="pl-map" data-pick="to" title="Wybierz przystanek na mapie"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button></div></div>
-    <div class="pl-field pl-time"><label for="plDate">Dzień</label><div class="pl-inp"><input id="plDate" type="date" title="Puste = dziś"></div></div>
-    <div class="pl-field pl-time"><label for="plTime">Odjazd</label><div class="pl-inp"><input id="plTime" type="time" title="Puste = teraz"></div></div>
+  <div class="sec-head fav-part" id="fav-sec"><span class="sec-num">01</span><h2 id="favTitle">Ulubione</h2><span class="sec-rule"></span></div>
+  <div class="fav-filters fav-part" id="favFilters" role="group" aria-label="Rodzaj ulubionych"></div>
+  <div id="favPage" class="fav-part"></div>
+  <div class="sec-head only-plan" id="plan-sec"><span class="sec-num">01</span><h2 id="planTitle">Dokąd jedziesz?</h2><span class="sec-rule"></span></div>
+  <div class="search-box only-plan">
+    <div class="trip-tabs only-podroz" role="group" aria-label="Rodzaj podróży">
+      <button type="button" class="trip-tab on" data-round="0" aria-pressed="true">W jedną stronę</button>
+      <button type="button" class="trip-tab" data-round="1" aria-pressed="false">W obie strony</button>
+      <input type="checkbox" id="plRound" hidden>
+    </div>
+    <form id="planForm" class="planner" autocomplete="off">
+      <div class="pl-pair">
+        <div class="pl-field"><label for="plFrom">Skąd?</label><div class="pl-inp"><input id="plFrom" placeholder="Adres, przystanek, stacja lub miasto"><button type="button" class="pl-map" data-pick="from" title="Wybierz przystanek na mapie"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button><button type="button" id="plGeo" title="Najbliższy przystanek">◎</button></div></div>
+        <button type="button" class="pl-swap" id="plSwap" title="Zamień kierunek" aria-label="Zamień kierunek"><i class="fa-solid fa-right-left" aria-hidden="true"></i></button>
+        <div class="pl-field"><label for="plTo">Dokąd?</label><div class="pl-inp"><input id="plTo" placeholder="Adres, przystanek, stacja lub miasto"><button type="button" class="pl-map" data-pick="to" title="Wybierz przystanek na mapie"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button></div></div>
+      </div>
+      <div class="pl-field pl-time"><label for="plDate">Data wyjazdu</label><div class="pl-inp"><input id="plDate" type="date" title="Puste = dziś"></div></div>
+      <div class="pl-field pl-time trip-return-fields" hidden><label for="plBack">Data powrotu</label><div class="pl-inp"><input id="plBack" type="date"></div></div>
+      <div class="pl-field pl-time"><select id="plWhen" class="pl-when" aria-label="Znaczenie godziny"><option value="dep">Odjazd</option><option value="arr">Na miejscu o</option></select><div class="pl-inp"><input id="plTime" type="time" title="Puste = teraz" aria-label="Godzina"></div></div>
+      <button class="btn-grad pl-go" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj</button>
+    </form>
+    <div id="plStops"></div>
+    <div class="trip-options only-podroz">
+      <button type="button" class="btn-ghost" id="plAddStop"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj przystanek</button>
+    <div class="trip-modes" id="plModes" role="group" aria-label="Środki transportu">
+      <label class="mode-check"><input type="checkbox" value="bus" checked> <i class="fa-solid fa-bus" aria-hidden="true"></i> Autobus</label>
+      <label class="mode-check"><input type="checkbox" value="pks" checked> <i class="fa-solid fa-bus-simple" aria-hidden="true"></i> PKS</label>
+      <label class="mode-check"><input type="checkbox" value="train" checked> <i class="fa-solid fa-train" aria-hidden="true"></i> Pociąg</label>
+      <label class="mode-check"><input type="checkbox" value="plane" checked> <i class="fa-solid fa-plane" aria-hidden="true"></i> Samolot</label>
+      <label class="mode-check"><input type="checkbox" value="car" checked> <i class="fa-solid fa-car" aria-hidden="true"></i> Samochód</label>
+    </div>
+    </div>
+  </div>
+  <div class="small text-soft mt-2 only-podroz" id="plLimit"></div>
+  <div class="d-flex justify-content-between flex-wrap gap-2 mt-2 only-plan" id="planMsgs"><div class="txt-red small fw-semibold" id="planErr"></div><div class="small text-soft" id="planHint"></div></div>
+  <datalist id="stopNames"></datalist>
+  <div id="planResults" class="mt-3 only-plan"></div>
+
+  <div class="sec-head only-kolej" id="route-sec"><span class="sec-num">01</span><h2>Szukaj połączenia</h2><span class="sec-rule"></span></div>
+  <form id="trRouteForm" class="timetable-bar only-kolej" autocomplete="off">
+    <div class="pl-field"><label for="trFrom">Skąd</label><div class="pl-inp"><i class="fa-solid fa-location-dot" aria-hidden="true"></i><input id="trFrom" placeholder="Stacja lub miasto"></div></div>
+    <div class="pl-field"><label for="trTo">Dokąd</label><div class="pl-inp"><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i><input id="trTo" placeholder="Stacja lub miasto"></div></div>
+    <div class="pl-field"><label for="trDate">Dzień</label><div class="pl-inp"><input id="trDate" type="date" title="Puste = dziś"></div></div>
+    <div class="pl-field"><label for="trFromTime">Od godziny</label><div class="pl-inp"><input id="trFromTime" type="time" title="Puste = teraz"></div></div>
+    <div class="pl-field"><label for="trToTime">Do godziny</label><div class="pl-inp"><input id="trToTime" type="time" title="Puste = kolejne 14 godzin"></div></div>
     <button class="btn-grad pl-go" type="submit">Szukaj połączeń</button>
   </form>
-  <div class="trip-return only-podroz">
-    <label class="trip-check"><input type="checkbox" id="plRound"> <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> W obie strony</label>
-    <div class="pl-field trip-return-fields" hidden><label for="plStay">Dni na miejscu</label><div class="pl-inp"><input id="plStay" type="number" min="1" max="90" value="3"></div></div>
-    <div class="pl-field trip-return-fields" hidden><label for="plBack">Powrót</label><div class="pl-inp"><input id="plBack" type="date"></div></div>
-  </div>
-  <div class="d-flex justify-content-between flex-wrap gap-2 mt-2 only-podroz"><div class="txt-red small fw-semibold" id="planErr"></div><div class="small text-soft" id="planHint"></div></div>
-  <datalist id="stopNames"></datalist>
-  <div id="planResults" class="mt-3 only-podroz"></div>
+  <div class="txt-red small fw-semibold mt-2 only-kolej" id="trRouteErr"></div>
+  <div id="trRouteResults" class="mt-3 only-kolej"></div>
 
-  <div class="sec-head not-podroz" id="map-sec"><span class="sec-num">01</span><h2 id="mapTitle">Mapa na żywo</h2><span class="sec-rule"></span></div>
-  <div class="map-filters not-podroz d-flex flex-wrap gap-2 align-items-center mb-3">
+  <div class="sec-head only-kolej tt-part" id="trains-sec"><span class="sec-num">04</span><h2>Rozkład pociągów</h2><span class="sec-rule"></span></div>
+  <div class="tr-bar only-kolej tt-part">
+    <div class="pl-field" style="border:1px solid var(--line); min-width:260px"><label for="trStation">Stacja</label><div class="pl-inp"><select id="trStation" class="tr-select"></select></div></div>
+    <div class="pl-field tr-search"><label for="trSearch">Szukaj w rozkładzie</label><div class="pl-inp"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="trSearch" type="search" placeholder="Numer pociągu, stacja lub miasto" autocomplete="off"></div></div>
+    <div class="d-flex align-items-end"><button class="pill-btn active" data-trtab="dep">Odjazdy</button><button class="pill-btn" data-trtab="arr">Przyjazdy</button></div>
+    <div class="d-flex align-items-end"><button class="btn-ghost" type="button" id="trReset"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Resetuj</button></div>
+    <div class="small text-soft ms-auto align-self-end" id="trInfo"></div>
+  </div>
+  <div id="trainBoard" class="mt-3 only-kolej tt-part"></div>
+
+  <div class="sec-head not-kolej tt-part" id="timetable-sec"><span class="sec-num">04</span><h2>Rozkład jazdy</h2><span class="sec-rule"></span></div>
+  <form id="ttForm" class="timetable-bar not-kolej tt-part" autocomplete="off">
+    <div class="pl-field"><label for="ttStop">Przystanek</label><div class="pl-inp"><input id="ttStop" placeholder="Wpisz nazwę przystanku"></div></div>
+    <div class="pl-field"><label for="ttDay">Dzień</label><div class="pl-inp"><select id="ttDay" class="tr-select"></select></div></div>
+    <div class="pl-field"><label for="ttLine">Linia</label><div class="pl-inp"><select id="ttLine" class="tr-select"><option value="">Wszystkie linie</option></select></div></div>
+    <button class="btn-grad pl-go" type="submit">Pokaż rozkład</button>
+    <button class="btn-ghost tt-reset" type="button" id="ttReset"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Resetuj</button>
+  </form>
+  <div class="txt-red small fw-semibold mt-2 not-kolej tt-part" id="ttErr"></div>
+  <div id="ttResults" class="mt-3 not-kolej tt-part"></div>
+
+  <div class="sec-head only-pks" id="dest-sec"><span class="sec-num">01</span><h2>Dokąd dojedziesz PKS-em</h2><span class="sec-rule"></span></div>
+  <div class="dest-bar only-pks"><div class="pl-field"><label for="destSearch">Szukaj miejscowości</label><div class="pl-inp"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="destSearch" type="search" placeholder="np. Tyczyn, Błażowa, Niebylec" autocomplete="off"></div></div><div class="small text-soft" id="destInfo"></div></div>
+  <div id="pksDest" class="dest-grid only-pks"></div>
+
+  <div class="map-open-bar only-live"><button type="button" class="map-toggle" id="mapToggle" aria-expanded="false"><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> <span>Pokaż mapę autobusów na żywo</span></button></div>
+  <div class="sec-head only-live map-part" id="map-sec"><span class="sec-num">01</span><h2 id="mapTitle">Mapa na żywo</h2><span class="sec-rule"></span></div>
+  <div class="map-filters only-live map-part d-flex flex-wrap gap-2 align-items-center mb-3">
     <button class="pill-btn active" data-filter="all">Wszystkie</button>
     <button class="pill-btn" data-filter="late">Spóźnione</button>
     <button class="pill-btn" data-filter="ontime">Na czas</button>
@@ -113,7 +188,7 @@
   <div class="line-notice d-none" id="feedNotice" role="status"></div>
   <div class="line-notice d-none" id="lineNotice"></div>
 
-  <div class="row g-3 not-podroz">
+  <div class="row g-3 only-live map-part">
     <div class="col-lg-8 col-xl-9" id="mapCol">
       <div class="card-soft" id="mapWrap">
         <div id="map"></div>
@@ -144,44 +219,9 @@
     </div>
   </div>
 
-  <div hidden>
-  <div class="sec-head only-podroz" id="flights-sec" style="margin-top:64px"><span class="sec-num">03</span><h2>Tanie linie lotnicze</h2><span class="sec-rule"></span></div>
-  <form id="flightForm" class="timetable-bar only-podroz" autocomplete="off">
-    <div class="pl-field"><label for="flFrom">Z lotniska</label><div class="pl-inp"><select id="flFrom" class="tr-select"><option value="">Wszystkie</option></select></div></div>
-    <div class="pl-field"><label for="flTo">Do lotniska</label><div class="pl-inp"><select id="flTo" class="tr-select"><option value="">Wszystkie</option></select></div></div>
-    <div class="pl-field"><label for="flDate">Dzień</label><div class="pl-inp"><input id="flDate" type="date"></div></div>
-    <button class="btn-grad pl-go" type="submit">Pokaż loty</button>
-  </form>
-  <div class="only-podroz" id="flightRoute"></div>
-  <div class="small fw-semibold mt-2 only-podroz" id="flightStatus" role="status"></div>
-  <div class="small text-soft mt-2 only-podroz" id="flightMeta"></div>
-  <div id="flightAirlines" class="flight-airlines mt-3 only-podroz"></div>
-  <div id="flightList" class="mt-3 only-podroz"></div>
-  </div>
 
-  <div class="sec-head only-podroz" id="saved-sec" style="margin-top:64px"><span class="sec-num">02</span><h2>Zapisane podróże</h2><span class="sec-rule"></span></div>
-  <div id="savedTrips" class="only-podroz"></div>
-
-  <div class="sec-head only-kolej" id="trains-sec" style="margin-top:64px"><span class="sec-num">04</span><h2>Rozkład pociągów</h2><span class="sec-rule"></span></div>
-  <div class="tr-bar only-kolej">
-    <div class="pl-field" style="border:1px solid var(--line); min-width:260px"><label for="trStation">Stacja</label><div class="pl-inp"><select id="trStation" class="tr-select"></select></div></div>
-    <div class="d-flex align-items-end"><button class="pill-btn active" data-trtab="dep">Odjazdy</button><button class="pill-btn" data-trtab="arr">Przyjazdy</button></div>
-    <div class="small text-soft ms-auto align-self-end" id="trInfo"></div>
-  </div>
-  <div id="trainBoard" class="mt-3 only-kolej"></div>
-
-  <div class="sec-head not-kolej" id="timetable-sec" style="margin-top:64px"><span class="sec-num">04</span><h2>Rozkład jazdy</h2><span class="sec-rule"></span></div>
-  <form id="ttForm" class="timetable-bar not-kolej" autocomplete="off">
-    <div class="pl-field"><label for="ttStop">Przystanek</label><div class="pl-inp"><input id="ttStop" placeholder="Wpisz nazwę przystanku"></div></div>
-    <div class="pl-field"><label for="ttDay">Dzień</label><div class="pl-inp"><select id="ttDay" class="tr-select"></select></div></div>
-    <div class="pl-field"><label for="ttLine">Linia</label><div class="pl-inp"><select id="ttLine" class="tr-select"><option value="">Wszystkie linie</option></select></div></div>
-    <button class="btn-grad pl-go" type="submit">Pokaż rozkład</button>
-  </form>
-  <div class="txt-red small fw-semibold mt-2 not-kolej" id="ttErr"></div>
-  <div id="ttResults" class="mt-3 not-kolej"></div>
-
-  <div class="sec-head not-kolej" id="lines-sec" style="margin-top:64px"><span class="sec-num">05</span><h2>Linie i przystanki</h2><span class="sec-rule"></span></div>
-  <div id="linesGrid" class="lines-grid not-kolej"></div>
+  <div class="sec-head only-ztm" id="lines-sec" style="margin-top:64px"><span class="sec-num">05</span><h2>Linie i przystanki</h2><span class="sec-rule"></span></div>
+  <div id="linesGrid" class="lines-grid only-ztm"></div>
 
   <p class="footer-note mt-5 mb-0" id="attribution">
     Dane rozkładowe: <a href="https://otwartedane.erzeszow.pl/dataset/rozklad-jazdy-transxchange" target="_blank" rel="noopener">ZTM Rzeszów</a> (GTFS: <a href="https://mkuran.pl/gtfs/" target="_blank" rel="noopener">mkuran.pl</a>) ·
@@ -189,24 +229,71 @@
     podkład mapy: Esri / © OpenStreetMap (wg wyboru w ustawieniach) ·
     trasy samochodowe: <a href="https://project-osrm.org/" target="_blank" rel="noopener">OSRM</a> ·
     trasy piesze: <a href="https://routing.openstreetmap.de/" target="_blank" rel="noopener">FOSSGIS</a> ·
-    stacje kolejowe: <a href="https://mkuran.pl/gtfs/" target="_blank" rel="noopener">mkuran.pl</a>, PKP PLK ·
+    rozkład i pozycje PKS: <a href="https://kmrzeszow.live/" target="_blank" rel="noopener">kmrzeszow.live</a> ·
+    pociągi: <a href="https://pdp-api.plk-sa.pl/" target="_blank" rel="noopener">PKP Polskie Linie Kolejowe S.A.</a> (dane orientacyjne) ·
+    stacje i tory: <a href="https://mkuran.pl/gtfs/" target="_blank" rel="noopener">mkuran.pl</a> ·
     wyszukiwanie ulic: <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">Nominatim</a>, <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a>, dane © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">współtwórcy OpenStreetMap</a> · pogoda: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Gmina Miasto Rzeszów nie ponosi odpowiedzialności za sposób wykorzystania danych.
   </p>
 </main>
 
 <!-- Flight scan modal -->
-<div class="modal fade" id="scanModal" tabindex="-1" aria-hidden="true" aria-labelledby="scanTitle">
+<div class="modal fade" id="alertModal" tabindex="-1" aria-hidden="true" aria-labelledby="alertTitle">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
-      <div class="modal-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><span class="kicker mb-1">Sprawdzanie lotów</span><h4 id="scanTitle">Za jaki okres?</h4><div class="sub" id="scanRoute"></div></div>
-      <div class="modal-body p-3 p-md-4">
+      <div class="modal-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><span class="kicker mb-1">Alert cenowy</span><h4 id="alertTitle">Powiadom o cenie</h4><div class="sub" id="alertInfo"></div></div>
+      <form class="modal-body p-3 p-md-4" id="alertForm" autocomplete="off">
         <div class="scan-dates">
-          <div class="pl-field"><label for="scanStart">Od</label><div class="pl-inp"><input id="scanStart" type="date"></div></div>
-          <div class="pl-field"><label for="scanEnd">Do</label><div class="pl-inp"><input id="scanEnd" type="date"></div></div>
+          <div class="pl-field"><label for="alertPrice">Maksymalna cena (zł)</label><div class="pl-inp"><input id="alertPrice" type="number" min="1" max="100000" step="1" required></div></div>
+          <div class="pl-field"><label for="alertEvery">Sprawdzaj cenę</label><div class="pl-inp"><select id="alertEvery" class="tr-select">
+            <option value="3">co 3 godziny</option><option value="6">co 6 godzin</option><option value="12" selected>co 12 godzin</option><option value="24">raz dziennie</option><option value="72">co 3 dni</option><option value="168">raz w tygodniu</option>
+          </select></div></div>
         </div>
-        <div class="scan-airlines" id="scanAirlines"></div>
-        <div class="small text-soft mt-3" id="scanInfo" role="status"></div>
-        <div class="d-flex justify-content-end gap-2 mt-3"><button class="btn-ghost" type="button" data-bs-dismiss="modal">Anuluj</button><button class="btn-grad" type="button" id="scanGo">Skanuj</button></div>
+        <p class="small text-soft mt-3 mb-2" id="alertHint"></p>
+        <p class="small text-soft mb-0">Gdy cena spadnie do tej kwoty lub niżej, wyślemy e-mail na adres konta. Alert znajdziesz w Ulubionych.</p>
+        <div class="txt-red small fw-semibold mt-2" id="alertErr"></div>
+        <div class="d-flex justify-content-end gap-2 mt-3"><button type="button" class="btn-ghost" data-bs-dismiss="modal">Anuluj</button><button type="submit" class="btn-grad" id="alertSave"><i class="fa-solid fa-bell" aria-hidden="true"></i> Ustaw alert</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="scanModal" tabindex="-1" aria-hidden="true" aria-labelledby="scanTitle">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><span class="kicker mb-1">Admin · tanie linie</span><h4 id="scanTitle">Pobieranie lotów</h4><div class="sub">Loty nie są pobierane automatycznie. Wybierz, co odświeżyć.</div></div>
+      <div class="modal-body p-3 p-md-4">
+        <fieldset class="scan-group"><legend>Co odświeżyć</legend>
+          <label class="trip-check"><input type="radio" name="scanScope" value="route" checked> Ceny na wybranej trasie</label>
+          <label class="trip-check"><input type="radio" name="scanScope" value="all"> Wszystkie trasy z listy serwera</label>
+          <label class="trip-check"><input type="radio" name="scanScope" value="network"> Tylko lista połączeń linii</label>
+        </fieldset>
+        <fieldset class="scan-group" data-scan-part="route"><legend>Kierunek</legend>
+          <div class="scan-route">
+            <div class="pl-field"><label for="scanFrom">Z lotniska</label><div class="pl-inp"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="scanFrom" list="scanAirportList" placeholder="Dowolne — wpisz miasto lub kod" autocomplete="off"></div></div>
+            <button type="button" class="pl-swap" id="scanSwap" title="Zamień kierunek" aria-label="Zamień kierunek"><i class="fa-solid fa-right-left" aria-hidden="true"></i></button>
+            <div class="pl-field"><label for="scanTo">Do lotniska</label><div class="pl-inp"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="scanTo" list="scanAirportList" placeholder="Dowolne — wpisz miasto lub kod" autocomplete="off"></div></div>
+            <datalist id="scanAirportList"></datalist>
+          </div>
+          <div class="scan-ways">
+            <label class="trip-check"><input type="radio" name="scanWay" value="out" checked> Tylko tam</label>
+            <label class="trip-check"><input type="radio" name="scanWay" value="back"> Tylko z powrotem</label>
+            <label class="trip-check"><input type="radio" name="scanWay" value="both"> W obie strony</label>
+          </div>
+        </fieldset>
+        <fieldset class="scan-group" data-scan-part="dates"><legend>Daty</legend>
+          <div class="scan-dates">
+            <div class="pl-field"><label for="scanStart">Od</label><div class="pl-inp"><input id="scanStart" type="date"></div></div>
+            <div class="pl-field"><label for="scanEnd">Do</label><div class="pl-inp"><input id="scanEnd" type="date"></div></div>
+          </div>
+        </fieldset>
+        <fieldset class="scan-group" data-scan-part="dates"><legend>Linie lotnicze</legend>
+          <div class="scan-airlines" id="scanAirlines">
+            <label class="trip-check"><input type="checkbox" value="RYANAIR" checked> Ryanair</label>
+            <label class="trip-check"><input type="checkbox" value="WIZZ" checked> Wizz Air</label>
+          </div>
+        </fieldset>
+        <div class="small text-soft mt-3" id="scanInfo"></div>
+        <div class="small fw-semibold mt-2" id="flightStatus" role="status"></div>
+        <div class="d-flex justify-content-end gap-2 mt-3"><button class="btn-ghost" type="button" data-bs-dismiss="modal">Zamknij</button><button class="btn-grad" type="button" id="scanGo">Uruchom</button></div>
       </div>
     </div>
   </div>
@@ -378,16 +465,23 @@
             <textarea class="form-control mb-2" id="sPksRt" rows="2" spellcheck="false"></textarea>
             <label class="form-label" for="sPksStatic">PKS · rozkład GTFS .zip (jeden URL na linię)</label>
             <textarea class="form-control" id="sPksStatic" rows="2" spellcheck="false"></textarea>
-            <div class="form-text text-soft">Domyślne adresy są najbardziej prawdopodobne, ale niepotwierdzone. Dokładne linki („Pobierz plik”) znajdziesz na kmrzeszow.live/otwartedane — wklej je tutaj.</div>
+            <div class="form-text text-soft">Domyślne adresy pochodzą z kmrzeszow.live i z ich kopii na mpkrzeszow.pl. Dokładne linki („Pobierz plik”) znajdziesz na kmrzeszow.live/otwartedane — wklej je tutaj.</div>
           </div>
           <div class="set-group">
             <div class="form-check form-switch mb-2">
               <input class="form-check-input" type="checkbox" id="sTrains">
-              <label class="form-check-label" for="sTrains"><b>Pociągi</b> — odjazdy ze stacji w Rzeszowie i pociągi na mapie</label>
+              <label class="form-check-label" for="sTrains"><b>Pociągi</b> — rozkład i pociągi na mapie w całej Polsce</label>
             </div>
-            <label class="form-label" for="sPlk">Klucz API „Otwarte Dane Kolejowe” PKP PLK</label>
-            <input class="form-control" id="sPlk" placeholder="wklej klucz (bezpłatny)" spellcheck="false" autocomplete="off">
-            <div class="form-text text-soft">Darmowy klucz po rejestracji na pdp-api.plk-sa.pl (pakiet Basic: 100 zapytań/h — aplikacja zużywa ok. 30/h). Klucz zostaje tylko w tej przeglądarce. Bez klucza zobaczysz przykładowe dane.</div>
+            <div class="form-text text-soft">Dane kolejowe pobiera serwer dla wszystkich użytkowników.</div>
+            <div id="plkAdmin" class="mt-2" hidden>
+              <label class="form-label" for="sPlk">Klucz API „Otwarte Dane Kolejowe” PKP PLK</label>
+              <div class="d-flex gap-2">
+                <input class="form-control" id="sPlk" type="password" placeholder="wklej klucz (bezpłatny)" spellcheck="false" autocomplete="off">
+                <button class="btn-ghost" type="button" id="sPlkSave">Zapisz dla wszystkich</button>
+              </div>
+              <div class="form-text text-soft" id="sPlkNote" role="status"></div>
+              <div class="form-text text-soft">Darmowy klucz po rejestracji na pdp-api.plk-sa.pl. Pakiet Basic: 100 zapytań/h i 1000 dziennie. Serwer odświeża dane co 20 min, ok. 350 zapytań dziennie, niezależnie od liczby użytkowników.</div>
+            </div>
           </div>
           <div class="form-check form-switch mb-3">
             <input class="form-check-input" type="checkbox" id="sWeather">

@@ -38,12 +38,20 @@ test("PKS IDs are prefixed so they cannot clash with ZTM", async () => {
   assert.doesNotThrow(() => validateSchedulePayload("pks", payload));
 });
 
+function memorySnapshots() {
+  const saved = new Map();
+  return { saved, info: async (key) => saved.get(key) || null, save: async (key, snapshot) => { saved.set(key, snapshot); } };
+}
+
 function fakes({ stored = null, etag = '"v1"' } = {}) {
   const calls = { replace: 0, read: 0, parse: 0 };
   let hash = stored;
+  const snapshots = memorySnapshots();
   return {
     calls,
+    saved: snapshots.saved,
     store: createScheduleStore({
+      snapshots,
       agencies: ["ztm"],
       timetables: { get: async () => ({ buffer: Buffer.from("zip"), etag }) },
       parse: async (buffer, agency, sourceKey) => { calls.parse += 1; return { sourceKey, stopTimes: [] }; },
@@ -56,33 +64,36 @@ function fakes({ stored = null, etag = '"v1"' } = {}) {
   };
 }
 
-test("a new feed is imported once and then served compressed", async () => {
-  const { store, calls } = fakes();
-  assert.equal(store.get("ztm"), null);
+test("a new feed is imported once and its compressed copy stored", async () => {
+  const { store, calls, saved } = fakes();
+  assert.equal(saved.size, 0);
   await store.sync();
   await store.sync();
   assert.deepEqual(calls, { replace: 1, read: 1, parse: 1 });
-  const copy = store.get("ztm");
+  const copy = saved.get("schedule:ztm");
   assert.deepEqual(JSON.parse(zlib.gunzipSync(copy.body)), { routes: [{ id: "1" }] });
   assert.match(copy.etag, /^"[a-f0-9]{32}"$/);
 });
 
 test("after a restart an unchanged feed is read back without importing again", async () => {
-  const { store, calls } = fakes({ stored: sourceHash('gtfs:"v1"') });
+  const { store, calls, saved } = fakes({ stored: sourceHash('gtfs:"v1"') });
+  await store.sync();
   await store.sync();
   assert.deepEqual(calls, { replace: 0, read: 1, parse: 0 });
-  assert.ok(store.get("ztm"));
+  assert.ok(saved.has("schedule:ztm"));
 });
 
 test("a failed import leaves the app running without a database copy", async (t) => {
   const errors = t.mock.method(console, "error", () => {});
+  const snapshots = memorySnapshots();
   const store = createScheduleStore({
+    snapshots,
     agencies: ["ztm"],
     timetables: { get: async () => ({ buffer: Buffer.from("zip"), etag: '"v1"' }) },
     parse: async () => ({ stopTimes: [] }),
     database: { importedHash: async () => null, replace: async () => { throw new Error("database busy"); }, read: async () => ({}) },
   });
   await store.sync();
-  assert.equal(store.get("ztm"), null);
+  assert.equal(snapshots.saved.size, 0);
   assert.equal(errors.mock.callCount(), 1);
 });

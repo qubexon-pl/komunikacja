@@ -377,6 +377,30 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'dbo.AppSetting', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AppSetting (
+        setting_key NVARCHAR(64) NOT NULL,
+        setting_value NVARCHAR(4000) NOT NULL,
+        updated_at DATETIME2(0) NOT NULL,
+        CONSTRAINT PK_AppSetting PRIMARY KEY (setting_key)
+    );
+END;
+GO
+
+IF OBJECT_ID(N'dbo.DataSnapshot', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.DataSnapshot (
+        snapshot_key NVARCHAR(64) NOT NULL,
+        content_type NVARCHAR(64) NOT NULL,
+        etag CHAR(34) NOT NULL,
+        body VARBINARY(MAX) NOT NULL,
+        fetched_at DATETIME2(0) NOT NULL,
+        CONSTRAINT PK_DataSnapshot PRIMARY KEY (snapshot_key)
+    );
+END;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_AuthSession_User' AND object_id = OBJECT_ID(N'dbo.AuthSession'))
     CREATE INDEX IX_AuthSession_User ON dbo.AuthSession (user_id, expires_at);
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_OAuthState_Expiry' AND object_id = OBJECT_ID(N'dbo.OAuthState'))
@@ -387,4 +411,34 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_EmailChallenge_EmailP
     CREATE UNIQUE INDEX UX_EmailChallenge_EmailPurpose ON dbo.EmailChallenge (email, purpose) WHERE email IS NOT NULL;
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_EmailChallenge_UserPurpose' AND object_id = OBJECT_ID(N'dbo.EmailChallenge'))
     CREATE UNIQUE INDEX UX_EmailChallenge_UserPurpose ON dbo.EmailChallenge (user_id, purpose) WHERE user_id IS NOT NULL;
+GO
+
+IF OBJECT_ID(N'dbo.PriceAlert', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.PriceAlert (
+        alert_id UNIQUEIDENTIFIER NOT NULL CONSTRAINT DF_PriceAlert_Id DEFAULT (NEWID()),
+        user_id UNIQUEIDENTIFIER NOT NULL,
+        from_airport CHAR(3) NOT NULL,
+        to_airport CHAR(3) NOT NULL,
+        depart_day DATE NOT NULL,
+        return_day DATE NULL,
+        airline VARCHAR(16) NULL,
+        max_price_pln DECIMAL(10,2) NOT NULL,
+        every_hours INT NOT NULL,
+        label NVARCHAR(200) NULL,
+        last_price_pln DECIMAL(10,2) NULL,
+        last_checked_at DATETIME2(0) NULL,
+        last_scan_at DATETIME2(0) NULL,
+        notified_price_pln DECIMAL(10,2) NULL,
+        notified_at DATETIME2(0) NULL,
+        created_at DATETIME2(0) NOT NULL CONSTRAINT DF_PriceAlert_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_PriceAlert PRIMARY KEY (alert_id),
+        CONSTRAINT FK_PriceAlert_AppUser FOREIGN KEY (user_id)
+            REFERENCES dbo.AppUser (user_id) ON DELETE CASCADE,
+        CONSTRAINT CK_PriceAlert_Every CHECK (every_hours BETWEEN 1 AND 720),
+        CONSTRAINT CK_PriceAlert_Price CHECK (max_price_pln > 0)
+    );
+    CREATE INDEX IX_PriceAlert_User ON dbo.PriceAlert (user_id);
+    CREATE INDEX IX_PriceAlert_Day ON dbo.PriceAlert (depart_day);
+END;
 GO
