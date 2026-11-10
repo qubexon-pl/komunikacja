@@ -25,7 +25,7 @@ function parseWizzMap(map) {
   const cities = map?.cities || [];
   const known = new Set(cities.map((city) => city.iata));
   return {
-    airports: cities.map((city) => ({ code: city.iata, city: city.shortName, country: city.countryName, lat: city.latitude, lon: city.longitude })),
+    airports: cities.map((city) => ({ code: city.iata, city: city.shortName, wizzName: city.shortName, country: city.countryName, lat: city.latitude, lon: city.longitude })),
     routes: cities.flatMap((city) => (city.connections || [])
       .filter((connection) => connection.isDirectFlight && known.has(connection.iata))
       .map((connection) => ({ from: city.iata, to: connection.iata }))),
@@ -65,7 +65,10 @@ function mergeNetwork(sources) {
   const airports = new Map();
   const routes = new Map();
   for (const [airline, source] of Object.entries(sources)) {
-    for (const airport of source.airports) if (!airports.has(airport.code)) airports.set(airport.code, airport);
+    for (const airport of source.airports) {
+      if (!airports.has(airport.code)) airports.set(airport.code, airport);
+      else if (airport.wizzName) airports.get(airport.code).wizzName = airport.wizzName; // the Wizz web pages use Wizz's own city names
+    }
     for (const { from, to } of source.routes) {
       const key = `${from}|${to}`;
       const route = routes.get(key) || { from, to, airlines: [] };
@@ -84,7 +87,8 @@ function fromPrevious(previous, airline) {
 }
 
 // One airline failing must not erase its routes, so the previous list stands in for it.
-async function readNetwork({ dir, previous = null, ryanair = readRyanair, wizz = readWizz }) {
+// Wizz Air is not read with a browser any more (it blocks automated browsers), so its last known routes stay.
+async function readNetwork({ dir, previous = null, ryanair = readRyanair, wizz = async () => fromPrevious(previous, "WIZZ") }) {
   const read = async (airline, load) => {
     try {
       return await load();

@@ -457,6 +457,26 @@ function createAuthService(pool, {
     return result.recordset[0] ? JSON.parse(result.recordset[0].favorites) : [];
   }
 
+  async function getPreferences(userId) {
+    const result = await pool.request().input("userId", sql.UniqueIdentifier, userId)
+      .query("SELECT preferences FROM dbo.UserPreference WHERE user_id = @userId;");
+    return result.recordset[0] ? JSON.parse(result.recordset[0].preferences) : {};
+  }
+
+  async function savePreferences(userId, preferences) {
+    await pool.request()
+      .input("userId", sql.UniqueIdentifier, userId)
+      .input("preferences", sql.NVarChar(sql.MAX), JSON.stringify(preferences))
+      .query(`
+        SET XACT_ABORT ON;
+        BEGIN TRANSACTION;
+        UPDATE dbo.UserPreference WITH (UPDLOCK, SERIALIZABLE) SET preferences = @preferences, updated_at = SYSUTCDATETIME() WHERE user_id = @userId;
+        IF @@ROWCOUNT = 0
+          INSERT INTO dbo.UserPreference (user_id, preferences) VALUES (@userId, @preferences);
+        COMMIT TRANSACTION;
+      `);
+  }
+
   async function saveFavorites(userId, favorites) {
     await pool.request()
       .input("userId", sql.UniqueIdentifier, userId)
@@ -617,6 +637,8 @@ function createAuthService(pool, {
   }
 
   return {
+    getPreferences,
+    savePreferences,
     sendNotice,
     startEmailVerification,
     verifyEmail,

@@ -25,14 +25,17 @@ test("updating one flight's price asks the tracker about that route and day only
   };
   const base = await start(t, { collector, flights });
   const ask = (body) => fetch(`${base}/api/flights/fare`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base, Cookie: "rzbus_session=rider" }, body: JSON.stringify(body) });
-  const body = { from: "krk", to: "BGY", day: day(7), back: day(14), airline: "WIZZ" };
+  const body = { from: "krk", to: "BGY", day: day(7), back: day(14), airline: "RYANAIR" };
   assert.equal((await ask(body)).status, 202);
-  assert.deepEqual(runs[0].jobs.map((j) => [j.pairs[0].from, j.pairs[0].to, j.start, j.pairs[0].airlines.join()]), [["KRK", "BGY", day(7), "WIZZ"], ["BGY", "KRK", day(14), "WIZZ"]]);
+  assert.deepEqual(runs[0].jobs.map((j) => [j.pairs[0].from, j.pairs[0].to, j.start, j.pairs[0].airlines.join()]), [["KRK", "BGY", day(7), "RYANAIR"], ["BGY", "KRK", day(14), "RYANAIR"]]);
   const again = await ask(body);
   assert.equal(again.status, 200);
   assert.equal((await again.json()).reason, "fresh");
   assert.equal(runs.length, 1);
   assert.equal((await ask({ ...body, from: "KRAKOW" })).status, 400);
+  // Wizz Air shows the automated browser no flights, so its prices are never scraped.
+  const wizz = await ask({ ...body, airline: "WIZZ", day: day(20), back: "" });
+  assert.deepEqual([wizz.status, (await wizz.json()).reason, runs.length], [200, "wizz-blocked", 1]);
   const guest = await fetch(`${base}/api/flights/fare`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify(body) });
   assert.equal(guest.status, 401);
 });

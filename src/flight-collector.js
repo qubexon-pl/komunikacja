@@ -66,6 +66,20 @@ async function writeWatches(dir, watches) {
   }
 }
 
+// The Wizz flight finder page is addressed by city name ("krakow", "bratyslawa"), not by airport code.
+function wizzSlug(name) {
+  return String(name || "").toLowerCase().replace(/ł/g, "l").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+async function writeWizzCities(dir, network) {
+  const cities = {};
+  for (const airport of network?.airports || []) {
+    const slug = wizzSlug(airport.wizzName || airport.city);
+    if (slug) cities[airport.code] = slug;
+  }
+  await fs.mkdir(path.join(dir, "data"), { recursive: true });
+  await fs.writeFile(path.join(dir, "data", "wizz-cities.json"), JSON.stringify(cities, null, 1));
+}
+
 function wizzTime(pairs, start, end) {
   const days = (Date.parse(end) - Date.parse(start)) / 86400000 + 1;
   return pairs.filter((pair) => pair.airlines.includes("WIZZ")).length * days * WIZZ_DAY_TIMEOUT_MS;
@@ -76,7 +90,8 @@ function scanTimeout(jobs) {
 
 function runTracker(dir, { wizzMode = "", timeoutMs = RUN_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
-    const env = wizzMode ? { ...process.env, WIZZ_MODE: wizzMode } : process.env;
+    // Wizz Air shows the tracker's browser no flights, so the tracker collects Ryanair only.
+    const env = { ...process.env, WIZZ_ENABLED: "false", ...(wizzMode ? { WIZZ_MODE: wizzMode } : {}) };
     const child = spawn(process.execPath, ["--use-system-ca", "--no-warnings=ExperimentalWarning", "src/collect.js"], { cwd: dir, env, stdio: "inherit" });
     const timer = setTimeout(() => child.kill(), timeoutMs);
     child.on("error", reject);
@@ -114,6 +129,7 @@ function createFlightCollector({
       await updateNetwork().catch((error) => console.error("Route list update failed:", error.message));
       const chosen = jobs || (pairs ? [{ pairs, start, end }] : null);
       await prepare(dir, chosen ? watchesForJobs(chosen) : buildWatches(routes, start, end, airlines));
+      if (flights.network) await writeWizzCities(dir, flights.network()).catch((error) => console.error("Wizz city names:", error.message));
       await collect(dir, chosen ? { wizzMode: "detailed", timeoutMs: scanTimeout(chosen) } : {});
       await flights.sync();
       return true;
@@ -141,4 +157,4 @@ function createFlightCollector({
   return { request, run, status };
 }
 
-module.exports = { buildWatches, createFlightCollector, trackerDatabase, watchesForJobs, watchesForPairs, writeWatches };
+module.exports = { wizzSlug, writeWizzCities, buildWatches, createFlightCollector, trackerDatabase, watchesForJobs, watchesForPairs, writeWatches };

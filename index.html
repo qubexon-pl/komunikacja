@@ -54,6 +54,7 @@
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminMenu">
           <li><button class="dropdown-item" id="refreshBtn" type="button" title="Odśwież teraz"><span class="ico">↻</span> Odśwież</button></li>
           <li class="admin-only"><button class="dropdown-item" id="refreshFlightsBtn" type="button"><i class="fa-solid fa-plane ico" aria-hidden="true"></i> Pobieranie lotów</button></li>
+          <li class="admin-only"><button class="dropdown-item" id="importWizzBtn" type="button" data-import-wizz><i class="fa-solid fa-file-import ico" aria-hidden="true"></i> Import Wizz Air z przeglądarki (HAR)</button></li>
           <li><button class="dropdown-item" id="settingsBtn" type="button">Ustawienia</button></li>
         </ul>
       </div>
@@ -93,6 +94,8 @@
   </div>
 </header>
 
+<input type="file" id="importWizzFile" accept=".har,application/json" hidden>
+<div class="toast-note" id="toastNote" role="status" aria-live="polite" hidden></div>
 <main class="shell">
   <div class="stats-band only-live map-part">
     <div class="stat-card" data-filter="all"><div class="lbl">Na trasie</div><div class="num" id="stAll">–</div></div>
@@ -132,10 +135,26 @@
       <label class="mode-check"><input type="checkbox" value="plane" checked> <i class="fa-solid fa-plane" aria-hidden="true"></i> Samolot</label>
       <label class="mode-check"><input type="checkbox" value="car" checked> <i class="fa-solid fa-car" aria-hidden="true"></i> Samochód</label>
     </div>
+    <label class="pref-airport" id="plPreferBox" hidden><i class="fa-solid fa-plane-departure" aria-hidden="true"></i> <span>Preferowane lotnisko</span> <select id="plPrefer" aria-label="Preferowane lotnisko"><option value="">Dowolne</option></select><span class="pref-sep" aria-hidden="true"></span><span>Lotniska w promieniu</span> <select id="plRadius" aria-label="Lotniska w promieniu"><option value="100">100 km</option><option value="150">150 km</option><option value="200">200 km</option><option value="300" selected>300 km</option><option value="400">400 km</option><option value="600">600 km</option><option value="any">Dowolna</option></select></label>
     </div>
   </div>
   <div class="small text-soft mt-2 only-podroz" id="plLimit"></div>
   <div class="d-flex justify-content-between flex-wrap gap-2 mt-2 only-plan" id="planMsgs"><div class="txt-red small fw-semibold" id="planErr"></div><div class="small text-soft" id="planHint"></div></div>
+  <section class="explore only-podroz" id="explore" aria-labelledby="exploreTitle">
+    <div class="explore-head">
+      <div class="explore-title"><h3 id="exploreTitle"><i class="fa-solid fa-earth-europe" aria-hidden="true"></i> Sprawdź kierunki</h3><small id="exploreInfo">Wczytuję połączenia…</small></div>
+      <div class="explore-tools">
+        <div class="explore-airlines" role="group" aria-label="Linie lotnicze">
+          <button type="button" class="explore-air on" data-explore-air="RYANAIR" aria-pressed="true"><i class="fa-solid fa-plane" aria-hidden="true"></i> Ryanair</button>
+          <button type="button" class="explore-air on" data-explore-air="WIZZ" aria-pressed="true"><i class="fa-solid fa-plane" aria-hidden="true"></i> Wizz Air</button>
+        </div>
+        <button type="button" class="explore-toggle" id="exploreSave"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> <span>Zapisz widok</span></button>
+        <button type="button" class="explore-toggle" id="exploreToggle" aria-expanded="true"><span>Ukryj mapę</span> <i class="fa-solid fa-chevron-up" aria-hidden="true"></i></button>
+      </div>
+    </div>
+    <div class="explore-from" id="exploreFrom" role="group" aria-label="Lotniska wylotu"></div>
+    <div class="explore-map-wrap"><div id="exploreMap" aria-label="Mapa kierunków lotów"></div><div class="explore-hint" id="exploreHint">Kliknij kierunek albo lotnisko wylotu: wybierz je lub usuń z mapy.</div></div>
+  </section>
   <datalist id="stopNames"></datalist>
   <div id="planResults" class="mt-3 only-plan"></div>
 
@@ -288,7 +307,7 @@
         <fieldset class="scan-group" data-scan-part="dates"><legend>Linie lotnicze</legend>
           <div class="scan-airlines" id="scanAirlines">
             <label class="trip-check"><input type="checkbox" value="RYANAIR" checked> Ryanair</label>
-            <label class="trip-check"><input type="checkbox" value="WIZZ" checked> Wizz Air</label>
+            <span class="small text-soft">Wizz Air: przez API.SH albo import strony z przeglądarki (Admin › Import Wizz Air)</span>
           </div>
         </fieldset>
         <div class="small text-soft mt-3" id="scanInfo"></div>

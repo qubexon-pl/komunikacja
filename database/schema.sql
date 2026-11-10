@@ -442,3 +442,40 @@ BEGIN
     CREATE INDEX IX_PriceAlert_Day ON dbo.PriceAlert (depart_day);
 END;
 GO
+
+IF OBJECT_ID(N'dbo.FlightPriceHistory', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.FlightPriceHistory (
+        history_id BIGINT IDENTITY(1,1) NOT NULL,
+        airline VARCHAR(16) NOT NULL,
+        from_airport CHAR(3) NOT NULL,
+        to_airport CHAR(3) NOT NULL,
+        flight_day DATE NOT NULL,
+        departure_local VARCHAR(16) NULL,
+        arrival_local VARCHAR(16) NULL,
+        flight_number VARCHAR(16) NULL,
+        price DECIMAL(10,2) NOT NULL,
+        currency CHAR(3) NULL,
+        price_pln DECIMAL(10,2) NOT NULL,
+        seats_left INT NULL,
+        price_type VARCHAR(8) NOT NULL,
+        source VARCHAR(40) NOT NULL,
+        collected_at DATETIME2(0) NOT NULL,
+        recorded_at DATETIME2(0) NOT NULL CONSTRAINT DF_FlightPriceHistory_RecordedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FlightPriceHistory PRIMARY KEY (history_id)
+    );
+    CREATE INDEX IX_FlightPriceHistory_Route ON dbo.FlightPriceHistory (from_airport, to_airport, flight_day, collected_at);
+END;
+GO
+
+IF OBJECT_ID(N'dbo.UserPreference', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.UserPreference (
+        user_id UNIQUEIDENTIFIER NOT NULL,
+        preferences NVARCHAR(MAX) NOT NULL,
+        updated_at DATETIME2(0) NOT NULL CONSTRAINT DF_UserPreference_UpdatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_UserPreference PRIMARY KEY (user_id),
+        CONSTRAINT FK_UserPreference_AppUser FOREIGN KEY (user_id) REFERENCES dbo.AppUser (user_id) ON DELETE CASCADE
+    );
+END;
+GO

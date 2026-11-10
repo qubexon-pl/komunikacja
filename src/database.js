@@ -371,6 +371,24 @@ async function replaceFlightFares(pool, fares) {
   }
 }
 
+// Every price the app receives is also kept here, so a route's price can be followed over time.
+async function appendFareHistory(pool, fares) {
+  if (!fares.length) return 0;
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    await bulk(tx, "FlightPriceHistory", FARE_COLUMNS, fares.map((fare) => [
+      fare.airline, fare.from, fare.to, new Date(`${fare.day}T00:00:00Z`), fare.departure, fare.arrival, fare.flightNumber,
+      fare.price, fare.currency, fare.pricePln, fare.seatsLeft, fare.priceType, String(fare.source).slice(0, 40), fare.collectedAt,
+    ]));
+    await tx.commit();
+    return fares.length;
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  }
+}
+
 async function readFlightFares(pool, fromDay) {
   const result = await pool.request().input("fromDay", sql.Date, new Date(`${fromDay}T00:00:00Z`)).query(`
     SELECT airline, from_airport AS [from], to_airport AS [to], CONVERT(CHAR(10), flight_day, 23) AS day,
@@ -443,6 +461,7 @@ function createSnapshots(pool) {
 
 module.exports = {
   AGENCIES,
+  appendFareHistory,
   createSnapshots,
   createSqlConfig,
   getSchedule,

@@ -6,13 +6,17 @@ const path = require("node:path");
 const { pipeline } = require("node:stream/promises");
 const crypto = require("node:crypto");
 const tls = require("node:tls");
-const { AGENCIES, createSnapshots, createSqlConfig, getSchedule, importedHash, readFlightFares, readFlightNetwork, readSchedule, readSetting, replaceFlightFares, replaceSchedule, saveFlightNetwork, saveSetting } = require("./database");
+const { AGENCIES, createSnapshots, createSqlConfig, getSchedule, importedHash, readFlightFares, readFlightNetwork, readSchedule, readSetting, replaceFlightFares, appendFareHistory, replaceSchedule, saveFlightNetwork, saveSetting } = require("./database");
 const { MAX_WALK_TARGETS, PATH_URLS, createDrivingRouter, createPathRouter, createWalkTable, parsePoint } = require("./driving");
 const { createFlightCollector, trackerDatabase } = require("./flight-collector");
 const { readNetwork } = require("./flight-network");
 const { createFlightStore } = require("./flights");
 const { createLiveFlightSearch, providersFromEnv } = require("./flight-providers");
 const { createAlertDatabase, createPriceAlerts } = require("./price-alerts");
+const { importWizzResponses } = require("./wizz-import");
+const { createWizzTimetable } = require("./wizz-timetable");
+const { createPksFares } = require("./pks-fares");
+const { createRates } = require("./flight-providers");
 const { createGeocoder, createStreetSuggester } = require("./geocode");
 const { normalizeFavorites } = require("./favorites");
 const { LIVE_SOURCES, createLiveCollector } = require("./live-data");
@@ -40,7 +44,7 @@ const MAX_FAVORITES_BYTES = 64 * 1024;
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -208,7 +212,9 @@ function serveFlights(res, url, action, flights) {
     json(res, 400, { error: "Powrót nie może być przed wyjazdem." });
     return;
   }
-  json(res, 200, flights.options({ origin, dest, date, back }));
+  const radius = url.searchParams.get("radius") === "any" ? 5000 : Number(url.searchParams.get("radius")) || undefined;
+  const prefer = (url.searchParams.get("prefer") || "").toUpperCase();
+  json(res, 200, flights.options({ origin, dest, date, back, radius, prefer }));
 }
 
 const FLIGHT_SCOPES = new Set(["route", "all", "network"]);
@@ -266,8 +272,9 @@ async function refreshFlights(req, res, collector, flights) {
 
 // A trip search asks the airlines only about its own routes and days, and the same day of a route at most every 6 hours.
 const TRIP_FETCH_FRESH_MS = 6 * 60 * 60 * 1000;
-async function fetchTripFlights(req, res, collector, flights, asked, liveSearch) {
-  const { origin = "", dest = "", date = "", back = "" } = await readJson(req);
+async function fetchTripFlights(req, res, collector, flights, asked, liveSearch, wizz = null) {
+  const { origin = "", dest = "", date = "", back = "", prefer = "", radius = 0 } = await readJson(req);
+  const preferred = /^[A-Z]{3}$/.test(String(prefer).toUpperCase()) ? String(prefer).toUpperCase() : "";
   const from = parsePoint(origin);
   const to = parsePoint(dest);
   const today = new Date().toISOString().slice(0, 10);
@@ -276,14 +283,18 @@ async function fetchTripFlights(req, res, collector, flights, asked, liveSearch)
     json(res, 400, { error: "Nieprawidłowe miejsca lub daty podróży." });
     return;
   }
-  if (!flights || (!collector && !liveSearch)) {
+  if (!flights || (!collector && !liveSearch && !wizz)) {
     respondToRun(res, "unavailable");
     return;
   }
   // The official APIs also find flights with changes, so they are asked even where no low-cost airline flies.
   const target = { scope: "trip", from: "", to: "", direction: back ? "both" : "out", start: date, end: back || date };
-  const apis = liveSearch ? liveSearch.request({ origin: from, dest: to, date, back }, target) : "unavailable";
-  const out = collector ? flights.tripPairs({ origin: from, dest: to }) : [];
+  const live = liveSearch ? liveSearch.request({ origin: from, dest: to, date, back }, target) : "unavailable";
+  // Wizz Air through its timetable: two weeks either side of the chosen days, for the routes Wizz flies.
+  const wizzPairs = wizz ? flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined }).filter((pair) => pair.airlines.includes("WIZZ")) : [];
+  const viaWizz = wizz && wizzPairs.length ? wizz.searchRoutes(wizzPairs, date, back) : "unavailable";
+  const apis = [live, viaWizz].find((r) => r === "started") || [live, viaWizz].find((r) => r === "busy") || [live, viaWizz].find((r) => r === "fresh") || "unavailable";
+  const out = collector ? withoutWizz(flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined })) : [];
   if (!out.length) {
     if (apis === "started" || apis === "busy") respondToRun(res, apis);
     else if (apis === "fresh") json(res, 200, { started: false, reason: "fresh" });
@@ -293,7 +304,7 @@ async function fetchTripFlights(req, res, collector, flights, asked, liveSearch)
   const now = Date.now();
   for (const [key, at] of asked) if (now - at >= TRIP_FETCH_FRESH_MS) asked.delete(key);
   const key = (pair, day) => `${pair.from}|${pair.to}|${day}`;
-  const jobs = [{ pairs: out, start: date, end: date }, ...(back ? [{ pairs: flights.returnPairs(out), start: back, end: back }] : [])]
+  const jobs = [{ pairs: out, start: date, end: date }, ...(back ? [{ pairs: withoutWizz(flights.returnPairs(out)), start: back, end: back }] : [])]
     .map((job) => ({ ...job, pairs: job.pairs.filter((pair) => !asked.has(key(pair, job.start))) }))
     .filter((job) => job.pairs.length);
   const codes = (list) => [...new Set(list)].join(",");
@@ -324,15 +335,19 @@ async function refreshFare(req, res, collector, flights, asked) {
     respondToRun(res, "unavailable");
     return;
   }
-  const airlines = ["RYANAIR", "WIZZ"].includes(code(airline)) ? [code(airline)] : [];
-  const out = flights.pairsFor({ from: a, to: b, airlines });
+  if (code(airline) === "WIZZ") {
+    json(res, 200, { started: false, reason: "wizz-blocked" });
+    return;
+  }
+  const airlines = code(airline) === "RYANAIR" ? ["RYANAIR"] : [];
+  const out = withoutWizz(flights.pairsFor({ from: a, to: b, airlines }));
   if (!out.length) {
     json(res, 200, { started: false, reason: "no-routes" });
     return;
   }
   const now = Date.now();
   const key = (pair, value) => `${pair.from}|${pair.to}|${value}`;
-  const jobs = [{ pairs: out, start: day, end: day }, ...(back ? [{ pairs: flights.returnPairs(out), start: back, end: back }] : [])]
+  const jobs = [{ pairs: out, start: day, end: day }, ...(back ? [{ pairs: withoutWizz(flights.returnPairs(out)), start: back, end: back }] : [])]
     .map((job) => ({ ...job, pairs: job.pairs.filter((pair) => !(now - (asked.get(key(pair, job.start)) || 0) < FARE_REFRESH_FRESH_MS)) }))
     .filter((job) => job.pairs.length);
   if (!jobs.length) {
@@ -390,6 +405,65 @@ async function serveAlerts(req, res, alerts, segments) {
     if (error.status && error.status < 500) json(res, error.status, { error: error.message });
     else throw error;
   }
+}
+
+// Wizz Air shows the tracker's automated browser "no flights", so its prices are not scraped automatically.
+// They come from the API.SH provider (if configured) and from what an administrator imports from a normal browser.
+const withoutWizz = (pairs) => pairs.map((pair) => ({ ...pair, airlines: pair.airlines.filter((airline) => airline !== "WIZZ") })).filter((pair) => pair.airlines.length);
+
+async function importWizz(req, res, flights, toPln) {
+  if (!isAppAdmin(req.user)) {
+    json(res, 403, { error: "Loty może importować tylko administrator." });
+    return;
+  }
+  if (!flights) {
+    json(res, 503, { error: "Dane o lotach są niedostępne." });
+    return;
+  }
+  const { responses = [] } = await readJson(req, 20 * 1024 * 1024);
+  try {
+    json(res, 200, await importWizzResponses(responses, { toPln, flights }));
+  } catch (error) {
+    if (error.status) json(res, error.status, { error: error.message });
+    else throw error;
+  }
+}
+
+// PKS ticket price between two timetable stops (name and position), from the PKS journey planner.
+async function servePksPrice(res, url, pksFares) {
+  const q = (name) => url.searchParams.get(name) || "";
+  const stop = (prefix) => ({ name: q(prefix).slice(0, 80), lat: Number(q(prefix + "Lat")), lon: Number(q(prefix + "Lon")) });
+  const from = stop("from"), to = stop("to"), day = q("day");
+  if (!from.name || !to.name || ![from.lat, from.lon, to.lat, to.lon].every(Number.isFinite) || !ISO_DAY.test(day)) {
+    json(res, 400, { error: "Podaj przystanki i dzień." });
+    return;
+  }
+  try {
+    json(res, 200, await pksFares.price({ from, to, day, time: q("time").slice(0, 5), line: q("line").slice(0, 10) }));
+  } catch (error) {
+    json(res, error.status === 429 || error.status === 403 ? 429 : 502, { error: error.message, price: null });
+  }
+}
+
+// A signed-in user's own settings, such as the airports and airlines chosen on the destinations map.
+async function servePreferences(req, res, auth) {
+  if (req.method === "GET") {
+    json(res, 200, { preferences: auth.getPreferences ? await auth.getPreferences(req.user.id) : {} });
+    return;
+  }
+  if (req.method === "PUT") {
+    requireSameOrigin(req);
+    const { preferences = {} } = await readJson(req, 64 * 1024);
+    if (!preferences || typeof preferences !== "object" || Array.isArray(preferences)) {
+      json(res, 400, { error: "Nieprawidłowe ustawienia." });
+      return;
+    }
+    await auth.savePreferences(req.user.id, preferences);
+    json(res, 200, { saved: true });
+    return;
+  }
+  res.setHeader("Allow", "GET, PUT");
+  json(res, 405, { error: "Method not allowed." });
 }
 
 function respondToRun(res, result) {
@@ -831,7 +905,7 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), liveSearch = null, alerts = null, staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), liveSearch = null, alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), staticRoot = ROOT }) {
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
@@ -864,6 +938,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "path" && segments.length === 2)
           || (segments[1] === "walk" && segments.length === 2)
           || (segments[1] === "fuel" && segments.length === 2)
+          || (segments[1] === "pks-price" && segments.length === 2)
         ) ? (segments[1] === "feeds" ? "feeds" : segments[1]) : null;
         if (publicRoute && !takePublicRequest(req, publicRoute)) {
           json(res, 429, { error: "Zbyt wiele zapytań. Spróbuj ponownie za chwilę." });
@@ -889,7 +964,8 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           const a = collector ? collector.status() : { available: false, running: false };
           const b = liveSearch ? liveSearch.status() : { available: false, running: false };
           // The admin panel reads the tracker; a trip search waits for both.
-          json(res, 200, { ...a, available: a.available || b.available, running: a.running || b.running, tracker: a, apis: b });
+          const w = wizz ? wizz.status() : { available: false, running: false };
+          json(res, 200, { ...a, available: a.available || b.available || w.available, running: a.running || b.running || w.running, tracker: a, apis: b, wizz: w });
           return;
         }
         if (publicRoute === "flights" && segments[2] === "network") {
@@ -898,6 +974,10 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         }
         if (publicRoute === "flights") {
           serveFlights(res, url, segments[2], flights);
+          return;
+        }
+        if (publicRoute === "pks-price") {
+          await servePksPrice(res, url, pksFares);
           return;
         }
         if (publicRoute === "fuel") {
@@ -960,11 +1040,44 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
             return;
           }
           requireSameOrigin(req);
-          await fetchTripFlights(req, res, collector, flights, tripAsked, liveSearch);
+          await fetchTripFlights(req, res, collector, flights, tripAsked, liveSearch, wizz);
+          return;
+        }
+        if (segments[1] === "preferences" && segments.length === 2) {
+          await servePreferences(req, res, auth);
           return;
         }
         if (segments[1] === "alerts" && segments.length <= 3) {
           await serveAlerts(req, res, alerts, segments);
+          return;
+        }
+        if (segments[1] === "flights" && segments[2] === "wizz-time" && segments.length === 3) {
+          if (req.method !== "POST") {
+            res.setHeader("Allow", "POST");
+            json(res, 405, { error: "Method not allowed." });
+            return;
+          }
+          requireSameOrigin(req);
+          if (!wizz) {
+            json(res, 503, { error: "Zapytania do Wizz Air są wyłączone." });
+            return;
+          }
+          const { from = "", to = "", time = "" } = await readJson(req);
+          try {
+            json(res, 200, await wizz.priceForTime({ from: String(from).toUpperCase(), to: String(to).toUpperCase(), time: String(time) }));
+          } catch (error) {
+            json(res, error.status && error.status < 600 ? error.status : 502, { error: error.message });
+          }
+          return;
+        }
+        if (segments[1] === "flights" && segments[2] === "import" && segments.length === 3) {
+          if (req.method !== "POST") {
+            res.setHeader("Allow", "POST");
+            json(res, 405, { error: "Method not allowed." });
+            return;
+          }
+          requireSameOrigin(req);
+          await importWizz(req, res, flights, fareRates);
           return;
         }
         if (segments[1] === "flights" && segments[2] === "fare" && segments.length === 3) {
@@ -1102,6 +1215,7 @@ async function main() {
     database: {
       readFares: (day) => readFlightFares(pool, day),
       replaceFares: (rows) => replaceFlightFares(pool, rows),
+      appendHistory: (rows) => appendFareHistory(pool, rows),
       readNetwork: () => readFlightNetwork(pool),
       saveNetwork: (network) => saveFlightNetwork(pool, network),
     },
@@ -1126,6 +1240,7 @@ async function main() {
     collector,
     liveSearch: providers.length ? createLiveFlightSearch({ providers, flights }) : null,
     alerts,
+    wizz: createWizzTimetable({ flights, toPln: createRates() }),
     database: {
       health: async () => pool.request().query("SELECT 1 AS ok"),
       getSchedule: (agency, sourceKey) => getSchedule(pool, agency, sourceKey),

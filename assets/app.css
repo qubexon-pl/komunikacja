@@ -1210,3 +1210,210 @@ body.fav-mode .hero h1{font-size:clamp(1.7rem,3.2vw,2.6rem) !important}
 
 .res-like .gmaps-btn,.res-card .gmaps-btn{white-space:normal; font-size:.8rem !important; padding:8px 10px !important; line-height:1.2}
 .res-like .pc-actions{overflow:hidden}
+
+/* ---- wyszukiwarka tak szeroka jak rozkład ---- */
+.search-box.only-plan,#plLimit,#planMsgs{max-width:none !important}
+/* ---- aktualizacja jednego lotu ---- */
+.fl-leg-update{display:inline-flex; align-items:center; gap:6px; margin:0 0 8px 74px; padding:5px 12px; border:1px solid var(--line); border-radius:999px; background:var(--bg-alt); color:var(--ink); font-size:.78rem; font-weight:600}
+.fl-leg-update i{color:var(--red)}
+.fl-leg-update:hover:not(:disabled){border-color:var(--red)}
+.fl-leg-update:disabled{opacity:.8; cursor:progress}
+@media(max-width:800px){ .fl-leg-update{margin-left:0} }
+/* ---- cała podróż i przebieg ---- */
+.fl-journey{padding-bottom:8px; border-bottom:1px dashed var(--line); margin-bottom:4px}
+.fl-near{display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:0 0 10px; padding:10px 14px; border-radius:12px; background:rgba(31,122,77,.08); border:1px solid rgba(31,122,77,.25); font-size:.88rem}
+.fl-near i{color:#1F7A4D}
+.fl-near .btn-ghost{padding:5px 10px; font-size:.78rem}
+.ds-label{margin:10px 0 6px; color:var(--ink-soft); font-size:.78rem; font-weight:700}
+.ds-label + .date-strip{margin-bottom:6px}
+.journey-top{display:grid; grid-template-columns:minmax(220px,300px) minmax(0,1fr); gap:14px; align-items:start; margin-bottom:14px}
+.journey-top .acc-compare{margin:0}
+.journey-box{padding:14px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt)}
+.journey-line{list-style:none; margin:8px 0 0; padding:0 0 0 6px; position:relative}
+.journey-line::before{content:""; position:absolute; left:13px; top:8px; bottom:8px; border-left:2px dotted var(--grey)}
+.jl-node,.jl-leg{position:relative; display:flex; align-items:flex-start; gap:12px; padding:3px 0}
+.jl-dot{flex:none; width:16px; height:16px; margin-top:2px; border:3px solid var(--ink); border-radius:50% !important; background:var(--bg-alt); position:relative; z-index:1}
+.jl-node b{display:block; font-size:.9rem; line-height:1.2}
+.jl-node small,.jl-leg small{display:block; color:var(--ink-soft); font-size:.76rem}
+.jl-leg{padding:6px 0 6px 0}
+.jl-ico{flex:none; display:flex; align-items:center; justify-content:center; width:16px; height:16px; margin-left:0; border-radius:50%; background:var(--k); color:#fff; font-size:.5rem; position:relative; z-index:1}
+.jl-leg small{padding-top:0}
+@media(max-width:900px){ .journey-top{grid-template-columns:minmax(0,1fr)} }
+/* ---- preferowane lotnisko ---- */
+.pref-airport{display:inline-flex; align-items:center; gap:8px; padding:4px 6px 4px 12px; border:1px solid var(--line); border-radius:999px; background:var(--bg-alt); font-size:.86rem; font-weight:600}
+.pref-airport[hidden]{display:none}
+.pref-airport i{color:#0284C7}
+.pref-airport select{border:0; background:transparent; color:var(--ink); font-weight:700; outline:none; max-width:200px}
+
+.journey-top .acc-compare th,.journey-top .acc-compare td{white-space:normal; padding:8px 8px}
+.journey-top .acc-compare{overflow-x:visible}
+
+/* ---- import Wizz Air i komunikaty ---- */
+.fl-leg-tools{display:inline-flex; flex-wrap:wrap; gap:6px; margin:0 0 8px 74px}
+.fl-leg-tools .fl-leg-update{margin:0; text-decoration:none}
+@media(max-width:800px){ .fl-leg-tools{margin-left:0} }
+.toast-note{position:fixed; left:50%; bottom:24px; z-index:2000; transform:translateX(-50%); max-width:min(560px,calc(100% - 32px)); padding:12px 18px; border-radius:14px; background:var(--navy); color:#fff; font-size:.9rem; box-shadow:var(--shadow-lift)}
+.toast-note[hidden]{display:none}
+
+/* ---- loty tam i z powrotem jako lista do wyboru ---- */
+.fl-board-title{display:flex; align-items:center; gap:8px; margin:18px 0 8px; font-family:var(--font-body); font-size:1rem; font-weight:700}
+.fl-board-title i{color:#0284C7}
+.fl-board-title small{color:var(--ink-soft); font-weight:500}
+.fl-table{display:grid; gap:6px}
+.fl-row{display:grid; grid-template-columns:22px 110px minmax(150px,1.3fr) minmax(130px,1fr) minmax(0,1.6fr) 110px; gap:12px; align-items:center; width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:12px; background:var(--bg-alt); color:var(--ink); text-align:left; transition:border-color .15s, box-shadow .15s}
+.fl-row:hover{border-color:color-mix(in srgb,var(--red) 40%,var(--line))}
+.fl-row.on{border-color:var(--red); box-shadow:0 0 0 2px color-mix(in srgb,var(--red) 20%,transparent)}
+.fl-radio{width:18px; height:18px; border:2px solid var(--grey); border-radius:50% !important}
+.fl-row.on .fl-radio{border-color:var(--red); box-shadow:inset 0 0 0 4px var(--bg-alt); background:var(--red)}
+.fl-row .fl-airline{justify-self:start}
+.fl-route b,.fl-when b{display:block; font-size:.95rem}
+.fl-route small,.fl-when small{display:block; color:var(--ink-soft); font-size:.76rem}
+.fl-marks{display:flex; flex-wrap:wrap; gap:4px}
+.fl-marks .pc-badge{margin:0 !important}
+.pc-badge.near{background:#0284C7}
+.fl-price{text-align:right}
+.fl-price b{display:block; font-size:1.1rem}
+.fl-price small{color:var(--ink-soft); font-size:.7rem}
+.fl-airports{display:flex; gap:8px; align-items:flex-start; margin:0 0 6px; padding:10px 14px; border-radius:12px; background:color-mix(in srgb,#0284C7 8%,var(--bg-alt)); border:1px solid color-mix(in srgb,#0284C7 25%,var(--line)); font-size:.86rem}
+.fl-airports i{color:#0284C7; margin-top:3px}
+@media(max-width:900px){
+  .fl-row{grid-template-columns:22px minmax(0,1fr) auto; gap:4px 10px}
+  .fl-row .fl-airline{grid-column:2} .fl-route,.fl-when,.fl-marks{grid-column:2} .fl-price{grid-column:3; grid-row:1 / span 3}
+}
+.mode-chip{min-width:30px !important}
+.pref-sep{width:1px; height:20px; background:var(--line); margin:0 4px}
+/* ---- przebieg podróży: punkty rozwijane osobno ---- */
+.jl-head{display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap}
+.journey-line{padding-left:0}
+.journey-line::before{left:15px}
+.jl-node,.jl-leg{display:block; padding:0}
+.jl-btn{display:flex; align-items:flex-start; gap:12px; width:100%; padding:5px 6px; border:0; border-radius:10px; background:none; color:var(--ink); text-align:left}
+.jl-btn:not(:disabled):hover{background:var(--soft)}
+.jl-btn:disabled{cursor:default; opacity:1}
+.jl-leg .jl-btn small,.jl-node .jl-btn small{display:block; color:var(--ink-soft); font-size:.76rem}
+.jl-text{flex:1; min-width:0}
+.jl-text b{display:block; font-size:.88rem; line-height:1.25}
+.jl-leg .jl-text b{font-weight:600; font-size:.84rem}
+.jl-caret{margin-top:4px; color:var(--ink-soft); font-size:.75rem}
+.jl-icos{display:flex; flex-direction:column; gap:3px; position:relative; z-index:1}
+.jl-ico{width:20px; height:20px; font-size:.6rem; margin-left:0}
+.jl-dot{margin-left:2px}
+.jl-detail{margin:2px 0 8px 34px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--soft)}
+.jl-detail .trip-steps{gap:6px}
+li.on > .jl-btn{background:color-mix(in srgb,var(--red) 7%,var(--bg-alt))}
+.acc-title{display:block; margin-bottom:6px; font-size:.86rem}
+.acc-row{cursor:pointer}
+.acc-row:hover{background:var(--soft)}
+.acc-row.on{background:color-mix(in srgb,var(--red) 8%,var(--bg-alt)); box-shadow:inset 3px 0 0 var(--red)}
+.journey-top{grid-template-columns:minmax(260px,380px) minmax(0,1fr)}
+
+/* ---- dwie linie cen w pasku dni, rozbicie ceny, postój ---- */
+.ds-air{display:flex !important; align-items:center; gap:4px; font-size:.72rem !important; color:var(--ink) !important; font-weight:600}
+.ds-day{gap:1px}
+.ds-day.cheap .ds-air{color:#1F7A4D !important}
+.price-split{list-style:none; margin:8px 0 2px; padding:8px 0 0; border-top:1px dashed var(--line); text-align:left; font-size:.8rem}
+.price-split li{display:flex; justify-content:space-between; gap:8px; padding:2px 0}
+.price-split li span{color:var(--ink-soft)}
+.price-split i{width:16px; text-align:center}
+.price-split .ps-total{margin-top:4px; padding-top:6px; border-top:1px solid var(--line); font-size:.86rem}
+.price-split .ps-total span{color:var(--ink); font-weight:700}
+.ps-note{display:block; color:var(--ink-soft); font-size:.7rem; text-align:left}
+.journey-top{grid-template-columns:minmax(0,1fr) !important}
+.journey-top .journey-box{max-width:720px}
+.pl-stay .pl-inp input{max-width:70px}
+.pl-stay-unit{border:0; background:transparent; color:var(--ink); font-weight:600; outline:none}
+
+.fl-pricebox .price-split b{font-size:.86rem !important; font-weight:700; white-space:nowrap}
+.fl-pricebox .price-split .ps-total b{font-size:1rem !important}
+.fl-pricebox .price-split li{align-items:baseline}
+
+/* ---- przebieg podróży: linia po lewej, szczegóły po prawej ---- */
+.journey-top .journey-box{max-width:none}
+.jl-wrap{display:grid; grid-template-columns:minmax(240px,340px) minmax(0,1fr); gap:16px; align-items:start; margin-top:8px}
+.jl-wrap .journey-line{margin-top:0}
+.jl-details{display:grid; gap:10px; position:sticky; top:84px}
+.jl-panel{padding:10px 12px 12px; border:1px solid var(--line); border-radius:12px; background:var(--soft)}
+.jl-panel header{display:flex; align-items:baseline; gap:8px; margin-bottom:8px}
+.jl-panel header b{font-size:.9rem}
+.jl-panel header small{color:var(--ink-soft); font-size:.76rem}
+.jl-close{margin-left:auto; border:0; background:none; color:var(--ink-soft); padding:0 4px}
+.jl-close:hover{color:var(--danger)}
+.jl-empty{padding:18px; border:1px dashed var(--line); border-radius:12px; color:var(--ink-soft); font-size:.86rem; text-align:center}
+@media(max-width:900px){ .jl-wrap{grid-template-columns:minmax(0,1fr)} .jl-details{position:static} }
+
+.ps-how{display:block; margin-top:2px; color:var(--ink) !important; font-weight:600}
+
+/* ---- Sprawdź kierunki: mapa świata z liniami lotów ---- */
+.explore{width:100%; max-width:none; margin:22px 0 6px; padding:16px 18px 18px; border-radius:20px; background:radial-gradient(1200px 400px at 20% -10%, rgba(33,96,232,.25), transparent 60%), linear-gradient(160deg,#0B1A33,#0A1328 60%,#081022); color:#fff; box-shadow:var(--shadow-lift)}
+.explore-head{display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap}
+.explore-title h3{margin:0; font-family:var(--font-body); font-size:1.2rem; font-weight:800; color:#fff}
+.explore-title h3 i{color:var(--gold-2)}
+.explore-title small{display:block; color:rgba(255,255,255,.7); font-size:.82rem; margin-top:2px}
+.explore-tools{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+.explore-airlines{display:flex; gap:6px}
+.explore-air{display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border:1px solid rgba(255,255,255,.18); border-radius:999px; background:rgba(255,255,255,.04); color:rgba(255,255,255,.6); font-size:.82rem; font-weight:700}
+.explore-air[data-explore-air="RYANAIR"] i{color:#F7C948}
+.explore-air[data-explore-air="WIZZ"] i{color:#B04AE0}
+.explore-air.on{border-color:rgba(255,255,255,.45); background:rgba(255,255,255,.12); color:#fff}
+.explore-toggle{border:1px solid rgba(255,255,255,.25); border-radius:999px; background:transparent; color:#fff; padding:6px 12px; font-size:.82rem; font-weight:600}
+.explore-from{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:12px 0 10px}
+.explore-from-lbl{color:rgba(255,255,255,.65); font-size:.8rem; font-weight:600; margin-right:2px}
+.explore-chip{padding:5px 11px; border:1px solid rgba(255,255,255,.18); border-radius:999px; background:rgba(255,255,255,.04); color:rgba(255,255,255,.75); font-size:.82rem; font-weight:600}
+.explore-chip small{color:rgba(255,255,255,.5); font-weight:500}
+.explore-chip.on{border-color:var(--gold); background:rgba(201,162,83,.18); color:#fff}
+.explore-map-wrap{position:relative}
+#exploreMap{height:clamp(320px,52vh,560px); border-radius:14px; overflow:hidden; background:#0b0f19}
+#exploreMap .leaflet-control-attribution{background:rgba(8,16,34,.7); color:rgba(255,255,255,.55)}
+#exploreMap .leaflet-control-attribution a{color:rgba(255,255,255,.75)}
+#exploreMap .leaflet-bar a{background:#13213d; color:#fff; border-color:#22314b}
+.explore-hint{position:absolute; left:12px; bottom:12px; z-index:500; padding:6px 12px; border-radius:999px; background:rgba(8,16,34,.78); color:#fff; font-size:.8rem; backdrop-filter:blur(4px)}
+.explore.closed .explore-from,.explore.closed .explore-map-wrap{display:none}
+.explore-arc{stroke-dasharray:3 9; animation:exploreFlow 3.2s linear infinite; filter:drop-shadow(0 0 2px currentColor)}
+.explore-glow{filter:blur(2px)}
+@keyframes exploreFlow{to{stroke-dashoffset:-48}}
+@media (prefers-reduced-motion: reduce){ .explore-arc{animation:none; stroke-dasharray:none} }
+.explore-dot{filter:drop-shadow(0 0 4px rgba(255,255,255,.6)); cursor:pointer}
+.explore-origin{filter:drop-shadow(0 0 8px rgba(255,214,120,.9))}
+.leaflet-tooltip.explore-tip{background:#0B1A33; color:#fff; border:1px solid #22314b; border-radius:10px; box-shadow:0 8px 24px -8px rgba(0,0,0,.6); font-size:.8rem}
+.leaflet-tooltip.explore-tip::before{border-top-color:#0B1A33}
+body[data-view="podroz"]:not(.tt-mode):not(.fav-mode) main.shell > #explore{order:-2}
+
+.explore-arc{stroke-dasharray:none !important; animation:none !important; filter:drop-shadow(0 0 3px currentColor)}
+.explore-glow{opacity:.14}
+.explore-pulse{stroke-dasharray:2 60; stroke-linecap:round; animation:explorePulse 4.8s linear infinite; filter:drop-shadow(0 0 4px currentColor)}
+.explore-pulse.d1{animation-delay:-.8s} .explore-pulse.d2{animation-delay:-1.6s} .explore-pulse.d3{animation-delay:-2.4s} .explore-pulse.d4{animation-delay:-3.2s} .explore-pulse.d5{animation-delay:-4s}
+@keyframes explorePulse{to{stroke-dashoffset:-124}}
+@media (prefers-reduced-motion: reduce){ .explore-pulse{display:none} }
+body[data-view="podroz"]:not(.tt-mode):not(.fav-mode) main.shell > #explore{order:-3}
+
+.explore-chip.all{border-style:dashed}
+.explore-add{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid rgba(255,255,255,.18); border-radius:999px; background:rgba(255,255,255,.04)}
+.explore-add i{color:rgba(255,255,255,.6); font-size:.75rem}
+.explore-add input{width:150px; border:0; background:transparent; color:#fff; font-size:.82rem; outline:none}
+.explore-add input::placeholder{color:rgba(255,255,255,.5)}
+.fl-first{display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:0 0 10px; padding:10px 14px; border-radius:12px; background:color-mix(in srgb,var(--gold) 12%,var(--bg-alt)); border:1px solid color-mix(in srgb,var(--gold) 40%,var(--line)); font-size:.88rem}
+.fl-first i{color:#9a6f00}
+.fl-first .btn-ghost{padding:5px 10px; font-size:.78rem}
+
+.pc-fare{margin-top:8px; color:var(--ink); font-size:.84rem; font-weight:600}
+.pc-fare i{color:#0F766E; margin-right:4px}
+.pc-fare small{color:var(--ink-soft); font-weight:500}
+.explore-popup .leaflet-popup-content-wrapper{background:#0B1A33; color:#fff; border:1px solid #22314b; border-radius:12px}
+.explore-popup .leaflet-popup-tip{background:#0B1A33}
+.explore-pop b{display:block; font-size:.9rem}
+.explore-pop small{display:block; color:rgba(255,255,255,.7); margin:2px 0 8px}
+.explore-pop-btns{display:flex; gap:6px; flex-wrap:wrap}
+.explore-pop-btns button{padding:5px 10px; border:1px solid rgba(255,255,255,.25); border-radius:999px; background:rgba(255,255,255,.08); color:#fff; font-size:.78rem; font-weight:600}
+.explore-pop-btns button:hover{background:rgba(255,255,255,.18)}
+.explore-unhide{padding:0; border:0; background:none; color:var(--gold-2); font-size:inherit; text-decoration:underline}
+
+.explore-chip-wrap{display:inline-flex; align-items:stretch; border:1px solid rgba(255,255,255,.18); border-radius:999px; background:rgba(255,255,255,.04); overflow:hidden}
+.explore-chip-wrap.on{border-color:var(--gold); background:rgba(201,162,83,.18)}
+.explore-chip-wrap .explore-chip{border:0; border-radius:0; background:transparent}
+.explore-chip-x{padding:0 9px; border:0; border-left:1px solid rgba(255,255,255,.15); background:transparent; color:rgba(255,255,255,.55); font-size:.75rem}
+.explore-chip-x:hover{color:#fff; background:rgba(214,58,72,.35)}
+.explore-removed{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:-4px 0 10px; flex-basis:100%}
+.explore-chip.removed{border-style:dashed; color:rgba(255,255,255,.6)}
+.explore-chip.removed i{font-size:.7rem; margin-right:2px}
+
+.explore-removed .explore-unhide{font-size:.8rem; margin-left:4px}

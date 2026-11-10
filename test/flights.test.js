@@ -403,11 +403,11 @@ test("a round trip pairs flights on the chosen days and prices nearby days with 
   assert.deepEqual(result.options[0].returns.map((flight) => flight.flightNumber), ["CHEAPER", "OK"]);
   assert.equal(result.options[0].totalPln > result.options[0].ret.totalPln, true);
   // 9th + return on the 11th (same two days away) and 11th + return on the 13th
-  assert.deepEqual(result.days, [{ day: "2026-11-09", cheapest: 110 }, { day: "2026-11-11", cheapest: 190 }]);
+  assert.deepEqual(result.days, [{ day: "2026-11-09", cheapest: 110, airlines: { RYANAIR: 110 } }, { day: "2026-11-11", cheapest: 190, airlines: { RYANAIR: 190 } }]);
   assert.deepEqual(store.options({ ...near, date: "2026-11-12", back: "2026-11-13" }).options, []);
   const oneWay = store.options({ ...near, date: "2026-11-09" });
   assert.deepEqual(oneWay.options.map((flight) => flight.flightNumber), ["EARLIER"]);
-  assert.deepEqual(oneWay.days, [{ day: "2026-11-09", cheapest: 70 }, { day: "2026-11-11", cheapest: 100 }]);
+  assert.deepEqual(oneWay.days, [{ day: "2026-11-09", cheapest: 70, airlines: { RYANAIR: 70 } }, { day: "2026-11-11", cheapest: 100, airlines: { RYANAIR: 100 } }]);
 });
 
 test("a one-day trip cannot return before it has landed", async () => {
@@ -466,4 +466,17 @@ test("a trip run asks about the way out and the way home on their own days", () 
     ["komunikacja: KRK RYANAIR 2026-11-16", "KRK", "BGY", "2026-11-16", "2026-11-17"],
     ["komunikacja: BGY RYANAIR 2026-11-23", "BGY", "KRK", "2026-11-23", "2026-11-24"],
   ]);
+});
+
+test("a missing arrival comes from the route's known flights or from the distance, with the time difference", () => {
+  const { withFlightTime, routeClockDiffs, hoursFromPoland } = require("../src/flights");
+  const known = [{ from: "KRK", to: "STN", departure: "2026-11-17T06:00", arrival: "2026-11-17T07:40" }, { from: "KRK", to: "STN", departure: "2026-11-18T18:00", arrival: "2026-11-18T19:45" }];
+  const diffs = routeClockDiffs(known);
+  const viaRoute = withFlightTime({ from: "KRK", to: "STN", day: "2026-11-20", departure: "2026-11-20T10:00", arrival: null }, diffs);
+  assert.deepEqual([viaRoute.arrival, viaRoute.arrivalEstimated, viaRoute.durationMin, viaRoute.durationFrom], ["2026-11-20T11:45", true, 165, "route"]); // 1 h 45 on the clock, 2 h 45 in the air
+  const viaDistance = withFlightTime({ from: "KRK", to: "BCN", day: "2026-11-20", departure: "2026-11-20T05:30", arrival: null }, diffs);
+  assert.equal(viaDistance.durationFrom, "distance");
+  assert.ok(viaDistance.durationMin > 150 && viaDistance.durationMin < 190, String(viaDistance.durationMin));
+  assert.equal(hoursFromPoland("TFS", "2026-11-20"), -1);
+  assert.equal(hoursFromPoland("AYT", "2026-07-01") , hoursFromPoland("AYT", "2026-07-01"));
 });

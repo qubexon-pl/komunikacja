@@ -180,7 +180,9 @@ function createPriceAlerts({ db, flights, collector = null, sendEmail = null, no
       if (due.length && collector && !collector.status().running) {
         const jobs = [];
         for (const alert of due) {
-          const airlines = alert.airline ? [alert.airline] : [];
+          // Wizz Air is not scraped automatically (its site shows the automated browser no flights); Ryanair is.
+          const airlines = ["RYANAIR"];
+          if (alert.airline === "WIZZ") continue;
           const out = flights.pairsFor({ from: alert.from, to: alert.to, airlines });
           if (out.length) jobs.push({ pairs: out, start: alert.day, end: alert.day });
           if (alert.back) {
