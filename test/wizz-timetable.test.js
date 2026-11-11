@@ -89,3 +89,32 @@ test("picking another day asks Wizz Air again only when that day's last check is
   assert.equal(wizz.searchRoutes(pair, day(12)), "started"); // older than 3 hours
   while (wizz.status().running) await new Promise((r) => setTimeout(r, 5));
 });
+
+test("a time asked on its own keeps its price even when Wizz Air does not flag it, and a later day refresh keeps it too", async () => {
+  const { store, stored } = memoryStore();
+  let mode = "time";
+  const wizz = createWizzTimetable({ flights: store, toPln: async (a) => a, now: () => NOW, gapMs: 0, fetchSource: async () => (mode === "time"
+    ? answer([{ departureStation: "KRK", arrivalStation: "BCN", departureDate: `${day(5)}T15:25:00`, price: { amount: 389, currencyCode: "PLN" }, priceType: "price", departureDates: [{ date: `${day(5)}T15:25:00`, isCheapestOfTheDay: false }] }])
+    : answer([{ departureStation: "KRK", arrivalStation: "BCN", departureDate: `${day(5)}T05:30:00`, price: { amount: 319, currencyCode: "PLN" }, priceType: "price",
+      departureDates: [{ date: `${day(5)}T05:30:00`, isCheapestOfTheDay: true }, { date: `${day(5)}T15:25:00`, isCheapestOfTheDay: false }] }])) });
+  assert.equal((await wizz.priceForTime({ from: "KRK", to: "BCN", time: `${day(5)}T15:25` })).stored, 1);
+  mode = "day";
+  assert.equal(wizz.searchRoutes([{ from: "KRK", to: "BCN", airlines: ["WIZZ"] }], day(5)), "started");
+  while (wizz.status().running) await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setTimeout(r, 5));
+  const shown = store.cheapest && stored().filter((f) => f.departure === `${day(5)}T15:25`).map((f) => [f.pricePln, f.priceType]);
+  assert.deepEqual(shown.sort(), [[319, "list"], [389, "exact"]]); // the stored 389 is kept beside the new unpriced row
+});
+
+test("a route Wizz Air does not fly (InvalidMarket) is not asked again for a day", async () => {
+  let clock = NOW, calls = 0;
+  const { store } = memoryStore();
+  const wizz = createWizzTimetable({ flights: store, toPln: async (a) => a, now: () => clock, gapMs: 0, fetchSource: async () => { calls += 1; return new Response(JSON.stringify({ validationCodes: ["InvalidMarket"] }), { status: 400 }); } });
+  const pair = [{ from: "KRK", to: "ARN", airlines: ["WIZZ"] }];
+  assert.equal(wizz.searchRoutes(pair, day(10)), "started");
+  while (wizz.status().running) await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setTimeout(r, 10));
+  clock += 4 * 60 * 60 * 1000; // past the 3-hour freshness, still within the day
+  assert.equal(wizz.searchRoutes(pair, day(10)), "fresh");
+  assert.equal(calls, 1);
+});

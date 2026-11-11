@@ -532,7 +532,7 @@ test("a trip is named after what it uses", () => {
 test("the trip planner is the first tab and the default page", () => {
   assert.match(source, /function viewFromPath\(\)\{ return Object\.keys\(VIEWS\)\.find\(k=>VIEWS\[k\]\.path===location\.pathname\)\|\|'podroz'; \}/);
   const tabs = [...html.matchAll(/data-view="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(tabs, ["podroz", "ztm", "pks", "kolej"]);
+  assert.deepEqual(tabs, ["podroz", "kierunki", "ztm", "pks", "kolej"]);
   assert.doesNotMatch(html, /id="flightForm"|id="plStay"|Wpisz przystanek, aby zobaczyć/);
   assert.doesNotMatch(source, /Wpisz przystanek, aby zobaczyć|placeSummary/);
 });

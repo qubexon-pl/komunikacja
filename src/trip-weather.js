@@ -1,0 +1,62 @@
+"use strict";
+
+// Daily forecast at a trip's destination, from Open-Meteo (free, no key). Open-Meteo forecasts 16 days ahead, so a
+// later trip gets an empty list and the date from which the forecast will exist. One answer per place (rounded to
+// about 10 km) is kept for an hour and shared by everyone planning a trip there.
+
+const FORECAST_DAYS = 16;
+const KEEP_MS = 60 * 60 * 1000;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+function createTripWeather({ fetchSource = fetch, now = Date.now } = {}) {
+  const cache = new Map();
+
+  async function daily(lat, lon) {
+    const key = `${lat.toFixed(1)},${lon.toFixed(1)}`;
+    const hit = cache.get(key);
+    if (hit && now() - hit.at < KEEP_MS) return hit.days;
+    const url = "https://api.open-meteo.com/v1/forecast?" + new URLSearchParams({
+      latitude: lat.toFixed(2),
+      longitude: lon.toFixed(2),
+      daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max",
+      forecast_days: String(FORECAST_DAYS),
+      timezone: "auto",
+    });
+    const response = await fetchSource(url, { headers: { "User-Agent": "komunikacja-rzeszow/1.0" }, signal: AbortSignal.timeout(10000) });
+    if (!response.ok) throw Object.assign(new Error(`Open-Meteo zwrócił HTTP ${response.status}.`), { status: 502 });
+    const d = (await response.json()).daily || {};
+    const pick = (name, i) => (Array.isArray(d[name]) && Number.isFinite(d[name][i]) ? d[name][i] : null);
+    const days = (d.time || []).map((day, i) => ({
+      day,
+      code: pick("weather_code", i),
+      max: pick("temperature_2m_max", i),
+      min: pick("temperature_2m_min", i),
+      rainChance: pick("precipitation_probability_max", i),
+      rainMm: pick("precipitation_sum", i),
+      windKmh: pick("wind_speed_10m_max", i),
+    })).filter((x) => DAY.test(x.day) && x.max != null && x.min != null); // the last day can come back empty
+    cache.set(key, { at: now(), days });
+    if (cache.size > 500) cache.clear();
+    return days;
+  }
+
+  // Days from..to (inclusive) that have a forecast; availableFrom says when the first missing day will get one.
+  async function forecast({ lat, lon, from, to }) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || !DAY.test(from) || !DAY.test(to) || to < from) {
+      throw Object.assign(new Error("Podaj miejsce i daty."), { status: 400 });
+    }
+    const all = await daily(lat, lon);
+    const days = all.filter((x) => x.day >= from && x.day <= to);
+    const last = all.at(-1)?.day || null;
+    const missing = !last || to > last;
+    const firstMissing = missing ? (last && from <= last ? next(last) : from) : null;
+    return { days, forecastUntil: last, availableFrom: firstMissing ? addDays(firstMissing, -(FORECAST_DAYS - 1)) : null };
+  }
+
+  return { forecast };
+}
+
+const addDays = (day, n) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+const next = (day) => addDays(day, 1);
+
+module.exports = { createTripWeather, FORECAST_DAYS };

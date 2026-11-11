@@ -115,4 +115,4 @@ button, input { font: inherit; }
 .browse-link:hover { text-decoration: underline; }
 
 .brand{display:inline-flex; align-items:center; gap:10px; text-decoration:none}
-.brand-logo{width:34px; height:34px; border-radius:9px; box-shadow:0 2px 10px -2px rgba(76,61,255,.6)}
+.brand-logo{width:34px; height:34px; border-radius:9px; box-shadow:0 2px 10px -2px rgba(201,162,83,.55)}

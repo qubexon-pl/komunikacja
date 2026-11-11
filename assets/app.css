@@ -1260,7 +1260,7 @@ body.fav-mode .hero h1{font-size:clamp(1.7rem,3.2vw,2.6rem) !important}
 .fl-board-title i{color:#0284C7}
 .fl-board-title small{color:var(--ink-soft); font-weight:500}
 .fl-table{display:grid; gap:6px}
-.fl-row{display:grid; grid-template-columns:22px 110px minmax(150px,1.3fr) minmax(130px,1fr) minmax(0,1.6fr) 110px; gap:12px; align-items:center; width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:12px; background:var(--bg-alt); color:var(--ink); text-align:left; transition:border-color .15s, box-shadow .15s}
+.fl-row{display:grid; grid-template-columns:22px 110px minmax(150px,1.3fr) minmax(130px,1fr) minmax(0,1.6fr) 140px; gap:12px; align-items:center; width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:12px; background:var(--bg-alt); color:var(--ink); text-align:left; transition:border-color .15s, box-shadow .15s}
 .fl-row:hover{border-color:color-mix(in srgb,var(--red) 40%,var(--line))}
 .fl-row.on{border-color:var(--red); box-shadow:0 0 0 2px color-mix(in srgb,var(--red) 20%,transparent)}
 .fl-radio{width:18px; height:18px; border:2px solid var(--grey); border-radius:50% !important}
@@ -1420,7 +1420,7 @@ body[data-view="podroz"]:not(.tt-mode):not(.fav-mode) main.shell > #explore{orde
 
 /* ---- logo, okno „O aplikacji”, pole wyszukiwania na mapie ---- */
 .brand{display:inline-flex; align-items:center; gap:10px; text-decoration:none}
-.brand-logo{width:34px; height:34px; border-radius:9px; box-shadow:0 2px 10px -2px rgba(76,61,255,.6)}
+.brand-logo{width:34px; height:34px; border-radius:9px; box-shadow:0 2px 10px -2px rgba(201,162,83,.55)}
 @media(max-width:560px){ .brand-logo{width:28px; height:28px} }
 .about-hero{display:flex; align-items:center; gap:16px}
 .about-logo{width:64px; height:64px; border-radius:16px; flex:none; box-shadow:0 6px 20px -6px rgba(0,0,0,.6)}
@@ -1462,3 +1462,129 @@ body[data-view="podroz"]:not(.tt-mode):not(.fav-mode) main.shell > #explore{orde
 .plan-details-h{font-family:var(--font-body); font-size:.95rem; font-weight:700; margin:0 0 6px}
 .fl-book{width:100%; margin-top:6px; text-align:center; text-decoration:none; font-size:.82rem !important; padding:7px 10px !important}
 .plan-short .fl-pricebox .fav-save{margin-top:6px}
+
+/* Flight hints: a panel next to the flight list, grouped by importance */
+.fl-step1.has-hints{display:grid; grid-template-columns:minmax(0,1fr); gap:16px}
+@media(min-width:1200px){ .fl-step1.has-hints{grid-template-columns:minmax(0,1fr) 290px; align-items:start} .fl-hints{position:sticky; top:90px} }
+.fl-step1-main{min-width:0}
+.fl-hints{display:flex; flex-direction:column; gap:12px}
+.fh-group{border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); overflow:hidden; box-shadow:var(--shadow-soft)}
+.fh-group h5{display:flex; align-items:center; gap:8px; margin:0; padding:9px 14px; font-family:var(--font-body); font-size:.72rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase}
+.fh-warn h5{background:color-mix(in srgb,#F2B200 16%,var(--bg-alt)); color:#7A5800}
+.fh-save h5{background:color-mix(in srgb,#1F7A4D 12%,var(--bg-alt)); color:#1F7A4D}
+.fh-info h5{background:color-mix(in srgb,#0284C7 10%,var(--bg-alt)); color:#0369A1}
+:root[data-theme="dark"] .fh-warn h5{color:#FFD666} :root[data-theme="dark"] .fh-save h5{color:#6BD49E} :root[data-theme="dark"] .fh-info h5{color:#7CC8F0}
+.fh-item{display:grid; grid-template-columns:20px minmax(0,1fr); gap:10px; padding:11px 14px; border-top:1px solid var(--line); font-size:.84rem; line-height:1.4}
+.fh-group h5 + .fh-item{border-top:0}
+.fh-item > i{margin-top:3px; color:var(--ink-soft)}
+.fh-warn .fh-item > i{color:#B98900} .fh-save .fh-item > i{color:#1F7A4D} .fh-info .fh-item > i{color:#0284C7}
+.fh-body{display:flex; flex-direction:column; gap:2px; min-width:0}
+.fh-body > b{font-size:.86rem}
+.fh-line{color:var(--ink-soft)} .fh-line b{color:var(--ink)}
+.fh-saves{display:inline-block; padding:0 7px; border-radius:999px; background:rgba(31,122,77,.12); color:#1F7A4D; font-weight:700; font-size:.76rem}
+.fh-action{margin-top:6px} .fh-action .btn-ghost{padding:4px 10px; font-size:.76rem}
+.fh-chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px}
+.fh-chip{padding:3px 9px; border-radius:999px; border:1px solid var(--line); background:var(--soft); font-size:.76rem; color:var(--ink-soft)}
+.fh-chip b{color:var(--ink)} .fh-chip.near{border-color:#0284C7} .fh-chip.pref{border-style:dashed}
+
+/* Favourite trips on a timeline */
+.trip-timeline{position:relative; display:flex; flex-direction:column; gap:12px; padding-left:4px}
+.trip-timeline::before{content:""; position:absolute; left:33px; top:8px; bottom:8px; width:2px; background:linear-gradient(var(--gold),color-mix(in srgb,var(--gold) 15%,transparent)); border-radius:2px}
+.tl-month{margin:8px 0 0 70px; font-size:.74rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft)}
+.tl-item{position:relative; display:grid; grid-template-columns:60px minmax(0,1fr); gap:14px; align-items:start}
+.tl-date{position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; justify-content:center; width:60px; height:60px; border-radius:16px; background:var(--navy,#14213D); color:#fff; box-shadow:0 6px 16px -8px rgba(20,33,61,.6)}
+.tl-date b{font-size:1.35rem; line-height:1} .tl-date small{font-size:.7rem; text-transform:uppercase; letter-spacing:.08em; opacity:.85}
+.tl-card{border:1px solid var(--line); border-radius:16px; background:var(--bg-alt); padding:12px 14px; box-shadow:var(--shadow-soft); max-width:760px}
+.tl-head{display:flex; align-items:center; gap:12px}
+.tl-head .fav-card-open{flex:1; min-width:0}
+.tl-dates{display:block}
+.tl-when{flex:none; padding:3px 10px; border-radius:999px; background:var(--soft); font-size:.74rem; font-weight:700; color:var(--ink-soft)}
+.tl-when.now{background:rgba(31,122,77,.14); color:#1F7A4D}
+.tl-sub{margin:6px 0 0 54px; font-size:.8rem; color:var(--ink-soft)}
+.tl-card .fav-price{margin-top:10px}
+.tl-item.past{opacity:.6} .tl-item.past .tl-date{background:var(--ink-soft)}
+.fav-subtitle{margin:22px 0 10px; font-size:.95rem; font-weight:700}
+@media(max-width:600px){ .tl-sub{margin-left:0} .tl-when{display:none} }
+
+/* Destinations map on its own page (/kierunki) */
+body:not(.explore-mode) #explore{display:none !important}
+body.explore-mode main.shell > :not(#explore):not(#attribution){display:none !important}
+body.explore-mode #exploreToggle{display:none}
+body.explore-mode #exploreMap{height:clamp(420px,calc(100vh - 340px),760px)}
+
+/* Price age on flight rows */
+.fl-price .fl-age{display:block; color:var(--ink-soft); font-size:.7rem}
+.fl-price .fl-age.old{color:#B98900}
+
+/* Weather at the destination */
+.trip-wx{width:fit-content; max-width:100%; margin:4px 0 14px; padding:8px 10px; border:1px solid var(--line); border-radius:12px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.twx-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; margin-bottom:6px; font-size:.86rem}
+.twx-head i{color:var(--gold)} .twx-head small{color:var(--ink-soft)}
+.twx-days{display:grid; grid-auto-flow:column; grid-auto-columns:54px; gap:4px; overflow-x:auto; padding-bottom:2px}
+.twx-day{display:flex; flex-direction:column; align-items:center; gap:0; padding:5px 2px; border-radius:8px; background:var(--soft); font-size:.7rem; line-height:1.25; text-align:center}
+.twx-day small{color:var(--ink-soft); white-space:nowrap}
+.twx-day b{font-size:.84rem}
+.twx-ico{font-size:1.05rem; line-height:1.25}
+.twx-day.start,.twx-day.end{outline:2px solid color-mix(in srgb,var(--gold) 70%,transparent); outline-offset:-2px}
+.twx-rain{color:#0284C7 !important} .twx-rain i{font-size:.65rem}
+.twx-note{margin-top:6px; font-size:.8rem; color:var(--ink-soft); display:flex; align-items:center; gap:6px}
+
+/* Save button: a real button, and a link to Favourites once saved */
+.fav-save-wrap{display:inline-flex; align-items:center; gap:10px; flex-wrap:wrap}
+.fav-star.fav-save{display:inline-flex; align-items:center; gap:7px; padding:7px 14px; border:1px solid var(--line); border-radius:999px; background:var(--bg-alt); color:var(--ink); font-size:.84rem; font-weight:700; line-height:1.2; box-shadow:var(--shadow-soft); transition:border-color .15s, background .15s}
+.fav-star.fav-save i{color:var(--gold)}
+.fav-star.fav-save:hover{border-color:var(--gold)}
+.fav-star.fav-save.on{background:color-mix(in srgb,var(--gold) 16%,var(--bg-alt)); border-color:color-mix(in srgb,var(--gold) 60%,var(--line)); color:var(--ink)}
+.fav-goto{font-size:.8rem; font-weight:700; color:var(--red); text-decoration:none}
+.fav-goto:hover{text-decoration:underline}
+.plan-head .fav-save-wrap{margin-left:auto; margin-right:12px}
+
+/* No flights on the chosen day: one short card with other days to pick */
+.fl-none{display:flex; gap:14px; align-items:flex-start; padding:16px 18px; border:1px solid var(--line); border-radius:16px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.fl-none > i{font-size:1.3rem; color:var(--gold); margin-top:2px}
+.fl-none-body{display:flex; flex-direction:column; gap:4px; min-width:0}
+.fl-none-body > span{color:var(--ink-soft); font-size:.9rem}
+.fl-none-opts{display:flex; flex-wrap:wrap; gap:10px; margin-top:8px}
+.fl-none-opt{display:flex; flex-direction:column; align-items:flex-start; gap:1px; padding:9px 14px; border:1px solid var(--line); border-radius:12px; background:var(--soft); color:var(--ink); text-align:left; cursor:pointer; transition:border-color .15s}
+.fl-none-opt:hover{border-color:var(--red)}
+.fl-none-opt small{color:var(--ink-soft); font-size:.72rem; text-transform:uppercase; letter-spacing:.06em}
+.fl-none-opt span{font-size:.8rem; color:var(--ink-soft)}
+
+/* Save and Edit side by side in the plan; Edit opens a small menu of steps */
+.plan-save-row{display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px; margin-top:6px}
+.plan-edit{position:relative}
+.plan-edit > summary{list-style:none; display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:7px 14px; border-radius:999px; font-size:.84rem; font-weight:700}
+.plan-edit > summary::-webkit-details-marker{display:none}
+.plan-edit-menu{position:absolute; right:0; bottom:calc(100% + 6px); z-index:20; display:flex; flex-direction:column; min-width:230px; padding:6px; border:1px solid var(--line); border-radius:12px; background:var(--bg-alt); box-shadow:0 12px 30px -10px rgba(11,26,51,.35)}
+.plan-edit-menu button{display:flex; align-items:center; gap:10px; padding:9px 12px; border:0; border-radius:8px; background:none; color:var(--ink); font-size:.86rem; text-align:left}
+.plan-edit-menu button:hover{background:var(--soft)}
+.plan-edit-menu i{width:16px; color:var(--gold)}
+
+/* Na miejscu: z lotniska docelowego do celu i z powrotem */
+.xfer-card{margin:12px 0 4px; padding:12px 14px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.xfer-h{display:flex; align-items:center; gap:8px; margin:0 0 8px; font-size:1rem; font-weight:800}
+.xfer-h i{color:var(--gold)}
+.xfer-legs{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:10px}
+.xfer-leg{padding:10px 12px; border-radius:12px; background:var(--soft); display:flex; flex-direction:column; gap:6px; min-width:0}
+.xfer-top{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:4px 8px; font-size:.9rem}
+.xfer-mode{display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:999px; font-size:.74rem; font-weight:700; background:var(--bg-alt); border:1px solid var(--line)}
+.xfer-mode.rail i{color:#2a5bd7} .xfer-mode.bus i{color:#1a7f4b} .xfer-mode.taxi i{color:#b26b00}
+.xfer-row{display:grid; grid-template-columns:16px 1fr; gap:8px; font-size:.84rem; line-height:1.4}
+.xfer-row > i{margin-top:3px; color:var(--gold); font-size:.8rem; text-align:center}
+.xfer-walk{display:block; color:var(--ink-soft)}
+.xfer-pln{margin-left:4px; white-space:nowrap}
+.xfer-live{border-top:1px dashed var(--line); padding-top:6px}
+.xfer-live > small{color:var(--ink-soft); font-size:.74rem}
+.xfer-live ul{list-style:none; margin:4px 0; padding:0; display:flex; flex-direction:column; gap:4px}
+.xfer-live li{display:flex; flex-wrap:wrap; align-items:center; gap:2px 8px; font-size:.84rem}
+.xfer-dur{color:var(--ink-soft); font-size:.78rem}
+.xfer-lines{display:inline-flex; flex-wrap:wrap; align-items:center; gap:3px}
+.xfer-line{display:inline-flex; align-items:center; gap:4px; padding:1px 7px; border-radius:6px; font-size:.74rem; font-weight:700; background:var(--bg-alt); border:1px solid var(--line); max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.xfer-line.rail i,.xfer-line.metro i,.xfer-line.tram i{color:#2a5bd7} .xfer-line.bus i{color:#1a7f4b}
+.xfer-sep{font-size:.55rem; color:var(--ink-soft)}
+.xfer-src{display:block; color:var(--ink-soft); font-size:.7rem}
+.xfer-links{display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; font-size:.8rem}
+.xfer-links a{font-weight:700}
+.xfer-gtfs{color:var(--ink-soft); font-size:.74rem}
+.xfer-gtfs::before{content:""; display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; background:#9a9aa0; vertical-align:middle}
+.xfer-gtfs.local::before,.xfer-gtfs.regional::before{background:#1a7f4b} .xfer-gtfs.national::before{background:#b26b00}

@@ -24,7 +24,9 @@ function parseCalendar(data, source) {
       })).filter((x) => TIME.test(x.time) && x.time.startsWith(day));
       const times = [...new Map(entries.map((x) => [x.time, x])).values()].sort((a, b) => a.time.localeCompare(b.time));
       const flagged = times.some((x) => x.cheapest);
-      const base = { airline: "WIZZ", from: f.departureStation, to: f.arrivalStation, day, price: f.price.amount, currency: f.price.currencyCode ?? null, priceType: "list", source };
+      // originalPrice is the regular fare; price can be lower (a club or promotional price), so the regular one is used.
+      const shown = amount(f.originalPrice) !== null ? f.originalPrice : f.price;
+      const base = { airline: "WIZZ", from: f.departureStation, to: f.arrivalStation, day, price: shown.amount, currency: shown.currencyCode ?? f.price.currencyCode ?? null, priceType: "list", source };
       if (!times.length) rows.push(base);
       for (const x of times) rows.push({ ...base, departure: x.time, priceType: flagged && x.cheapest ? "exact" : "list" });
     }

@@ -479,3 +479,31 @@ BEGIN
     );
 END;
 GO
+
+-- How to get from each Ryanair / Wizz Air airport to its city: pickup point, route, fare. Seeded from data/airport-transfers.csv.
+IF OBJECT_ID(N'dbo.AirportTransfer', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AirportTransfer (
+        iata CHAR(3) NOT NULL,
+        city NVARCHAR(80) NOT NULL,
+        country NVARCHAR(60) NOT NULL,
+        airport NVARCHAR(160) NOT NULL,
+        ryanair BIT NOT NULL,
+        wizz BIT NOT NULL,
+        pickup NVARCHAR(160) NOT NULL,
+        pickup_lat DECIMAL(9, 6) NOT NULL,
+        pickup_lon DECIMAL(9, 6) NOT NULL,
+        pickup_precision NVARCHAR(10) NOT NULL,
+        mode NVARCHAR(10) NOT NULL,
+        route NVARCHAR(400) NOT NULL,
+        fare NVARCHAR(200) NOT NULL,
+        fare_eur DECIMAL(7, 2) NULL,
+        walk NVARCHAR(400) NOT NULL,
+        gtfs NVARCHAR(12) NOT NULL,
+        airport_lat DECIMAL(9, 6) NOT NULL,
+        airport_lon DECIMAL(9, 6) NOT NULL,
+        updated_at DATETIME2(0) NOT NULL,
+        CONSTRAINT PK_AirportTransfer PRIMARY KEY (iata)
+    );
+END;
+GO

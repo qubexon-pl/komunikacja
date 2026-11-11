@@ -38,17 +38,17 @@ test("past days and days more than a year ahead are dropped", () => {
   assert.deepEqual(rows.map((row) => row.day), [TODAY, "2027-02-03", "2027-11-06"]);
 });
 
-test("a Wizz Air day becomes one fare at the day's cheapest price with all its departure times", () => {
+test("each Wizz Air departure is its own flight; only a priced one has a price, and it replaces the unpriced row", () => {
   const rows = withDepartureTimes([
     normalizeFare(fare({ airline: "WIZZ", from: "KTW", to: "BCN", day: "2026-11-13", departure: "2026-11-13T19:35", pricePln: 209, priceType: "list", flightNumber: null })),
     normalizeFare(fare({ airline: "WIZZ", from: "KTW", to: "BCN", day: "2026-11-13", departure: "2026-11-13T05:30", pricePln: 209, priceType: "list", flightNumber: null })),
     normalizeFare(fare({ airline: "WIZZ", from: "KTW", to: "BCN", day: "2026-11-13", departure: "2026-11-13T15:25", pricePln: 209, priceType: "list", flightNumber: null })),
+    normalizeFare(fare({ airline: "WIZZ", from: "KTW", to: "BCN", day: "2026-11-13", departure: "2026-11-13T05:30", pricePln: 209, flightNumber: null })),
     normalizeFare(fare({ airline: "RYANAIR", from: "KTW", to: "BCN", day: "2026-11-13", departure: "2026-11-13T07:00", pricePln: 150 })),
   ]);
-  assert.equal(rows.length, 2);
-  const wizz = rows.find((row) => row.airline === "WIZZ");
-  assert.deepEqual([wizz.departure, wizz.times, wizz.pricePln], ["2026-11-13T05:30", ["2026-11-13T05:30", "2026-11-13T15:25", "2026-11-13T19:35"], 209]);
-  assert.equal(rows.find((row) => row.airline === "RYANAIR").times, undefined);
+  const wizz = rows.filter((row) => row.airline === "WIZZ").sort((a, b) => a.departure.localeCompare(b.departure));
+  assert.deepEqual(wizz.map((row) => [row.departure.slice(11), row.priceType, !!row.priceUnknown]), [["05:30", "exact", false], ["15:25", "list", true], ["19:35", "list", true]]);
+  assert.equal(rows.find((row) => row.airline === "RYANAIR").priceUnknown, undefined);
 });
 
 test("imported flights are stored and can be searched cheapest first", async () => {
@@ -479,4 +479,31 @@ test("a missing arrival comes from the route's known flights or from the distanc
   assert.ok(viaDistance.durationMin > 150 && viaDistance.durationMin < 190, String(viaDistance.durationMin));
   assert.equal(hoursFromPoland("TFS", "2026-11-20"), -1);
   assert.equal(hoursFromPoland("AYT", "2026-07-01") , hoursFromPoland("AYT", "2026-07-01"));
+});
+
+test("a tracker sync never replaces the Wizz Air prices the app asked for itself", async () => {
+  let stored = [];
+  const store = createFlightStore({ database: { readFares: async () => stored, replaceFares: async (rows) => { stored = rows; } }, now: () => new Date("2026-11-11T10:00:00Z") });
+  const api = { airline: "WIZZ", from: "KRK", to: "BCN", day: "2026-11-15", departure: "2026-11-15T05:30", price: 319, currency: "PLN", pricePln: 319, priceType: "exact", source: "wizz.api.timetable", collectedAt: "2026-11-11T09:00:00Z" };
+  await store.mergeRows([api]);
+  await store.importRows([
+    { ...api, price: 307, pricePln: 307, priceType: "list", source: "wizz.timetable", collectedAt: "2026-11-11T09:30:00Z" }, // an old Wizz row left in the tracker's file
+    { airline: "RYANAIR", from: "KRK", to: "BCN", day: "2026-11-15", departure: "2026-11-15T07:00", price: 199, currency: "PLN", pricePln: 199, flightNumber: "FR 1", source: "ryanair", collectedAt: "2026-11-11T09:30:00Z" },
+  ]);
+  assert.deepEqual(stored.map((f) => [f.airline, f.pricePln, f.source]).sort(), [["RYANAIR", 199, "ryanair"], ["WIZZ", 319, "wizz.api.timetable"]]);
+});
+
+test("a saved trip keeps its flight (airports, days, price) and nothing else", () => {
+  const [trip] = normalizeFavorites([{ type: "trip", view: "podroz", id: "f:WIZZ||KRK|BCN|2026-11-15", from: "Rzeszów", to: "Barcelona", name: "Pociąg · Wizz Air",
+    flight: { from: "KRK", to: "BCN", day: "2026-11-15", back: "2026-11-22", airline: "WIZZ", price: 812.4, extra: "x" } }]);
+  assert.deepEqual(trip.flight, { from: "KRK", to: "BCN", day: "2026-11-15", back: "2026-11-22", airline: "WIZZ", price: 812 });
+  const [bad] = normalizeFavorites([{ type: "trip", view: "podroz", id: "x", from: "A", to: "B", name: "n", flight: { from: "krk", to: "BCN", day: "jutro" } }]);
+  assert.equal(bad.flight, undefined);
+});
+
+test("a saved trip keeps the chosen flights and way to the airport, as short text", () => {
+  const [trip] = normalizeFavorites([{ type: "trip", view: "podroz", id: "f:x", from: "A", to: "B", name: "n",
+    plan: { out: "RYANAIR|FR 1|KRK|ARN|2026-11-15|2026-11-15T06:30", ret: "RYANAIR|FR 2|ARN|KRK|2026-11-22|2026-11-22T09:05", access: "rail-1", extra: "x".repeat(500) } }]);
+  assert.deepEqual(trip.plan, { out: "RYANAIR|FR 1|KRK|ARN|2026-11-15|2026-11-15T06:30", ret: "RYANAIR|FR 2|ARN|KRK|2026-11-22|2026-11-22T09:05", access: "rail-1" });
+  assert.equal(normalizeFavorites([{ type: "trip", view: "podroz", id: "f:x", from: "A", to: "B", name: "n", plan: { ret: "x" } }])[0].plan, undefined);
 });

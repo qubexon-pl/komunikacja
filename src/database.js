@@ -428,6 +428,58 @@ async function saveSetting(pool, key, value) {
       IF @@ROWCOUNT = 0 INSERT INTO dbo.AppSetting (setting_key, setting_value, updated_at) VALUES (@key, @value, SYSUTCDATETIME());`);
 }
 
+// Airport → city transfers (one row per airport), replaced whole when data/airport-transfers.csv changes.
+async function replaceAirportTransfers(pool, rows) {
+  const table = new sql.Table("dbo.AirportTransfer");
+  table.create = false;
+  table.columns.add("iata", sql.Char(3), { nullable: false });
+  table.columns.add("city", sql.NVarChar(80), { nullable: false });
+  table.columns.add("country", sql.NVarChar(60), { nullable: false });
+  table.columns.add("airport", sql.NVarChar(160), { nullable: false });
+  table.columns.add("ryanair", sql.Bit, { nullable: false });
+  table.columns.add("wizz", sql.Bit, { nullable: false });
+  table.columns.add("pickup", sql.NVarChar(160), { nullable: false });
+  table.columns.add("pickup_lat", sql.Decimal(9, 6), { nullable: false });
+  table.columns.add("pickup_lon", sql.Decimal(9, 6), { nullable: false });
+  table.columns.add("pickup_precision", sql.NVarChar(10), { nullable: false });
+  table.columns.add("mode", sql.NVarChar(10), { nullable: false });
+  table.columns.add("route", sql.NVarChar(400), { nullable: false });
+  table.columns.add("fare", sql.NVarChar(200), { nullable: false });
+  table.columns.add("fare_eur", sql.Decimal(7, 2), { nullable: true });
+  table.columns.add("walk", sql.NVarChar(400), { nullable: false });
+  table.columns.add("gtfs", sql.NVarChar(12), { nullable: false });
+  table.columns.add("airport_lat", sql.Decimal(9, 6), { nullable: false });
+  table.columns.add("airport_lon", sql.Decimal(9, 6), { nullable: false });
+  table.columns.add("updated_at", sql.DateTime2(0), { nullable: false });
+  const at = new Date();
+  for (const r of rows) {
+    table.rows.add(r.code, r.city, r.country, r.airport, r.ryanair, r.wizz, r.pickup.name, r.pickup.lat, r.pickup.lon, r.pickup.precision,
+      r.mode, r.route, r.fare, r.fareEur, r.walk, r.gtfs, r.airportLat, r.airportLon, at);
+  }
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    await tx.request().query("DELETE FROM dbo.AirportTransfer;");
+    if (rows.length) await tx.request().bulk(table);
+    await tx.commit();
+  } catch (error) {
+    await tx.rollback().catch(() => {});
+    throw error;
+  }
+}
+
+async function readAirportTransfers(pool) {
+  const result = await pool.request().query(`
+    SELECT iata, city, country, airport, ryanair, wizz, pickup, pickup_lat, pickup_lon, pickup_precision, mode, route, fare, fare_eur,
+      walk, gtfs, airport_lat, airport_lon FROM dbo.AirportTransfer;`);
+  return result.recordset.map((r) => ({
+    code: r.iata.trim(), city: r.city, country: r.country, airport: r.airport, ryanair: Boolean(r.ryanair), wizz: Boolean(r.wizz),
+    pickup: { name: r.pickup, lat: Number(r.pickup_lat), lon: Number(r.pickup_lon), precision: r.pickup_precision },
+    mode: r.mode, route: r.route, fare: r.fare, fareEur: r.fare_eur == null ? null : Number(r.fare_eur), walk: r.walk, gtfs: r.gtfs,
+    airportLat: Number(r.airport_lat), airportLon: Number(r.airport_lon),
+  }));
+}
+
 // Prepared datasets. Background jobs write them; requests only read them.
 function createSnapshots(pool) {
   return {
@@ -467,11 +519,13 @@ module.exports = {
   getSchedule,
   importedHash,
   readFlightFares,
+  readAirportTransfers,
   readFlightNetwork,
   saveFlightNetwork,
   saveSetting,
   readSchedule,
   readSetting,
+  replaceAirportTransfers,
   replaceFlightFares,
   replaceSchedule,
   sourceHash,

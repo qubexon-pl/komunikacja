@@ -42,8 +42,8 @@ test("imported fares are priced in PLN and stay until the tracker brings newer o
   await store.importRows([{ airline: "RYANAIR", from: "KRK", to: "BCN", day: "2026-11-13", price: 99, currency: "PLN", pricePln: 99, flightNumber: "FR 1", collectedAt: "2026-11-10T09:00:00Z" }]);
   assert.equal(stored.filter((f) => f.airline === "WIZZ").length, 4);
   const { options } = store.options({ origin: { lat: 50.26, lon: 19.02 }, dest: { lat: 41.39, lon: 2.17 }, date: "2026-11-13" });
-  const wizz = options.find((f) => f.airline === "WIZZ");
-  assert.deepEqual(wizz.times, ["2026-11-13T05:30", "2026-11-13T15:25", "2026-11-13T19:35"]);
+  const wizz = options.filter((f) => f.airline === "WIZZ" && f.from === "KTW");
+  assert.deepEqual(wizz.map((f) => f.departure).sort(), ["2026-11-13T05:30", "2026-11-13T15:25", "2026-11-13T19:35"]);
 });
 
 test("every new price is also written to the price history, once", async () => {
@@ -67,4 +67,14 @@ test("isCheapestOfTheDay puts the day's price on its departure, and a query for 
   assert.deepEqual(alone.map((r) => [r.departure, r.price, r.priceType]), [["2026-11-15T05:30", 319, "exact"], ["2026-11-15T15:25", 319, "list"]]);
   const both = parseWizzResponses([{ kind: "timetable", data: day }, { kind: "timetable", data: later }]);
   assert.deepEqual(both.map((r) => [r.departure, r.price, r.priceType]).sort(), [["2026-11-15T05:30", 319, "exact"], ["2026-11-15T15:25", 419, "exact"]]);
+});
+
+test("a timetable day gives each departure as its own row: the cheapest at the regular price, the others unpriced", () => {
+  const data = { outboundFlights: [{
+    departureStation: "KRK", arrivalStation: "BCN", departureDate: "2026-11-15T05:30:00",
+    price: { amount: 291.1, currencyCode: "PLN" }, originalPrice: { amount: 319.0, currencyCode: "PLN" }, priceType: "price",
+    departureDates: [{ date: "2026-11-15T05:30:00", isCheapestOfTheDay: true }, { date: "2026-11-15T15:25:00", isCheapestOfTheDay: false }],
+  }] };
+  const rows = parseWizzResponses([{ kind: "timetable", data }]);
+  assert.deepEqual(rows.map((r) => [r.departure, r.price, r.currency, r.priceType]), [["2026-11-15T05:30", 319, "PLN", "exact"], ["2026-11-15T15:25", 319, "PLN", "list"]]);
 });

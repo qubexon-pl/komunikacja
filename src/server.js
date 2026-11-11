@@ -7,13 +7,15 @@ const { pipeline } = require("node:stream/promises");
 const zlib = require("node:zlib");
 const crypto = require("node:crypto");
 const tls = require("node:tls");
-const { AGENCIES, createSnapshots, createSqlConfig, getSchedule, importedHash, readFlightFares, readFlightNetwork, readSchedule, readSetting, replaceFlightFares, appendFareHistory, replaceSchedule, saveFlightNetwork, saveSetting } = require("./database");
+const { createAirportTransfers } = require("./airport-transfers");
+const { AGENCIES, createSnapshots, createSqlConfig, getSchedule, importedHash, readAirportTransfers, readFlightFares, readFlightNetwork, readSchedule, readSetting, replaceAirportTransfers, replaceFlightFares, appendFareHistory, replaceSchedule, saveFlightNetwork, saveSetting } = require("./database");
 const { MAX_WALK_TARGETS, PATH_URLS, createDrivingRouter, createPathRouter, createWalkTable, parsePoint } = require("./driving");
 const { createFlightCollector, trackerDatabase } = require("./flight-collector");
 const { readNetwork } = require("./flight-network");
 const { createFlightStore } = require("./flights");
 const { createAlertDatabase, createPriceAlerts } = require("./price-alerts");
 const { createWizzTimetable } = require("./wizz-timetable");
+const { createTripWeather } = require("./trip-weather");
 const { createPksFares } = require("./pks-fares");
 const { createRates } = require("./rates");
 const { createGeocoder, createStreetSuggester } = require("./geocode");
@@ -43,12 +45,12 @@ const MAX_AUTH_BODY_BYTES = 16 * 1024;
 const MAX_FEED_BYTES = 50 * 1024 * 1024;
 const SESSION_COOKIE = "rzbus_session";
 const OAUTH_COOKIE = "rzbus_oauth_state";
-const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/podroz", "/ulubione"]);
+const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/podroz", "/kierunki", "/ulubione"]);
 const MAX_FAVORITES_BYTES = 64 * 1024;
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -856,7 +858,8 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, staticRoot = ROOT }) {
+  const airportTransfers = transfers || createAirportTransfers({ fetchSource, toPln: fareRates, geocode, snapshots });
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
@@ -890,7 +893,9 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "walk" && segments.length === 2)
           || (segments[1] === "fuel" && segments.length === 2)
           || (segments[1] === "pks-price" && segments.length === 2)
-        ) ? (segments[1] === "feeds" ? "feeds" : segments[1]) : null;
+          || (segments[1] === "weather" && segments.length === 2)
+          || (segments[1] === "airport-transfers" && (segments.length === 2 || (segments.length === 3 && segments[2] === "connections")))
+        ) ? (segments[1] === "feeds" ? "feeds" : segments[1] === "airport-transfers" ? (segments[2] ? "transfer-trips" : "transfers") : segments[1]) : null;
         if (publicRoute && !takePublicRequest(req, publicRoute)) {
           json(res, 429, { error: "Zbyt wiele zapytań. Spróbuj ponownie za chwilę." });
           return;
@@ -924,6 +929,32 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         }
         if (publicRoute === "flights") {
           serveFlights(res, url, segments[2], flights);
+          return;
+        }
+        if (publicRoute === "transfers") {
+          try {
+            json(res, 200, await airportTransfers.lookup((url.searchParams.get("codes") || "").split(",")));
+          } catch (error) {
+            json(res, 502, { error: error.message, transfers: [] });
+          }
+          return;
+        }
+        if (publicRoute === "transfer-trips") {
+          try {
+            const q = (name) => url.searchParams.get(name) || "";
+            json(res, 200, await airportTransfers.connections({ code: q("code"), lat: Number(q("lat")), lon: Number(q("lon")), time: q("time"), dir: q("dir") || "from", label: q("label") }));
+          } catch (error) {
+            json(res, [400, 404].includes(error.status) ? error.status : 502, { error: error.message, trips: [] });
+          }
+          return;
+        }
+        if (publicRoute === "weather") {
+          try {
+            const n = (name) => Number(url.searchParams.get(name));
+            json(res, 200, await tripWeather.forecast({ lat: n("lat"), lon: n("lon"), from: url.searchParams.get("from") || "", to: url.searchParams.get("to") || "" }));
+          } catch (error) {
+            json(res, error.status === 400 ? 400 : 502, { error: error.message, days: [] });
+          }
           return;
         }
         if (publicRoute === "pks-price") {
@@ -1162,8 +1193,21 @@ async function main() {
   wizz.start();
   const alerts = createPriceAlerts({ db: createAlertDatabase(pool), flights, collector, sendEmail: (message) => auth.sendNotice(message) });
   alerts.start();
+  const transfers = createAirportTransfers({
+    snapshots,
+    toPln: createRates(),
+    geocode: createGeocoder(),
+    database: {
+      read: () => readAirportTransfers(pool),
+      replace: (rows) => replaceAirportTransfers(pool, rows),
+      readSetting: (key) => readSetting(pool, key),
+      saveSetting: (key, value) => saveSetting(pool, key, value),
+    },
+  });
+  transfers.ready().catch((error) => console.warn("Airport transfers could not load:", error.message));
   const server = createServer({
     auth,
+    transfers,
     timetables,
     snapshots,
     plk,

@@ -103,30 +103,15 @@ async function lastChange(file) {
   return { mtimeMs: Math.max(main.mtimeMs, wal?.mtimeMs || 0) };
 }
 
-// A Wizz Air timetable knows every departure of a day but only the day's cheapest price, so a day becomes one
-// fare at that price with all its departure times; the exact price of a chosen time comes from "update price".
+// A Wizz Air timetable lists every departure of a day but prices only the cheapest one. Each departure is its own
+// flight; the others are marked priceUnknown (their stored price is only the day's lowest) until a query for
+// their own time prices them. A priced departure replaces the unpriced row of the same time.
 function withDepartureTimes(fares) {
-  const days = new Map();
-  const out = [];
-  for (const fare of fares) {
-    if (fare.priceType !== "list") { out.push(fare); continue; }
-    const key = `${fare.airline}|${fare.from}|${fare.to}|${fare.day}`;
-    const day = days.get(key);
-    if (!day) {
-      const first = { ...fare, times: fare.departure ? [fare.departure] : [] };
-      days.set(key, first);
-      out.push(first);
-      continue;
-    }
-    if (fare.departure && !day.times.includes(fare.departure)) day.times.push(fare.departure);
-    if (fare.pricePln < day.pricePln) Object.assign(day, { price: fare.price, pricePln: fare.pricePln, currency: fare.currency });
-  }
-  for (const day of days.values()) {
-    day.times.sort();
-    day.departure = day.times[0] || null;
-    if (!day.times.length) delete day.times;
-  }
-  return out;
+  const keyOf = (fare) => `${fare.airline}|${fare.from}|${fare.to}|${fare.departure}`;
+  const priced = new Set(fares.filter((fare) => fare.priceType !== "list" && fare.departure).map(keyOf));
+  return fares
+    .filter((fare) => fare.priceType !== "list" || !fare.departure || !priced.has(keyOf(fare)))
+    .map((fare) => (fare.priceType === "list" && fare.departure ? { ...fare, priceUnknown: true } : fare));
 }
 
 /* ---------- Missing flight time and arrival ---------- */
@@ -242,7 +227,7 @@ function rankFares(fares, originAirports, destAirports) {
       groundPln: Math.round(groundKm * GROUND_PLN_PER_KM),
       totalPln: Math.round(fare.pricePln + groundKm * GROUND_PLN_PER_KM),
     };
-  }).sort((a, b) => a.totalPln - b.totalPln || compareFares(a, b));
+  }).sort((a, b) => a.totalPln - b.totalPln || (a.priceUnknown ? 1 : 0) - (b.priceUnknown ? 1 : 0) || compareFares(a, b));
 }
 
 const daysBetween = (from, to) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000);
@@ -365,7 +350,9 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
     if (!incoming.length) return { received: rows.length, stored: 0 };
     const keyOf = departures ? (fare) => `${groupOf(fare)}|${fare.departure || ""}` : groupOf;
     const groups = new Set(incoming.map(keyOf));
-    const next = [...fares.filter((fare) => !groups.has(keyOf(fare))), ...incoming];
+    const unpriced = new Set(incoming.filter((fare) => fare.priceType === "list" && fare.departure).map((fare) => `${groupOf(fare)}|${fare.departure}`));
+    const keep = (fare) => !groups.has(keyOf(fare)) || (fare.priceType !== "list" && !!fare.departure && unpriced.has(`${groupOf(fare)}|${fare.departure}`));
+    const next = [...fares.filter(keep), ...incoming];
     await database.replaceFares(next);
     recordHistory(incoming);
     fares = next;
@@ -407,11 +394,14 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
   }
 
   const groupOf = (fare) => `${fare.airline}|${fare.from}|${fare.to}|${fare.day}`;
+  // A tracker sync replaces the tracker's own fares only. Prices the app asked Wizz Air for itself (wizz.api.*) are
+  // never replaced by it: the tracker no longer collects Wizz Air, and its file still holds Wizz rows of old runs.
   // Fares imported from the user's own browser stay until the tracker brings something newer for the same day.
   function keepImported(accepted) {
     const newest = new Map();
     for (const fare of accepted) newest.set(groupOf(fare), Math.max(newest.get(groupOf(fare)) || 0, fare.collectedAt.getTime()));
-    const kept = fares.filter((fare) => fare.source.startsWith("har.") && fare.day >= today() && !(newest.get(groupOf(fare)) >= fare.collectedAt.getTime()));
+    const own = (fare) => fare.source.startsWith("wizz.api.");
+    const kept = fares.filter((fare) => fare.day >= today() && (own(fare) || (fare.source.startsWith("har.") && !(newest.get(groupOf(fare)) >= fare.collectedAt.getTime()))));
     const keptGroups = new Set(kept.map(groupOf));
     return [...accepted.filter((fare) => !keptGroups.has(groupOf(fare))), ...kept];
   }
@@ -483,6 +473,9 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
     const firstFromCode = prefer && IATA.test(prefer) ? prefer : airportsNear(origin, ANY_RADIUS_KM).find((airport) => toDest.some((fare) => fare.from === airport.code))?.code;
     const firstFare = firstFromCode ? toDest.find((fare) => fare.from === firstFromCode) : null;
     const first = firstFromCode ? { from: firstFromCode, fromLabel: airportLabel(firstFromCode), preferred: firstFromCode === prefer, fare: firstFare ? presentFare(timed(firstFare)) : null } : null;
+    // The next flight after the chosen day from any airport within the radius, for "nothing that day, try …".
+    const originCodes = new Set(originAirports.map((airport) => airport.code));
+    const nextFare = toDest.find((fare) => originCodes.has(fare.from) && fare.day > (date || "") && !fare.priceUnknown);
     return {
       suggested: suggested?.from && suggested?.to ? suggested : null,
       options: (back ? pairReturns(onDay, returns, back) : onDay).slice(0, MAX_RESULTS).map(timedTrip),
@@ -490,6 +483,7 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
       outbound: onDay.slice(0, MAX_RESULTS).map(timed),
       outside,
       first,
+      next: nextFare ? presentFare(timed(nextFare)) : null,
       inbound: back ? returns.filter((fare) => fare.day === back).slice(0, MAX_RESULTS).map(timed) : [],
       days: perAirline(outbound, returns, (o, r) => dayPrices(o, r, day, back)),
       backDays: perAirline(outbound, returns, (o, r) => backDayPrices(o, r, day, back)),

@@ -14,6 +14,7 @@ const FRESH_MS = 3 * 60 * 60 * 1000;
 const TIME_FRESH_MS = 30 * 60 * 1000;
 const RANGE_DAYS = 14;
 const MAX_ROUTES = 3;
+const NO_MARKET_MS = 24 * 60 * 60 * 1000; // a route Wizz Air does not fly ("InvalidMarket") is not asked again for a day
 const USER_AGENT = "komunikacja-rzeszow/1.0 (personal trip planner test)";
 const IATA = /^[A-Z]{3}$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -116,12 +117,12 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
   }
 
   // One request at a time; each answer is priced in PLN and stored (fares and the price history).
-  function run(legs, merge) {
+  function run(legs, merge, source = "wizz.api.timetable") {
     const job = queue.then(async () => {
       running += 1;
       try {
         const data = await post(legs);
-        const rows = parseWizzResponses([{ kind: "timetable", data }]).map((row) => ({ ...row, source: "wizz.api.timetable" }));
+        const rows = parseWizzResponses([{ kind: "timetable", data }]).map((row) => ({ ...row, source }));
         const collectedAt = new Date(now()).toISOString();
         const priced = [];
         for (const row of rows) {
@@ -152,6 +153,8 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
   // Each answer covers two weeks of days. A chosen day is asked again only when the last answer that covered it
   // is more than 3 hours old, so picking another day nearby uses what is known and an old day is refreshed.
   const covered = new Map();
+  const noMarket = new Map();
+  const flown = (from, to) => now() - (noMarket.get(`${from}|${to}`) || -Infinity) >= NO_MARKET_MS;
   const dayKey = (from, to, day) => `${from}|${to}|${day}`;
   const isFresh = (from, to, day) => now() - (covered.get(dayKey(from, to, day)) || 0) < FRESH_MS;
   function cover(leg) {
@@ -163,7 +166,7 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
   function searchRoutes(pairs, date, back = "") {
     if (!enabled) return "unavailable";
     const legs = [];
-    for (const pair of pairs.filter((p) => IATA.test(p.from) && IATA.test(p.to)).slice(0, MAX_ROUTES)) {
+    for (const pair of pairs.filter((p) => IATA.test(p.from) && IATA.test(p.to) && flown(p.from, p.to)).slice(0, MAX_ROUTES)) {
       // Wizz Air refuses a range that starts in the past ("InvalidFromDate"), so a range begins today at the earliest.
       const today = new Date(now()).toISOString().slice(0, 10), from = (d) => (d < today ? today : d);
       const out = { from: pair.from, to: pair.to, start: from(addDays(date, -RANGE_DAYS)), end: addDays(date, RANGE_DAYS) };
@@ -174,7 +177,13 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
       legs.push(wanted);
     }
     if (!legs.length) return "fresh";
-    for (const pairLegs of legs) run(pairLegs, (rows) => flights.mergeRows(rows)).catch((error) => console.error("Wizz timetable:", error.message));
+    for (const pairLegs of legs) {
+      run(pairLegs, (rows) => flights.mergeRows(rows)).catch((error) => {
+        const route = pairLegs.map((leg) => `${leg.from}-${leg.to}`).join(", ");
+        if (/InvalidMarket/.test(error.detail || "")) { for (const leg of pairLegs) noMarket.set(`${leg.from}|${leg.to}`, now()); console.warn(`Wizz timetable: Wizz Air nie lata na trasie ${route}; nie pytamy o nią przez dobę.`); return; }
+        console.error("Wizz timetable:", route, error.message, error.detail || "");
+      });
+    }
     return "started";
   }
 
@@ -183,7 +192,12 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
     if (!enabled) throw Object.assign(new Error("Zapytania do Wizz Air są wyłączone (WIZZ_API=off)."), { status: 503 });
     if (!IATA.test(from) || !IATA.test(to) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(time) || !DAY.test(time.slice(0, 10))) throw Object.assign(new Error("Nieprawidłowy lot."), { status: 400 });
     if (fresh(`${from}|${to}|${time}`, TIME_FRESH_MS)) return { stored: 0, found: 0, fresh: true };
-    return run([{ from, to, start: shiftTime(time, -5), end: shiftTime(time, 35) }], (rows) => flights.mergeRows(rows.filter((row) => row.departure === time), { departures: true }));
+    return run([{ from, to, start: shiftTime(time, -5), end: shiftTime(time, 35) }], (rows) => {
+      const sameDay = rows.filter((row) => row.from === from && row.to === to && row.departure && row.day === time.slice(0, 10));
+      const hit = sameDay.find((row) => row.departure === time);
+      const own = hit && (hit.priceType === "exact" || sameDay.length === 1);
+      return flights.mergeRows(own ? [{ ...hit, priceType: "exact" }] : [], { departures: true });
+    }, "wizz.api.time");
   }
 
   function status() {
