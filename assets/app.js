@@ -2375,7 +2375,7 @@ function tripFlights(P){
       stepNav(1,options?.length?3:0,'Dalej: plan podróży');
   }
   if(step===4) return stepBar(P)+chosenFlights(offer)+cityStep(offer,P)+stepNav(3,0,'');
-  return stepBar(P)+planSummaryCard(offer,P)+destTransferCard(offer,P)+stepNav(2,4,destIsAirport(P,offer.to)?'Dalej: z lotniska do centrum':'Dalej: na miejscu');
+  return stepBar(P)+planSummaryCard(offer,P)+stepNav(2,4,destIsAirport(P,offer.to)?'Dalej: z lotniska do centrum':'Dalej: na miejscu');
 }
 // Krótki plan: główne środki transportu i najważniejsze godziny; reszta po „Zobacz szczegóły”.
 function planSummaryCard(f, P){
@@ -2451,9 +2451,8 @@ function tripWeather(P){
   const later=w.availableFrom?`<div class="twx-note">${w.days?.length?'Dalsze dni':'Prognoza na te dni'}: dostępna od ${fmtDay(w.availableFrom)} (16 dni przed).</div>`:'';
   return `<div class="trip-wx">${head}${days?`<div class="twx-days">${days}</div>`:''}${later}</div>`;
 }
-// Na miejscu: jak dostać się z lotniska docelowego do celu i z powrotem. Opis dojazdu (miejsce odjazdu, linia, bilet)
-// pochodzi z bazy lotnisk; prawdziwe połączenia o godzinie przylotu i przed powrotem liczy na żądanie serwer (Transitous).
-const XFER=new Map(), XTRIP=new Map();
+// Dane lotniska docelowego z bazy lotnisk (współrzędne, strefa czasowa, opis dojazdu), używane w kroku 4.
+const XFER=new Map();
 function airportTransfer(code, P){
   if(!code) return null;
   if(!XFER.has(code)){
@@ -2464,50 +2463,7 @@ function airportTransfer(code, P){
   }
   return XFER.get(code);
 }
-function transferTrips(P, code, dir, time, pt){
-  if(!time || !pt) return null;
-  const key=[code,dir,time,pt.lat.toFixed(3),pt.lon.toFixed(3)].join('|');
-  if(!XTRIP.has(key)){
-    XTRIP.set(key,{loading:true});
-    fetch('/api/airport-transfers/connections?'+new URLSearchParams({code, dir, time, lat:pt.lat, lon:pt.lon, label:P.to||''})).then(r=>r.ok?r.json():null)
-      .then(d=>{ XTRIP.set(key,d||{error:true}); if(inPlan(P)) runPlan(false); })
-      .catch(e=>{ console.warn('Połączenia z lotniska', e); XTRIP.set(key,{error:true}); });
-  }
-  return XTRIP.get(key);
-}
 const XMODE={rail:['train','Pociąg / metro'], bus:['bus','Autobus'], taxi:['taxi','Tylko taksówka'], tram:['train-tram','Tramwaj'], metro:['train-subway','Metro'], ferry:['ferry','Prom'], plane:['plane','Samolot']};
-function xferLeg(P, code, dir, time){
-  const t=airportTransfer(code,P);
-  if(t===undefined) return `<div class="xfer-leg"><div class="twx-note"><span class="spin sm" aria-hidden="true"></span> Sprawdzam dojazd z lotniska ${esc(code)}…</div></div>`;
-  if(!t) return '';
-  const p=P.dest?.points?.[0], pt=Array.isArray(p)?{lat:p[0], lon:p[1]}:p;
-  const [icon,modeName]=XMODE[t.mode]||XMODE.bus, pk=t.pickup, here=`${pk.lat},${pk.lon}`;
-  const there=pt?`${pt.lat},${pt.lon}`:'';
-  const gmaps=pt?`https://www.google.com/maps/dir/?api=1&${dir==='from'?`origin=${here}&destination=${there}`:`origin=${there}&destination=${here}`}&travelmode=transit`:`https://www.google.com/maps/search/?api=1&query=${here}`;
-  const fare=t.farePln===0?'bezpłatnie':t.farePln!=null?`ok. ${t.farePln} zł`:'';
-  const gtfs={local:'rozkład miasta w otwartych danych', regional:'rozkład regionu w otwartych danych', national:'tylko rozkład krajowy (kolej)', none:'brak otwartego rozkładu'}[t.gtfs]||'';
-  const live=transferTrips(P, code, dir, time, pt);
-  let trips='';
-  if(live?.loading) trips=`<div class="twx-note"><span class="spin sm" aria-hidden="true"></span> Szukam połączeń ${dir==='from'?'po przylocie':'przed wylotem'}…</div>`;
-  else if(live?.trips?.length){
-    const row=x=>`<li><b>${esc(x.dep.clock)} → ${esc(x.arr.clock)}</b><span class="xfer-dur">${fmtDuration(x.minutes)}${x.transfers?` · ${x.transfers} ${x.transfers===1?'przesiadka':'przesiadki'}`:''}</span><span class="xfer-lines">${x.legs.length?x.legs.map(l=>{ const [ic]=XMODE[l.kind]||XMODE.bus; return `<span class="xfer-line ${esc(l.kind)}" title="${esc([l.agency,l.headsign&&'→ '+l.headsign,l.from&&l.from+' – '+l.to].filter(Boolean).join(' · '))}"><i class="fa-solid fa-${ic}" aria-hidden="true"></i> ${esc(l.line||l.agency)}</span>`; }).join('<i class="fa-solid fa-chevron-right xfer-sep" aria-hidden="true"></i>'):'<span class="xfer-line walk"><i class="fa-solid fa-person-walking" aria-hidden="true"></i> pieszo</span>'}</span></li>`;
-    const target=live.target?.centre?`centrum: ${live.target.label}`:(P.to||'cel');
-    trips=`<div class="xfer-live"><small>${dir==='from'?`Połączenia po przylocie do: ${esc(target)}`:`Połączenia na lotnisko, by być tam ok. ${esc(live.wanted?.clock||'')}`}</small><ul>${live.trips.slice(0,3).map(row).join('')}</ul><small class="xfer-src">Rozkład: Transitous (otwarte dane GTFS)</small></div>`;
-  } else if(live && !live.error && !live.loading && t.mode!=='taxi') trips=`<div class="twx-note">Brak połączeń w otwartych rozkładach o tej porze — skorzystaj z opisu wyżej albo trasy w Google Maps.</div>`;
-  return `<div class="xfer-leg">
-    <div class="xfer-top"><b>${dir==='from'?`Z lotniska ${esc(code)} do celu`:`Na lotnisko ${esc(code)} przed powrotem`}</b><span class="xfer-mode ${esc(t.mode)}"><i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${modeName}</span></div>
-    <div class="xfer-row"><i class="fa-solid fa-location-dot" aria-hidden="true"></i><span><b>${esc(pk.name)}</b>${pk.precision!=='exact'?' <small class="text-soft">(miejsce przybliżone)</small>':''}<small class="xfer-walk">${esc(t.walk)}</small></span></div>
-    <div class="xfer-row"><i class="fa-solid fa-route" aria-hidden="true"></i><span>${esc(t.route)}</span></div>
-    <div class="xfer-row"><i class="fa-solid fa-ticket" aria-hidden="true"></i><span>${esc(t.fare)}${fare?` <b class="xfer-pln">${fare}</b>`:''}</span></div>
-    ${trips}
-    <div class="xfer-links"><a href="${esc(gmaps)}" target="_blank" rel="noopener"><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> Trasa w Google Maps</a>${gtfs?`<span class="xfer-gtfs ${esc(t.gtfs)}">${gtfs}</span>`:''}</div>
-  </div>`;
-}
-function destTransferCard(f, P){
-  const out=xferLeg(P, f.to, 'from', f.arrival||''), back=f.ret?xferLeg(P, f.ret.from, 'to', f.ret.departure||''):'';
-  if(!out && !back) return '';
-  return `<div class="xfer-card"><h4 class="xfer-h"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Na miejscu</h4><div class="xfer-legs">${out}${back}</div></div>`;
-}
 // Krok 4 „Na miejscu”: wszystkie sposoby dojazdu z lotniska (do centrum, gdy celem jest samo lotnisko) z ceną, czasem
 // i miejscem odjazdu; poniżej mapa komunikacji miasta z pojazdami na żywo i planer przejazdów po mieście.
 // Rozkłady i pojazdy: Transitous (otwarte dane GTFS, opóźnienia tam, gdzie przewoźnik je publikuje), pytany przez serwer.
@@ -2535,6 +2491,9 @@ function flightSteps(P){
   const code=P.destAirport, last=code&&destIsAirport(P,code)?'Z lotniska do centrum':'Na miejscu';
   return [...FLIGHT_STEPS, [4,last,'map-location-dot']];
 }
+// Rozwinięte „Trasa krok po kroku” zostają rozwinięte, gdy plan odświeża się (np. co minutę z danymi na żywo).
+const CS_OPEN=new Set();
+document.addEventListener('toggle', e=>{ const d=e.target; if(!d.classList?.contains('cs-more')) return; const id=d.closest('[data-cs-id]')?.dataset.csId; if(id){ if(d.open) CS_OPEN.add(id); else CS_OPEN.delete(id); } }, true);
 const CS_SORTS=[['price','Najtaniej'],['time','Najszybciej'],['dep','Najwcześniej']];
 const lineChip=(l)=>{ const [ic]=XMODE[l.kind]||XMODE.bus; const st=l.color?` style="--lc:${esc(l.color)};--lt:${esc(l.textColor||'#fff')}"`:''; return `<span class="cs-chip ${l.color?'own':esc(l.kind)}"${st}><i class="fa-solid fa-${ic}" aria-hidden="true"></i> ${esc(l.line||'')}</span>`; };
 function csSteps(steps){
@@ -2579,7 +2538,7 @@ function cityStep(f, P){
         <div class="cs-facts">${facts}</div>
         ${fareText(o.fare)}
         ${where}${deps}${note}
-        ${o.steps?.length?`<details class="cs-more"><summary>Trasa krok po kroku</summary>${csSteps(o.steps)}</details>`:''}
+        ${o.steps?.length?`<details class="cs-more"${CS_OPEN.has(o.id)?' open':''}><summary>Trasa krok po kroku</summary>${csSteps(o.steps)}</details>`:''}
         <div class="cs-links">${o.shape?.length?`<button type="button" class="btn-ghost" data-cs-show="${esc(o.id)}"><i class="fa-solid fa-map" aria-hidden="true"></i> Na mapie</button>`:''}${o.ticketUrl?`<a href="${esc(o.ticketUrl)}" target="_blank" rel="noopener"><i class="fa-solid fa-ticket" aria-hidden="true"></i> Bilety</a>`:''}${gmaps?`<a href="${esc(gmaps)}" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right" aria-hidden="true"></i> Google Maps</a>`:''}</div>
       </article>`;
     };
@@ -2602,7 +2561,7 @@ function cityPanel(){
   el.innerHTML=`<div class="cp-head"><h4><i class="fa-solid fa-train-subway" aria-hidden="true"></i> <span class="cp-title">Komunikacja w mieście</span></h4>
       <label class="cp-live"><input type="checkbox" checked data-cp-live> Pojazdy na mapie</label><span class="cp-status" aria-live="polite"></span></div>
     <div class="cp-body">
-      <div class="cp-map-wrap"><div class="cp-map"></div><div class="cp-legend">${[['metro','Metro'],['rail','Kolej'],['tram','Tramwaj'],['bus','Autobus'],['ferry','Prom']].map(([k,l])=>`<span><i style="background:${VCOLORS[k]}"></i>${l}</span>`).join('')}<span><i class="ring"></i>na żywo</span></div></div>
+      <div class="cp-map-wrap"><div class="cp-map"></div><div class="cp-legend">${[['metro','Metro'],['rail','Kolej'],['tram','Tramwaj'],['bus','Autobus'],['ferry','Prom']].map(([k,l])=>`<span><b class="cp-veh-l" style="background:${VCOLORS[k]}"><i class="fa-solid fa-${XMODE[k][0]}" aria-hidden="true"></i></b>${l}</span>`).join('')}<span><b class="cp-veh-l live" style="background:#888"><i class="fa-solid fa-bus" aria-hidden="true"></i></b>na żywo</span></div></div>
       <aside class="cp-plan">
         <h5><i class="fa-solid fa-route" aria-hidden="true"></i> Zaplanuj przejazd po mieście</h5>
         <form class="cp-form" autocomplete="off">
@@ -2710,7 +2669,7 @@ async function loadVehicles(force){
     if(!d){ setCityStatus('Pojazdy chwilowo niedostępne.'); return; }
     if(d.tooWide){ clearVehicles(); setCityStatus('Przybliż mapę, by zobaczyć pojazdy.'); return; }
     CITY.vLayer.clearLayers();
-    CITY.vehicles=d.vehicles.map(v=>{ const live=v.live; const m=L.circleMarker(v.path[0],{radius:v.kind==='bus'?4.5:6, color:live?'#fff':'rgba(255,255,255,.7)', weight:live?2.5:1.5, fillColor:v.color&&v.kind!=='bus'?v.color:VCOLORS[v.kind]||'#333', fillOpacity:.95})
+    CITY.vehicles=d.vehicles.map(v=>{ const live=v.live; const m=L.marker(v.path[0],{icon:vehicleIcon(v), keyboard:false, riseOnHover:true})
       .bindTooltip(`<b>${esc(v.line||'')}</b> ${esc(v.from)} → ${esc(v.to)}<br><small>${live?(v.delayMin>0?`na żywo · opóźnienie ${v.delayMin} min`:v.delayMin<0?`na żywo · ${-v.delayMin} min przed czasem`:'na żywo · punktualnie'):'wg rozkładu'}</small>`,{className:'bus-tip', direction:'top'});
       m.addTo(CITY.vLayer); return {...v, m}; });
     moveVehicles();
@@ -2718,6 +2677,14 @@ async function loadVehicles(force){
     setCityStatus(`${d.vehicles.length} ${d.vehicles.length===1?'pojazd':d.vehicles.length%10>=2&&d.vehicles.length%10<=4&&(d.vehicles.length%100<10||d.vehicles.length%100>=20)?'pojazdy':'pojazdów'} w widoku${live?` · ${live} na żywo`:''}`);
   } catch(e){ console.warn('Pojazdy', e); setCityStatus('Pojazdy chwilowo niedostępne.'); }
   finally{ CITY.fetching=false; }
+}
+// Ikona pojazdu jak w legendzie: kolor linii (autobusy w kolorze trybu), biała obwódka u pojazdów z danymi na żywo.
+const VICONS=new Map();
+function vehicleIcon(v){
+  const kind=VCOLORS[v.kind]?v.kind:'bus', bg=v.color&&kind!=='bus'?v.color:VCOLORS[kind], key=`${kind}|${bg}|${v.live?1:0}`;
+  if(!VICONS.has(key)){ const [ic]=XMODE[kind]||XMODE.bus, size=kind==='bus'?18:22;
+    VICONS.set(key, L.divIcon({className:`cp-veh ${kind} ${v.live?'live':''}`, html:`<span style="background:${esc(bg)}"><i class="fa-solid fa-${ic}" aria-hidden="true"></i></span>`, iconSize:[size,size], iconAnchor:[size/2,size/2]})); }
+  return VICONS.get(key);
 }
 function moveVehicles(){
   if(!CITY.vehicles.length || !CITY.el?.isConnected) return;
