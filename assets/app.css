@@ -1517,14 +1517,15 @@ body.explore-mode #exploreMap{height:clamp(420px,calc(100vh - 340px),760px)}
 .fl-price .fl-age.old{color:#B98900}
 
 /* Weather at the destination */
-.trip-wx{width:fit-content; max-width:100%; margin:4px 0 14px; padding:8px 10px; border:1px solid var(--line); border-radius:12px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.trip-wx{width:fit-content; max-width:100%; margin:6px auto 16px; padding:10px 14px; border:1px solid var(--line); border-radius:12px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
 .twx-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; margin-bottom:6px; font-size:.86rem}
 .twx-head i{color:var(--gold)} .twx-head small{color:var(--ink-soft)}
-.twx-days{display:grid; grid-auto-flow:column; grid-auto-columns:54px; gap:4px; overflow-x:auto; padding-bottom:2px}
+.twx-days{display:grid; grid-auto-flow:column; grid-auto-columns:64px; gap:5px; overflow-x:auto; padding-bottom:2px}
 .twx-day{display:flex; flex-direction:column; align-items:center; gap:0; padding:5px 2px; border-radius:8px; background:var(--soft); font-size:.7rem; line-height:1.25; text-align:center}
 .twx-day small{color:var(--ink-soft); white-space:nowrap}
 .twx-day b{font-size:.84rem}
 .twx-ico{font-size:1.05rem; line-height:1.25}
+.twx-day.stay{background:color-mix(in srgb,var(--gold) 16%,var(--soft))}
 .twx-day.start,.twx-day.end{outline:2px solid color-mix(in srgb,var(--gold) 70%,transparent); outline-offset:-2px}
 .twx-rain{color:#0284C7 !important} .twx-rain i{font-size:.65rem}
 .twx-note{margin-top:6px; font-size:.8rem; color:var(--ink-soft); display:flex; align-items:center; gap:6px}
@@ -1588,3 +1589,61 @@ body.explore-mode #exploreMap{height:clamp(420px,calc(100vh - 340px),760px)}
 .xfer-gtfs{color:var(--ink-soft); font-size:.74rem}
 .xfer-gtfs::before{content:""; display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; background:#9a9aa0; vertical-align:middle}
 .xfer-gtfs.local::before,.xfer-gtfs.regional::before{background:#1a7f4b} .xfer-gtfs.national::before{background:#b26b00}
+
+/* Krok 4: z lotniska do centrum, mapa komunikacji i planer po mieście */
+.city-step{margin:10px 0 14px; padding:14px 16px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.cs-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin-bottom:10px}
+.cs-head h4{margin:0; font-size:1.05rem} .cs-head h4 i{color:var(--gold)} .cs-head small{color:var(--ink-soft)}
+.cs-sort{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:10px}
+.cs-sort button{border:1px solid var(--line); background:var(--soft); color:var(--ink); border-radius:999px; padding:4px 12px; font-size:.82rem; font-weight:600}
+.cs-sort button.on{background:var(--ink); color:var(--bg-alt); border-color:var(--ink)}
+.cs-sort small{color:var(--ink-soft); margin-left:4px}
+.cs-hint{display:flex; gap:8px; align-items:flex-start; font-size:.82rem; color:var(--ink-soft); margin:0 0 10px} .cs-hint i{margin-top:3px; color:var(--gold)}
+.cs-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:12px}
+.cs-opt{position:relative; display:flex; flex-direction:column; gap:8px; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:var(--bg)}
+.cs-opt.is-cheap{border-color:color-mix(in srgb,#1a7f4b 55%,var(--line))} .cs-opt.is-fast{border-color:color-mix(in srgb,#2a5bd7 55%,var(--line))}
+.cs-badges{display:flex; flex-wrap:wrap; gap:4px}
+.cs-badge{display:inline-flex; align-items:center; gap:4px; font-size:.7rem; font-weight:700; padding:2px 8px; border-radius:999px; background:var(--soft); color:var(--ink)}
+.cs-badge.cheap{background:#e3f4ea; color:#14663c} .cs-badge.fast{background:#e5ecfb; color:#1f47ad} .cs-badge.soon{background:#fdf0dc; color:#8a5300} .cs-badge.direct{background:var(--soft); color:var(--ink-soft)}
+:root[data-theme="dark"] .cs-badge.cheap{background:#123d27; color:#9fe0bb} :root[data-theme="dark"] .cs-badge.fast{background:#1a2a52; color:#a9c1ff} :root[data-theme="dark"] .cs-badge.soon{background:#3d2a0b; color:#f3c983}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .cs-badge.cheap{background:#123d27; color:#9fe0bb} :root:not([data-theme="light"]) .cs-badge.fast{background:#1a2a52; color:#a9c1ff} :root:not([data-theme="light"]) .cs-badge.soon{background:#3d2a0b; color:#f3c983} }
+.cs-title{display:flex; gap:10px; align-items:flex-start} .cs-title b{display:block; font-size:.98rem} .cs-title small{display:flex; flex-wrap:wrap; align-items:center; gap:3px; color:var(--ink-soft); font-size:.78rem; margin-top:2px}
+.cs-mode{flex:none; width:34px; height:34px; border-radius:10px; display:grid; place-items:center; color:#fff; background:#1a7f4b}
+.cs-mode.rail{background:#2a5bd7} .cs-mode.metro{background:#c2185b} .cs-mode.tram{background:#e8590c} .cs-mode.taxi{background:#b26b00} .cs-mode.ferry{background:#0288d1}
+.cs-chip{display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:6px; font-size:.72rem; font-weight:700; background:var(--soft); color:var(--ink); white-space:nowrap}
+.cs-chip.own{background:var(--lc); color:var(--lt)} .cs-chip i{font-size:.65rem}
+.cs-facts{display:flex; flex-wrap:wrap; gap:4px 12px; font-size:.84rem} .cs-facts i{color:var(--ink-soft)}
+.cs-price{display:flex; flex-direction:column; font-size:.84rem} .cs-price b{font-size:1.05rem} .cs-price small{color:var(--ink-soft)} .cs-price.none{color:var(--ink-soft); font-size:.8rem}
+.cs-where{display:flex; gap:8px; font-size:.84rem} .cs-where i{margin-top:3px; color:#DA291C} .cs-where small{display:block; color:var(--ink-soft)}
+.cs-deps{display:flex; flex-wrap:wrap; align-items:center; gap:4px; font-size:.82rem} .cs-deps small{color:var(--ink-soft); margin-right:2px} .cs-deps b{padding:1px 6px; border-radius:6px; background:var(--soft)}
+.cs-note{font-size:.78rem; color:var(--ink-soft)}
+.cs-more summary{cursor:pointer; font-size:.82rem; font-weight:600}
+.cs-steps{list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:6px; font-size:.8rem}
+.cs-steps li{display:flex; gap:8px; align-items:flex-start} .cs-steps li small{display:block; color:var(--ink-soft)} .cs-steps li.walk{color:var(--ink-soft)}
+.cs-step-t{flex:none; width:40px; font-weight:700} .cs-step-t small{font-weight:400}
+.cs-links{display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; margin-top:auto; font-size:.82rem} .cs-links .btn-ghost{padding:3px 10px; font-size:.8rem}
+.cs-src{display:block; margin-top:10px; color:var(--ink-soft); font-size:.76rem}
+.city-panel{margin:4px 0 14px; padding:14px 16px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.cp-head{display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-bottom:10px}
+.cp-head h4{margin:0; font-size:1.05rem} .cp-head h4 i{color:var(--gold)}
+.cp-live{display:flex; align-items:center; gap:6px; font-size:.84rem} .cp-status{font-size:.8rem; color:var(--ink-soft)}
+.cp-body{display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px}
+.cp-map-wrap{position:relative} .cp-map{height:520px; border-radius:12px; overflow:hidden; border:1px solid var(--line)}
+.city-panel.picking .cp-map{cursor:crosshair; outline:3px solid var(--gold)}
+.cp-legend{display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:6px; font-size:.75rem; color:var(--ink-soft)}
+.cp-legend i{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:-1px} .cp-legend i.ring{background:#888; box-shadow:0 0 0 2px #fff, 0 0 0 3px #888}
+.cp-plan h5{font-size:.95rem; margin:0 0 8px} .cp-plan h5 i{color:var(--gold)}
+.cp-form{display:flex; flex-direction:column; gap:8px; font-size:.82rem} .cp-form label{display:flex; flex-direction:column; gap:3px; font-weight:600}
+.cp-field{display:flex; gap:4px} .cp-field input,.cp-when input[type=datetime-local]{flex:1; min-width:0; padding:6px 9px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); font-weight:400}
+.cp-pin,.cp-swap{border:1px solid var(--line); background:var(--soft); color:var(--ink); border-radius:8px; padding:0 9px}
+.cp-swap{align-self:center; padding:2px 10px; transform:rotate(90deg)}
+.cp-when{display:flex; gap:8px; align-items:flex-end} .cp-when label:first-child{flex:1} .cp-arrive{flex-direction:row !important; align-items:center; gap:5px !important; font-weight:400 !important; white-space:nowrap}
+.cp-results{margin-top:12px; display:flex; flex-direction:column; gap:8px; max-height:420px; overflow:auto}
+.cp-trip{border:1px solid var(--line); border-radius:10px; padding:8px 10px; background:var(--bg)} .cp-trip.on{border-color:var(--gold); box-shadow:0 0 0 1px var(--gold)}
+.cp-trip-head{all:unset; cursor:pointer; display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; width:100%; font-size:.84rem} .cp-trip-head span{color:var(--ink-soft)}
+.cp-lines{display:flex; flex-wrap:wrap; gap:3px; width:100%}
+.cp-trip details summary{cursor:pointer; font-size:.78rem; color:var(--ink-soft); margin-top:4px}
+.cp-end span{display:grid; place-items:center; width:26px; height:26px; border-radius:50%; background:#181818; color:#fff; font-weight:800; font-size:.8rem; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.cp-end.from span{background:var(--gold)}
+.cp-src{display:block; margin-top:8px; color:var(--ink-soft); font-size:.75rem}
+@media (max-width: 900px){ .cp-body{grid-template-columns:1fr} .cp-map{height:380px} .cp-results{max-height:none} }

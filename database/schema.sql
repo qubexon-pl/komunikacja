@@ -507,3 +507,23 @@ BEGIN
     );
 END;
 GO
+
+-- Reviewed price of each way from the airport into town (data/airport-fares.csv), copied in when the file changes.
+IF OBJECT_ID(N'dbo.AirportFare', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AirportFare (
+        iata CHAR(3) NOT NULL,
+        position INT NOT NULL,
+        name NVARCHAR(120) NOT NULL,
+        match NVARCHAR(200) NOT NULL,
+        mode NVARCHAR(10) NOT NULL,
+        fare NVARCHAR(200) NOT NULL,
+        fare_eur DECIMAL(7,2) NULL,
+        note NVARCHAR(400) NOT NULL,
+        checked NVARCHAR(20) NOT NULL,
+        source NVARCHAR(300) NOT NULL,
+        updated_at DATETIME2(0) NOT NULL,
+        CONSTRAINT PK_AirportFare PRIMARY KEY (iata, position)
+    );
+END;
+GO

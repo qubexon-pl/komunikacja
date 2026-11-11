@@ -1,0 +1,42 @@
+IATA,Option,Match,Mode,Fare,Fare EUR,Note,Checked,Source
+BCN,Aerobús A1 / A2,Aerob,bus,"€7.25 one way, €12.50 return",7.25,"A1 stops at T1, A2 at T2; to Pl. Espanya, Pl. Universitat and Pl. Catalunya; every 5–10 min",2025,https://www.aerobusbarcelona.es
+BCN,Metro L9 Sud,L9S,metro,€5.50 Bitllet Aeroport (T-casual is not valid at the airport),5.5,Stations under T1 and T2; change to L1/L5/L3 for the centre,2025,https://www.tmb.cat
+BCN,Rodalies R2 Nord,R2N|R2S|Renfe|Rodalies,rail,"≈ €2.65 single zone 1 (T-casual valid)",2.65,From T2 only (free shuttle bus from T1); to Sants and Passeig de Gràcia every 30 min,2025,https://rodalies.gencat.cat
+BCN,City bus 46 / night N16 N17,TMB|AMB|Àrea Metropolitana|Moventis|Baixbus|Mohn,bus,≈ €2.65 single (T-casual 10 trips €12.15),2.65,Slow but cheapest; bus 46 goes to Pl. Espanya,2025,https://www.tmb.cat
+BCN,Taxi,^taxi$,taxi,≈ €35–40 to the centre incl. airport supplement,38,Taxi ranks in front of each terminal; metered fare,2025,https://www.aeropuertobarcelona-elprat.com
+STN,Stansted Express,Stansted Express,rail,£21–23 walk-up (from about £10 booked ahead),25,To Tottenham Hale and Liverpool Street every 15–30 min,2025,https://www.stanstedexpress.com
+STN,National Express coach,National Express,bus,from about £10–17,14,To Victoria / Stratford / Liverpool Street; runs through the night,2025,https://www.nationalexpress.com
+STN,Taxi,^taxi$,taxi,about £110–140 to central London,145,,2025,
+LTN,DART + Thameslink / EMR,Thameslink|DART|East Midlands|EMR|Luton Airport Express,rail,about £20–25 to St Pancras incl. DART,26,DART shuttle to Luton Airport Parkway (≈ 4 min) then train,2025,https://www.thameslinkrailway.com
+LTN,Coach (National Express / Green Line 757),National Express|Green Line|757,bus,from about £10–15,14,To Victoria / Baker Street,2025,https://www.nationalexpress.com
+LTN,Taxi,^taxi$,taxi,about £90–110 to central London,115,,2025,
+LGW,Gatwick Express,Gatwick Express,rail,about £22 one way,26,Non-stop to Victoria every 30 min,2025,https://www.gatwickexpress.com
+LGW,Southern / Thameslink,Southern|Thameslink|Great Western|GWR,rail,about £12–20,18,To Victoria / London Bridge / St Pancras; contactless works,2025,https://www.southernrailway.com
+LGW,National Express coach,National Express,bus,from about £10,12,,2025,https://www.nationalexpress.com
+LGW,Taxi,^taxi$,taxi,about £100–120 to central London,130,,2025,
+DUB,Dublin Express / Aircoach,Dublin Express|Aircoach|Go-Ahead|782|784|700,bus,€10–11 one way,10,To O'Connell Street and Busáras every 10–20 min,2025,https://www.dublinexpress.ie
+DUB,Dublin Bus 16 / 41 / Bus Éireann,Dublin Bus|Bus Éireann|TFI,bus,€2.00 with Leap (€3.00 cash),2,Slower; stops across the city,2025,https://www.transportforireland.ie
+DUB,Taxi,^taxi$,taxi,about €30–40 to the centre,35,,2025,
+BGY,Coach to Milano Centrale,Terravision|Autostradale|Orio|Shuttle|Stie|Locatelli|Flixbus,bus,€10–13 to Milano Centrale,11,"Several companies, every 20–30 min, ~50 min",2025,https://www.terravision.eu
+BGY,ATB Airport Bus to Bergamo,ATB|Bergamo Trasporti|Arriva,bus,about €3 to Bergamo station / Città Alta,3,Then train Bergamo → Milano (≈ €6),2025,https://www.atb.bergamo.it
+BGY,Taxi,^taxi$,taxi,about €100–120 to Milan (≈ €25 to Bergamo),110,,2025,
+CIA,Coach to Roma Termini,Terravision|SIT|Atral|Schiaffini,bus,€6–7 to Termini,6.5,~40 min,2025,https://www.terravision.eu
+CIA,Cotral bus + metro A,Cotral|ATAC|Metro,bus,about €3 (bus to Anagnina + metro ticket €1.50),3,Cheapest; change at Anagnina to metro A,2025,https://www.cotralspa.it
+CIA,Taxi,^taxi$,taxi,fixed €40 to the centre (inside the Aurelian Walls),40,,2025,
+FCO,Leonardo Express,Leonardo,rail,€14 to Roma Termini,14,Non-stop every 15–30 min,2025,https://www.trenitalia.com
+FCO,Regional train FL1,FL1|Trenitalia|Regionale,rail,€8,8,To Trastevere / Ostiense / Tiburtina every 15 min,2025,https://www.trenitalia.com
+FCO,Coach to Termini,Terravision|SIT|Cotral|Schiaffini|Flixbus,bus,€6–7 to Termini,7,~50 min,2025,https://www.terravision.eu
+FCO,Taxi,^taxi$,taxi,fixed €55 to the centre,55,,2025,
+BVA,Shuttle to Paris Porte Maillot,Beauvais|Navette|Shuttle|Aéroport|Aeroport,bus,€16.90 online (more at the desk),16.9,"Leaves 20–30 min after each arrival, ~75 min",2025,https://www.aeroportparisbeauvais.com
+BVA,Taxi,^taxi$,taxi,about €180–220 to Paris (≈ €20 to Beauvais),200,,2025,
+MAD,Metro line 8,Metro|^L?8$,metro,€4.50–5 (ticket + €3 airport supplement),4.5,From T1-T2-T3 and T4 to Nuevos Ministerios,2025,https://www.metromadrid.es
+MAD,Cercanías C1 / C10,Renfe|Cercan|C1|C10,rail,about €2.60,2.6,From T4 only; to Chamartín / Atocha,2025,https://www.renfe.com
+MAD,Exprés Aeropuerto bus 203,EMT|Exprés|Express|203,bus,€5,5,"24 h; to Atocha (day) or Cibeles (night)",2025,https://www.emtmadrid.es
+MAD,Taxi,^taxi$,taxi,fixed €33 to the centre (inside M-30),33,,2025,
+LIS,Metro red line,Metro|Vermelha,metro,€1.85 + €0.50 Navegante card,1.85,Station at Terminal 1 arrivals; change at Saldanha or Alameda,2025,https://www.metrolisboa.pt
+LIS,Aerobus,Aerobus,bus,about €4,4,To Marquês de Pombal / Baixa / Cais do Sodré,2025,https://www.aerobus.pt
+LIS,Carris bus 744 / 783,Carris,bus,€2.10 from the driver,2.1,,2025,https://www.carris.pt
+LIS,Taxi,^taxi$,taxi,about €15–20 to the centre,18,,2025,
+ATH,Metro line 3,Metro|STASY|^M?3$,metro,€9 airport ticket,9,To Syntagma ~40 min every 30 min,2025,https://www.stasy.gr
+ATH,Bus X95 / X93 / X96 / X97,X95|X93|X96|X97|OSY|OASA,bus,€5.50,5.5,X95 to Syntagma ~1 h; runs 24 h,2025,https://www.oasa.gr
+ATH,Taxi,^taxi$,taxi,fixed €40 by day / €55 at night to the centre,40,,2025,

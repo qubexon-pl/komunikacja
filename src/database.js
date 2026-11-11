@@ -480,6 +480,42 @@ async function readAirportTransfers(pool) {
   }));
 }
 
+async function replaceAirportFares(pool, rows) {
+  const table = new sql.Table("dbo.AirportFare");
+  table.create = false;
+  table.columns.add("iata", sql.Char(3), { nullable: false });
+  table.columns.add("position", sql.Int, { nullable: false });
+  table.columns.add("name", sql.NVarChar(120), { nullable: false });
+  table.columns.add("match", sql.NVarChar(200), { nullable: false });
+  table.columns.add("mode", sql.NVarChar(10), { nullable: false });
+  table.columns.add("fare", sql.NVarChar(200), { nullable: false });
+  table.columns.add("fare_eur", sql.Decimal(7, 2), { nullable: true });
+  table.columns.add("note", sql.NVarChar(400), { nullable: false });
+  table.columns.add("checked", sql.NVarChar(20), { nullable: false });
+  table.columns.add("source", sql.NVarChar(300), { nullable: false });
+  table.columns.add("updated_at", sql.DateTime2(0), { nullable: false });
+  const at = new Date();
+  rows.forEach((r, i) => table.rows.add(r.code, i, r.option, r.match, r.mode, r.fare, r.fareEur, r.note, r.checked, r.source, at));
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    await tx.request().query("DELETE FROM dbo.AirportFare;");
+    if (rows.length) await tx.request().bulk(table);
+    await tx.commit();
+  } catch (error) {
+    await tx.rollback().catch(() => {});
+    throw error;
+  }
+}
+
+async function readAirportFares(pool) {
+  const result = await pool.request().query("SELECT iata, name, match, mode, fare, fare_eur, note, checked, source FROM dbo.AirportFare ORDER BY iata, position;");
+  return result.recordset.map((r) => ({
+    code: r.iata.trim(), option: r.name, match: r.match, mode: r.mode, fare: r.fare, fareEur: r.fare_eur == null ? null : Number(r.fare_eur),
+    note: r.note, checked: r.checked, source: r.source,
+  }));
+}
+
 // Prepared datasets. Background jobs write them; requests only read them.
 function createSnapshots(pool) {
   return {
@@ -519,7 +555,9 @@ module.exports = {
   getSchedule,
   importedHash,
   readFlightFares,
+  readAirportFares,
   readAirportTransfers,
+  replaceAirportFares,
   readFlightNetwork,
   saveFlightNetwork,
   saveSetting,
