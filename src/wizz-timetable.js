@@ -37,8 +37,18 @@ function timetableBody(legs) {
   };
 }
 
-function createWizzTimetable({ flights, toPln, fetchSource = fetch, version = process.env.WIZZ_API_VERSION || DEFAULT_VERSION, enabled = process.env.WIZZ_API !== "off", now = Date.now, gapMs = GAP_MS }) {
-  const url = `https://be.wizzair.com/${version}/Api/search/timetableV2`;
+// The API version is part of the address and changes when Wizz Air releases its website. The working one is
+// remembered (readVersion/saveVersion, the database in production); when it answers 404, the next likely
+// versions are tried, a few requests at most.
+function nextVersions(version) {
+  const [major, minor, patch] = String(version).split(".").map(Number);
+  if (![major, minor, patch].every(Number.isInteger)) return [];
+  return [`${major}.${minor}.${patch + 1}`, `${major}.${minor + 1}.0`, `${major}.${minor + 1}.1`, `${major}.${minor + 2}.0`, `${major}.${minor + 3}.0`, `${major + 1}.0.0`, `${major + 1}.1.0`, `${major}.${minor + 4}.0`];
+}
+
+function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: initialVersion = process.env.WIZZ_API_VERSION || DEFAULT_VERSION, readVersion = async () => null, saveVersion = async () => {}, enabled = process.env.WIZZ_API !== "off", now = Date.now, gapMs = GAP_MS }) {
+  let version = initialVersion;
+  const urlOf = (v) => `https://be.wizzair.com/${v}/Api/search/timetableV2`;
   const asked = new Map();
   let queue = Promise.resolve();
   let lastCall = 0;
@@ -46,22 +56,58 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version = pr
   let running = 0;
   let last = { at: null, ok: null, error: null, stored: 0 };
 
-  async function post(legs) {
-    if (now() < pausedUntil) throw Object.assign(new Error("Wizz Air poprosił o przerwę; kolejne zapytanie za godzinę."), { status: 429 });
+  async function send(v, legs) {
     const wait = lastCall + gapMs - now();
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
     lastCall = now();
-    const response = await fetchSource(url, {
+    return fetchSource(urlOf(v), {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json", "User-Agent": USER_AGENT },
       body: JSON.stringify(timetableBody(legs)),
       signal: AbortSignal.timeout(30000),
     });
+  }
+
+  // The remembered version is read once; searching for a working one happens only at start or after a 404.
+  let loaded = null;
+  const loadVersion = () => (loaded ||= readVersion().then((saved) => { if (saved) version = saved; }).catch(() => {}));
+  let discovering = null;
+  function discover(sample, failed = false) {
+    if (!discovering) {
+      discovering = (async () => {
+        await loadVersion();
+        const probe = sample || [{ from: "KRK", to: "BCN", start: new Date(now() + 86400000).toISOString().slice(0, 10), end: new Date(now() + 2 * 86400000).toISOString().slice(0, 10) }];
+        for (const candidate of failed ? nextVersions(version) : [version, ...nextVersions(version)]) {
+          const response = await send(candidate, probe);
+          if (response.status === 429 || response.status === 403) { pausedUntil = now() + PAUSE_MS; break; }
+          if (response.status !== 404) {
+            if (candidate !== version) console.log(`Wizz Air API version: ${candidate}`);
+            version = candidate;
+            await saveVersion(candidate).catch(() => {});
+            return version;
+          }
+        }
+        throw Object.assign(new Error(`Nie udało się ustalić wersji API Wizz Air (ostatnia znana: ${version}).`), { status: 502 });
+      })().finally(() => { discovering = null; });
+    }
+    return discovering;
+  }
+
+  async function post(legs) {
+    if (now() < pausedUntil) throw Object.assign(new Error("Wizz Air poprosił o przerwę; kolejne zapytanie za godzinę."), { status: 429 });
+    await loadVersion();
+    let response = await send(version, legs);
+    // A new release moves the API: find the new version once and repeat this request.
+    if (response.status === 404) {
+      const before = version;
+      await discover(legs, true).catch(() => {});
+      if (version !== before) response = await send(version, legs);
+    }
     if (response.status === 429 || response.status === 403) {
       pausedUntil = now() + PAUSE_MS;
       throw Object.assign(new Error(`Wizz Air odmówił (HTTP ${response.status}). Przerwa na godzinę, bez ponawiania.`), { status: response.status });
     }
-    if (response.status === 404) throw Object.assign(new Error(`Wizz Air nie zna wersji API ${version} (HTTP 404). Ustaw WIZZ_API_VERSION.`), { status: 502 });
+    if (response.status === 404) throw Object.assign(new Error(`Wizz Air nie zna wersji API ${version} (HTTP 404).`), { status: 502 });
     if (!response.ok) {
       const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 300);
       throw Object.assign(new Error(`Wizz Air zwrócił HTTP ${response.status}.`), { status: 502, detail });
@@ -103,6 +149,16 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version = pr
     return false;
   };
 
+  // Each answer covers two weeks of days. A chosen day is asked again only when the last answer that covered it
+  // is more than 3 hours old, so picking another day nearby uses what is known and an old day is refreshed.
+  const covered = new Map();
+  const dayKey = (from, to, day) => `${from}|${to}|${day}`;
+  const isFresh = (from, to, day) => now() - (covered.get(dayKey(from, to, day)) || 0) < FRESH_MS;
+  function cover(leg) {
+    for (let day = leg.start; day <= leg.end; day = addDays(day, 1)) covered.set(dayKey(leg.from, leg.to, day), now());
+    if (covered.size > 50000) covered.clear();
+  }
+
   // Cheapest price and every departure time for each day, two weeks either side of the chosen days.
   function searchRoutes(pairs, date, back = "") {
     if (!enabled) return "unavailable";
@@ -112,7 +168,10 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version = pr
       const today = new Date(now()).toISOString().slice(0, 10), from = (d) => (d < today ? today : d);
       const out = { from: pair.from, to: pair.to, start: from(addDays(date, -RANGE_DAYS)), end: addDays(date, RANGE_DAYS) };
       const home = back ? { from: pair.to, to: pair.from, start: from(addDays(back, -RANGE_DAYS)), end: addDays(back, RANGE_DAYS) } : null;
-      if (!fresh(`${out.from}|${out.to}|${out.start}|${home ? home.start : ""}`, FRESH_MS)) legs.push([out, home].filter(Boolean));
+      const wanted = [isFresh(out.from, out.to, date) ? null : out, home && !isFresh(home.from, home.to, back) ? home : null].filter(Boolean);
+      if (!wanted.length) continue;
+      wanted.forEach(cover);
+      legs.push(wanted);
     }
     if (!legs.length) return "fresh";
     for (const pairLegs of legs) run(pairLegs, (rows) => flights.mergeRows(rows)).catch((error) => console.error("Wizz timetable:", error.message));
@@ -128,10 +187,13 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version = pr
   }
 
   function status() {
-    return { available: enabled, running: running > 0, pausedUntil: pausedUntil > now() ? new Date(pausedUntil).toISOString() : null, ...last };
+    return { version, available: enabled, running: running > 0, pausedUntil: pausedUntil > now() ? new Date(pausedUntil).toISOString() : null, ...last };
   }
 
-  return { priceForTime, searchRoutes, status };
+  // Called at server start, so the first trip search already knows the version.
+  function start() { if (enabled) discover().catch((error) => console.error("Wizz Air:", error.message)); }
+
+  return { priceForTime, searchRoutes, start, status };
 }
 
-module.exports = { createWizzTimetable, shiftTime, timetableBody };
+module.exports = { createWizzTimetable, nextVersions, shiftTime, timetableBody };

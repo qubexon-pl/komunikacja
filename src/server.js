@@ -4,6 +4,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { pipeline } = require("node:stream/promises");
+const zlib = require("node:zlib");
 const crypto = require("node:crypto");
 const tls = require("node:tls");
 const { AGENCIES, createSnapshots, createSqlConfig, getSchedule, importedHash, readFlightFares, readFlightNetwork, readSchedule, readSetting, replaceFlightFares, appendFareHistory, replaceSchedule, saveFlightNetwork, saveSetting } = require("./database");
@@ -11,12 +12,10 @@ const { MAX_WALK_TARGETS, PATH_URLS, createDrivingRouter, createPathRouter, crea
 const { createFlightCollector, trackerDatabase } = require("./flight-collector");
 const { readNetwork } = require("./flight-network");
 const { createFlightStore } = require("./flights");
-const { createLiveFlightSearch, providersFromEnv } = require("./flight-providers");
 const { createAlertDatabase, createPriceAlerts } = require("./price-alerts");
-const { importWizzResponses } = require("./wizz-import");
 const { createWizzTimetable } = require("./wizz-timetable");
 const { createPksFares } = require("./pks-fares");
-const { createRates } = require("./flight-providers");
+const { createRates } = require("./rates");
 const { createGeocoder, createStreetSuggester } = require("./geocode");
 const { normalizeFavorites } = require("./favorites");
 const { LIVE_SOURCES, createLiveCollector } = require("./live-data");
@@ -33,7 +32,12 @@ const MIME_TYPES = new Map([
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".svg", "image/svg+xml"],
+  [".png", "image/png"],
+  [".ico", "image/x-icon"],
+  [".webmanifest", "application/manifest+json"],
 ]);
+const COMPRESSIBLE = new Set([".css", ".html", ".js", ".json", ".svg", ".webmanifest"]);
+const acceptsGzip = (req) => /\bgzip\b/.test(req?.headers?.["accept-encoding"] || "");
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
 const MAX_AUTH_BODY_BYTES = 16 * 1024;
 const MAX_FEED_BYTES = 50 * 1024 * 1024;
@@ -63,12 +67,17 @@ const GTFS_SOURCE_PATHS = new Map([
 ]);
 
 function json(res, status, value) {
-  res.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
-    "X-Content-Type-Options": "nosniff",
-  });
-  res.end(JSON.stringify(value));
+  const body = JSON.stringify(value);
+  const headers = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+  // Larger answers (flight lists, route lists) travel compressed.
+  if (body.length > 4096 && acceptsGzip(res.req)) {
+    const packed = zlib.gzipSync(body, { level: 6 });
+    res.writeHead(status, { ...headers, "Content-Encoding": "gzip", Vary: "Accept-Encoding", "Content-Length": packed.length });
+    res.end(packed);
+    return;
+  }
+  res.writeHead(status, headers);
+  res.end(body);
 }
 
 async function readJson(req, maxBytes = MAX_BODY_BYTES) {
@@ -217,62 +226,10 @@ function serveFlights(res, url, action, flights) {
   json(res, 200, flights.options({ origin, dest, date, back, radius, prefer }));
 }
 
-const FLIGHT_SCOPES = new Set(["route", "all", "network"]);
-const FLIGHT_DIRECTIONS = new Set(["out", "back", "both"]);
-const FLIGHT_AIRLINES = new Set(["RYANAIR", "WIZZ"]);
-
-// Only an administrator starts a run: it opens a browser and calls the airlines. They choose what, which days and which way.
-async function refreshFlights(req, res, collector, flights) {
-  if (!isAppAdmin(req.user)) {
-    json(res, 403, { error: "Loty może odświeżyć tylko administrator." });
-    return;
-  }
-  const { scope = "route", from = "", to = "", direction = "out", start = "", end = "", airlines = [] } = await readJson(req);
-  const iata = /^[A-Z]{3}$/;
-  if (!FLIGHT_SCOPES.has(scope) || !FLIGHT_DIRECTIONS.has(direction) || !Array.isArray(airlines) || airlines.some((code) => !FLIGHT_AIRLINES.has(code))) {
-    json(res, 400, { error: "Nieprawidłowe ustawienia pobierania." });
-    return;
-  }
-  if ((from && !iata.test(from)) || (to && !iata.test(to))) {
-    json(res, 400, { error: "Nieprawidłowe lotnisko." });
-    return;
-  }
-  if (scope === "network") {
-    respondToRun(res, collector ? collector.request({ networkOnly: true, target: { scope } }) : "unavailable");
-    return;
-  }
-  if (!airlines.length) {
-    json(res, 400, { error: "Wybierz co najmniej jedną linię." });
-    return;
-  }
-  const days = (Date.parse(end) - Date.parse(start)) / 86400000;
-  if (!(ISO_DAY.test(start) && ISO_DAY.test(end) && days >= 0 && days <= MAX_SCAN_DAYS)) {
-    json(res, 400, { error: `Podaj okres do ${MAX_SCAN_DAYS} dni.` });
-    return;
-  }
-  const target = { scope, from, to, direction, start, end, airlines };
-  if (scope === "all") {
-    respondToRun(res, collector ? collector.request({ start, end, airlines, target }) : "unavailable");
-    return;
-  }
-  if (!from && !to) {
-    json(res, 400, { error: "Wybierz lotnisko wylotu albo przylotu." });
-    return;
-  }
-  const ways = { out: [[from, to]], back: [[to, from]], both: [[from, to], [to, from]] }[direction];
-  const found = new Map();
-  for (const [a, b] of ways) for (const pair of flights.pairsFor({ from: a, to: b, airlines })) found.set(`${pair.from}|${pair.to}`, pair);
-  const pairs = [...found.values()];
-  if (!pairs.length) {
-    json(res, 400, { error: "Żadna z wybranych linii nie lata tą trasą." });
-    return;
-  }
-  respondToRun(res, collector ? collector.request({ pairs, start, end, target }) : "unavailable");
-}
-
 // A trip search asks the airlines only about its own routes and days, and the same day of a route at most every 6 hours.
-const TRIP_FETCH_FRESH_MS = 6 * 60 * 60 * 1000;
-async function fetchTripFlights(req, res, collector, flights, asked, liveSearch, wizz = null) {
+// A day of a route is asked again when its last check is more than 3 hours old (the same rule as for Wizz Air).
+const TRIP_FETCH_FRESH_MS = 3 * 60 * 60 * 1000;
+async function fetchTripFlights(req, res, collector, flights, asked, wizz = null) {
   const { origin = "", dest = "", date = "", back = "", prefer = "", radius = 0 } = await readJson(req);
   const preferred = /^[A-Z]{3}$/.test(String(prefer).toUpperCase()) ? String(prefer).toUpperCase() : "";
   const from = parsePoint(origin);
@@ -283,17 +240,15 @@ async function fetchTripFlights(req, res, collector, flights, asked, liveSearch,
     json(res, 400, { error: "Nieprawidłowe miejsca lub daty podróży." });
     return;
   }
-  if (!flights || (!collector && !liveSearch && !wizz)) {
+  if (!flights || (!collector && !wizz)) {
     respondToRun(res, "unavailable");
     return;
   }
-  // The official APIs also find flights with changes, so they are asked even where no low-cost airline flies.
   const target = { scope: "trip", from: "", to: "", direction: back ? "both" : "out", start: date, end: back || date };
-  const live = liveSearch ? liveSearch.request({ origin: from, dest: to, date, back }, target) : "unavailable";
   // Wizz Air through its timetable: two weeks either side of the chosen days, for the routes Wizz flies.
   const wizzPairs = wizz ? flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined }).filter((pair) => pair.airlines.includes("WIZZ")) : [];
   const viaWizz = wizz && wizzPairs.length ? wizz.searchRoutes(wizzPairs, date, back) : "unavailable";
-  const apis = [live, viaWizz].find((r) => r === "started") || [live, viaWizz].find((r) => r === "busy") || [live, viaWizz].find((r) => r === "fresh") || "unavailable";
+  const apis = viaWizz;
   const out = collector ? withoutWizz(flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined })) : [];
   if (!out.length) {
     if (apis === "started" || apis === "busy") respondToRun(res, apis);
@@ -411,24 +366,6 @@ async function serveAlerts(req, res, alerts, segments) {
 // They come from the API.SH provider (if configured) and from what an administrator imports from a normal browser.
 const withoutWizz = (pairs) => pairs.map((pair) => ({ ...pair, airlines: pair.airlines.filter((airline) => airline !== "WIZZ") })).filter((pair) => pair.airlines.length);
 
-async function importWizz(req, res, flights, toPln) {
-  if (!isAppAdmin(req.user)) {
-    json(res, 403, { error: "Loty może importować tylko administrator." });
-    return;
-  }
-  if (!flights) {
-    json(res, 503, { error: "Dane o lotach są niedostępne." });
-    return;
-  }
-  const { responses = [] } = await readJson(req, 20 * 1024 * 1024);
-  try {
-    json(res, 200, await importWizzResponses(responses, { toPln, flights }));
-  } catch (error) {
-    if (error.status) json(res, error.status, { error: error.message });
-    else throw error;
-  }
-}
-
 // PKS ticket price between two timetable stops (name and position), from the PKS journey planner.
 async function servePksPrice(res, url, pksFares) {
   const q = (name) => url.searchParams.get(name) || "";
@@ -528,11 +465,12 @@ function serveStatic(res, pathname, root) {
   const isLoginPage = pathname === "/login";
   const isAppPage = APP_PAGES.has(pathname);
   const isLoginAsset = pathname === "/assets/login.css" || pathname === "/assets/login.js" || pathname === "/assets/i18n.js";
+  const isLogo = /^\/assets\/logo(-\d+)?\.png$/.test(pathname); // the app logo, in the sizes it is used
   if (!isAppPage && !isLoginPage && !pathname.startsWith("/assets/")) {
     json(res, 404, { error: "Not found." });
     return;
   }
-  if (pathname.startsWith("/assets/") && !isLoginAsset && !pathname.startsWith("/assets/app.")) {
+  if (pathname.startsWith("/assets/") && !isLoginAsset && !isLogo && !pathname.startsWith("/assets/app.")) {
     json(res, 404, { error: "Not found." });
     return;
   }
@@ -551,14 +489,27 @@ function serveStatic(res, pathname, root) {
       json(res, 404, { error: "Not found." });
       return;
     }
-    res.writeHead(200, {
-      "Content-Type": MIME_TYPES.get(path.extname(filePath)) || "application/octet-stream",
+    // The browser keeps the file and only asks whether it changed (304), so reloads are quick but edits show at once.
+    const etag = `W/"${stats.size.toString(36)}-${Math.round(stats.mtimeMs).toString(36)}"`;
+    const ext = path.extname(filePath);
+    const base = {
+      "Content-Type": MIME_TYPES.get(ext) || "application/octet-stream",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "DENY",
       "Referrer-Policy": "strict-origin-when-cross-origin",
-      "Cache-Control": "no-store",
-    });
-    pipeline(fs.createReadStream(filePath), res).catch(() => {
+      "Cache-Control": "no-cache",
+      ETag: etag,
+      Vary: "Accept-Encoding",
+    };
+    if (res.req?.headers?.["if-none-match"] === etag) {
+      res.writeHead(304, base);
+      res.end();
+      return;
+    }
+    const gzip = COMPRESSIBLE.has(ext) && stats.size > 1024 && acceptsGzip(res.req);
+    res.writeHead(200, gzip ? { ...base, "Content-Encoding": "gzip" } : base);
+    const streams = gzip ? [fs.createReadStream(filePath), zlib.createGzip({ level: 6 }), res] : [fs.createReadStream(filePath), res];
+    pipeline(...streams).catch(() => {
       if (!res.headersSent) json(res, 500, { error: "Unable to serve the requested file." });
     });
   });
@@ -905,7 +856,7 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), liveSearch = null, alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), staticRoot = ROOT }) {
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
@@ -962,10 +913,9 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         }
         if (publicRoute === "flights" && segments[2] === "status") {
           const a = collector ? collector.status() : { available: false, running: false };
-          const b = liveSearch ? liveSearch.status() : { available: false, running: false };
           // The admin panel reads the tracker; a trip search waits for both.
           const w = wizz ? wizz.status() : { available: false, running: false };
-          json(res, 200, { ...a, available: a.available || b.available || w.available, running: a.running || b.running || w.running, tracker: a, apis: b, wizz: w });
+          json(res, 200, { ...a, available: a.available || w.available, running: a.running || w.running, tracker: a, wizz: w });
           return;
         }
         if (publicRoute === "flights" && segments[2] === "network") {
@@ -1040,7 +990,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
             return;
           }
           requireSameOrigin(req);
-          await fetchTripFlights(req, res, collector, flights, tripAsked, liveSearch, wizz);
+          await fetchTripFlights(req, res, collector, flights, tripAsked, wizz);
           return;
         }
         if (segments[1] === "preferences" && segments.length === 2) {
@@ -1070,16 +1020,6 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           }
           return;
         }
-        if (segments[1] === "flights" && segments[2] === "import" && segments.length === 3) {
-          if (req.method !== "POST") {
-            res.setHeader("Allow", "POST");
-            json(res, 405, { error: "Method not allowed." });
-            return;
-          }
-          requireSameOrigin(req);
-          await importWizz(req, res, flights, fareRates);
-          return;
-        }
         if (segments[1] === "flights" && segments[2] === "fare" && segments.length === 3) {
           if (req.method !== "POST") {
             res.setHeader("Allow", "POST");
@@ -1088,16 +1028,6 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           }
           requireSameOrigin(req);
           await refreshFare(req, res, collector, flights, tripAsked);
-          return;
-        }
-        if (segments[1] === "flights" && segments[2] === "refresh" && segments.length === 3) {
-          if (req.method !== "POST") {
-            res.setHeader("Allow", "POST");
-            json(res, 405, { error: "Method not allowed." });
-            return;
-          }
-          requireSameOrigin(req);
-          await refreshFlights(req, res, collector, flights);
           return;
         }
         if (segments[1] === "settings" && segments[2] === "plk-key" && segments.length === 3) {
@@ -1227,10 +1157,11 @@ async function main() {
       if (force || flights.networkIsStale()) await flights.saveNetwork(await readNetwork({ dir: trackerDir, previous: flights.network() }));
     },
   });
+  // Wizz Air timetable: the working API version is found at start and remembered in the database.
+  const wizz = createWizzTimetable({ flights, toPln: createRates(), readVersion: () => readSetting(pool, "wizz-api-version").then((r) => r?.value || null), saveVersion: (v) => saveSetting(pool, "wizz-api-version", v) });
+  wizz.start();
   const alerts = createPriceAlerts({ db: createAlertDatabase(pool), flights, collector, sendEmail: (message) => auth.sendNotice(message) });
   alerts.start();
-  const providers = providersFromEnv();
-  if (providers.length) console.log(`Flight APIs: ${providers.map((p) => p.name).join(", ")}`);
   const server = createServer({
     auth,
     timetables,
@@ -1238,9 +1169,8 @@ async function main() {
     plk,
     flights,
     collector,
-    liveSearch: providers.length ? createLiveFlightSearch({ providers, flights }) : null,
     alerts,
-    wizz: createWizzTimetable({ flights, toPln: createRates() }),
+    wizz,
     database: {
       health: async () => pool.request().query("SELECT 1 AS ok"),
       getSchedule: (agency, sourceKey) => getSchedule(pool, agency, sourceKey),

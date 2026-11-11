@@ -335,7 +335,7 @@ test("weekly calendars are understood as well as single dates", () => {
 test("the warning names the provider, the date and the weekday", () => {
   const { estimateNote } = loadServices({ dates: publishedDays, trips: busTrips });
   const note = estimateNote(["ztm", "pks"], friday);
-  assert.match(note, /ZTM i PKS/);
+  assert.match(note, /ZTM i Komunikacja podmiejska/);
   assert.match(note, /08\.01/);
   assert.match(note, /piątek/);
   assert.match(note, /niedokładny/);
@@ -522,31 +522,11 @@ test("a flight is the recommendation for a far destination, and no car appears w
   assert.deepEqual([...tripModes(1800, none)], ["car"]);
 });
 
-test("airports are grouped by country, Poland first, and only compatible ones count as served", () => {
-  const context = { natSort: (a, b) => a.localeCompare(b) };
-  vm.runInNewContext(`${source.slice(source.indexOf("function airportGroups("), source.indexOf("function airportOptions("))}; this.airportGroups = airportGroups;`, context);
-  const airports = [
-    { code: "BCN", label: "Barcelona (BCN)", country: "Hiszpania" },
-    { code: "ALC", label: "Alicante (ALC)", country: "Hiszpania" },
-    { code: "RZE", label: "Rzeszów (RZE)", country: "Polska" },
-    { code: "KRK", label: "Kraków (KRK)", country: "Polska" },
-  ];
-  const stored = [{ from: "RZE", to: "ALC" }];
-  const network = [{ from: "RZE", to: "ALC" }, { from: "KRK", to: "BCN" }, { from: "KRK", to: "ALC" }];
-  const groups = context.airportGroups(airports, stored, network, "to", "KRK");
-  assert.deepEqual([...groups].map((group) => group.country), ["Polska", "Hiszpania"]);
-  assert.deepEqual([...groups[1].items].map((airport) => [airport.code, airport.stored, airport.served]), [["ALC", false, true], ["BCN", false, true]]);
-  const fromRzeszow = context.airportGroups(airports, stored, network, "to", "RZE");
-  assert.deepEqual([...fromRzeszow[1].items].map((airport) => [airport.code, airport.stored, airport.served]), [["ALC", true, true], ["BCN", false, false]]);
-  const origins = context.airportGroups(airports, stored, network, "from", "");
-  assert.deepEqual([...origins[0].items].map((airport) => [airport.code, airport.served]), [["RZE", true], ["KRK", true]]);
-});
-
 test("a trip is named after what it uses", () => {
   const { transitName } = loadTripModes();
   assert.equal(transitName({ legs: [{ agency: "ztm" }] }), "Autobus");
-  assert.equal(transitName({ legs: [{ agency: "pks" }] }), "PKS");
-  assert.equal(transitName({ legs: [{ agency: "ztm" }, { agency: "pks" }] }), "Autobus + PKS");
+  assert.equal(transitName({ legs: [{ agency: "pks" }] }), "Autobus podmiejski");
+  assert.equal(transitName({ legs: [{ agency: "ztm" }, { agency: "pks" }] }), "Autobus miejski + podmiejski");
 });
 
 test("the trip planner is the first tab and the default page", () => {

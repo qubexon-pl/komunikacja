@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { importWizzResponses, parseWizzResponses } = require("../src/wizz-import");
+const { parseWizzResponses } = require("../src/wizz-import");
 const { createFlightStore } = require("../src/flights");
 
 const timetable = { outboundFlights: [
@@ -35,8 +35,8 @@ test("exact flights from a saved search replace that day's calendar price", () =
 test("imported fares are priced in PLN and stay until the tracker brings newer ones for the same day", async () => {
   let stored = [];
   const store = createFlightStore({ database: { readFares: async () => stored, replaceFares: async (rows) => { stored = rows; } }, now: () => new Date("2026-11-10T10:00:00Z") });
-  const result = await importWizzResponses([{ kind: "timetable", data: timetable }], { flights: store, toPln: async (a, c) => (c === "EUR" ? a * 4.25 : a), now: () => new Date("2026-11-10T10:00:00Z") });
-  assert.deepEqual([result.stored, result.times, result.days], [4, 4, 2]);
+  const rows = parseWizzResponses([{ kind: "timetable", data: timetable }]).map((r) => ({ ...r, source: "har.wizz.timetable", pricePln: r.currency === "EUR" ? r.price * 4.25 : r.price, collectedAt: "2026-11-10T10:00:00Z" }));
+  assert.equal((await store.mergeRows(rows)).stored, 4);
   assert.equal(stored.find((f) => f.from === "BCN").pricePln, 170);
   // An older tracker run without that day keeps the import; the import survives the tracker's replacement.
   await store.importRows([{ airline: "RYANAIR", from: "KRK", to: "BCN", day: "2026-11-13", price: 99, currency: "PLN", pricePln: 99, flightNumber: "FR 1", collectedAt: "2026-11-10T09:00:00Z" }]);

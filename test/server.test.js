@@ -451,50 +451,6 @@ test("flights and driving routes are public, validated, and old end-stop links m
   assert.equal(old.headers.get("location"), "/podroz");
 });
 
-test("only an administrator starts a flight refresh, choosing what, which days and which way", async (t) => {
-  const requests = [];
-  const users = { admin: { id: "1", email: "boss@example.invalid", isAdmin: true }, rider: { id: "3", email: "rider@example.invalid", isAdmin: false } };
-  const routes = [{ from: "RZE", to: "BCN", airlines: ["WIZZ"] }, { from: "BCN", to: "RZE", airlines: ["WIZZ"] }];
-  const server = createServer({
-    database: {},
-    auth: { resolveSession: async (token) => users[token] || null },
-    flights: { search: () => ({}), pairsFor: ({ from, to }) => routes.filter((r) => (!from || r.from === from) && (!to || r.to === to)) },
-    collector: { status: () => ({ available: true, running: false }), request: (target) => { requests.push(target); return "started"; } },
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  const post = (body, who = "admin", origin = base) => fetch(`${base}/api/flights/refresh`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin, Cookie: `rzbus_session=${who}` }, body: JSON.stringify(body) });
-  const period = { start: "2026-12-01", end: "2026-12-10" };
-  const wizz = { airlines: ["WIZZ"] };
-
-  assert.equal((await (await fetch(`${base}/api/flights/status`)).json()).available, true);
-  assert.equal((await post({ scope: "network" }, "nobody")).status, 401);
-  assert.equal((await post({ scope: "network" }, "rider")).status, 403);
-  assert.equal((await post({ scope: "network" }, "admin", "https://evil.example")).status, 403);
-  assert.equal(requests.length, 0);
-
-  assert.equal((await post({ scope: "network" })).status, 202);
-  assert.deepEqual(requests.pop(), { networkOnly: true, target: { scope: "network" } });
-  assert.equal((await post({ scope: "all", ...period, ...wizz })).status, 202);
-  assert.deepEqual(requests.pop(), { start: "2026-12-01", end: "2026-12-10", airlines: ["WIZZ"], target: { scope: "all", from: "", to: "", direction: "out", ...period, ...wizz } });
-  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", direction: "both", ...period, ...wizz })).status, 202);
-  assert.deepEqual(requests.pop().pairs, routes);
-  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", direction: "back", ...period, ...wizz })).status, 202);
-  assert.deepEqual(requests.pop().pairs, [routes[1]]);
-
-  assert.equal((await post({ scope: "everything", ...period, ...wizz })).status, 400);
-  assert.equal((await post({ scope: "route", from: "rze", ...period, ...wizz })).status, 400);
-  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", ...period, airlines: [] })).status, 400);
-  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", ...period, airlines: ["LOT"] })).status, 400);
-  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", start: "2026-12-10", end: "2026-12-01", ...wizz })).status, 400);
-  assert.equal((await post({ scope: "route", from: "RZE", to: "BCN", start: "2026-12-01", end: "2027-06-01", ...wizz })).status, 400);
-  assert.equal((await post({ scope: "route", ...period, ...wizz })).status, 400);
-  assert.equal((await post({ scope: "route", from: "RZE", to: "XXX", ...period, ...wizz })).status, 400);
-  assert.equal(requests.length, 0);
-  const me = await (await fetch(`${base}/api/auth/me`, { headers: { Cookie: "rzbus_session=admin" } })).json();
-  assert.equal(me.user.canAdminister, true);
-});
 
 test("the rail key can be replaced only by an administrator and is never sent back", async (t) => {
   const { createServer } = require("../src/server");

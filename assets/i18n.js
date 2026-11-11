@@ -90,6 +90,18 @@
     'Nie masz jeszcze ulubionych. Kliknij ☆ przy trasie, linii, przystanku, stacji lub pociągu, aby je tu zapisać.':'You have no favourites yet. Click ☆ next to a route, line, stop, station or train to save it here.',
     'Wyszukaj trasę w planerze i kliknij ☆, aby ją tu zapisać.':'Search for a route in the planner and click ☆ to save it here.','Kliknij ☆ przy linii lub przystanku autobusowym, aby je tu zapisać.':'Click ☆ next to a bus line or stop to save it here.','Kliknij ☆ przy linii lub przystanku PKS, aby je tu zapisać.':'Click ☆ next to a PKS line or stop to save it here.','Kliknij ☆ przy pociągu lub stacji, aby je tu zapisać.':'Click ☆ next to a train or station to save it here.',
     'trasy samochodowe':'driving routes','trasy piesze':'walking routes','dane orientacyjne':'approximate data','stacje i tory':'stations and tracks','wyszukiwanie ulic':'street search','Rodzaj podróży':'Trip type',
+    'Loty':'Flights','Plan podróży':'Trip plan','Dalej: dojazd na lotnisko':'Next: getting to the airport','Dalej: plan podróży':'Next: trip plan','Wstecz':'Back','Zmień loty':'Change flights','Wybierz lot powrotny, aby przejść dalej.':'Choose a return flight to continue.',
+    'Nie znaleźliśmy dojazdu na lotnisko wybranymi środkami transportu. Zaznacz więcej opcji.':'We found no way to the airport with the chosen transport. Tick more options.','Pobieram aktualne ceny…':'Getting current prices…',
+    'Wyjście':'Leave','Przylot':'Arrival','Lądowanie':'Landing','Sprawdź na ryanair.com':'Check on ryanair.com','Sprawdź na wizzair.com':'Check on wizzair.com','Sprawdź na ryanair.com (wylot)':'Check on ryanair.com (outbound)','Sprawdź na ryanair.com (powrót)':'Check on ryanair.com (return)','Sprawdź na wizzair.com (wylot)':'Check on wizzair.com (outbound)','Sprawdź na wizzair.com (powrót)':'Check on wizzair.com (return)',
+    'Powrót do domu będzie z innego lotniska niż wyjazd.':'You come home to a different airport than you leave from.','pociąg: cena niedostępna':'train: price not available',
+    'Autobus miejski + podmiejski':'City + suburban bus','Autobus miejski + podmiejski + samolot':'City + suburban bus + plane','Autobus podmiejski + samolot':'Suburban bus + plane',
+    'Podmiejskie':'Suburban','Komunikacja podmiejska':'Suburban buses','Autobus podmiejski':'Suburban bus','Podmiejska':'Suburban','Ulubione podmiejskie':'Favourite suburban buses','Linia podmiejska':'Suburban line',
+    'Dokąd dojedziesz komunikacją podmiejską':'Where suburban buses go','Miejscowości, do których jeżdżą autobusy podmiejskie. Kliknij miejscowość, aby zaplanować podróż.':'Towns served by suburban buses. Click a town to plan a trip.',
+    'Wpisz, skąd i dokąd jedziesz. Porównamy autobusy miejskie i podmiejskie, pociągi, samoloty i samochód.':'Enter where you start and where you are going. We compare city and suburban buses, trains, flights and the car.',
+    'Wczytuję rozkład komunikacji podmiejskiej…':'Loading the suburban bus timetable…','Żadna linia podmiejska nie dojeżdża do takiej miejscowości.':'No suburban line goes to that town.','Nie wczytano rozkładu komunikacji podmiejskiej':'Suburban bus timetable not loaded',
+    'Kliknij ☆ przy linii lub przystanku komunikacji podmiejskiej, aby je tu zapisać.':'Click ☆ next to a suburban line or stop to save it here.',
+    'O aplikacji':'About','Źródła danych':'Data sources','Planer podróży: autobusy miejskie i podmiejskie, pociągi, samoloty i samochód w jednym miejscu.':'Trip planner: city and suburban buses, trains, flights and the car in one place.',
+    'Gmina Miasto Rzeszów nie ponosi odpowiedzialności za sposób wykorzystania danych. Ceny i godziny sprawdź u przewoźnika przed podróżą.':'The City of Rzeszów is not responsible for how the data is used. Check prices and times with the carrier before travelling.',
     'Usuń z mapy':'Remove from the map','Usunięte z mapy:':'Removed from the map:','Przywróć':'Restore','przywróć wszystkie':'restore all','wylot':'departure','kierunek':'destination',
     'Kliknij kierunek albo lotnisko wylotu: wybierz je lub usuń z mapy.':'Click a destination or a departure airport to choose it or remove it from the map.',
     'Zapisz widok':'Save view','Jedź tutaj':'Go here','Ukryj na mapie':'Hide on the map','Autobus ZTM':'ZTM bus','Pociąg (szacunek)':'Train (estimate)',' · bilet normalny':' · standard ticket',
@@ -133,6 +145,8 @@
   };
 
   const PATTERNS=[
+    [/^Wylatujesz z lotniska$/,'You fly out of'],[/^, a wracasz na$/,', and come back to'],[/^pociąg ok\. (.+)$/,'train about $1'],[/^ · bilet normalny, cena pociągu szacunkowa$/,' · standard ticket, train price estimated'],
+    [/^Autobus podmiejski (\S+): (.+)$/,'Suburban bus $1: $2'],[/^Podmiejska · Linia (\S+)$/,'Suburban · Line $1'],[/^Komunikacja podmiejska · linia$/,'Suburban buses · line'],[/^podmiejski (.+)$/,(m,x)=>`suburban ${x.replace('ok. ','about ')}`],
     [/^usunięte: (\d+)$/,'removed: $1'],[/^Usuń (.+) z mapy$/,'Remove $1 from the map'],
     [/^Bilety: (.+)$/,(m,x)=>`Tickets: ${x.replace(/ok\. /g,'about ')}`],[/^ukryte: (\d+) — pokaż$/,'hidden: $1 — show'],
     [/^Pierwszy dostępny lot z (preferowanego lotniska|najbliższego lotniska z lotami do celu) (.+):$/,(m,k,a)=>`First available flight from ${k==='preferowanego lotniska'?'your preferred airport':'the nearest airport with flights there'} ${a}:`],

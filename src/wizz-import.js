@@ -1,8 +1,6 @@
 "use strict";
 
-// Wizz Air fares from the user's own browser: the page is opened by a person in a normal Chrome, saved as a HAR
-// file and uploaded. The browser picks the Wizz answers out of the HAR (timetable, farechart, search) and sends
-// only those; nothing here calls Wizz Air. The tracker's automated browser is shown "no flights" by Wizz.
+// Parsers for Wizz Air answers (timetable, farechart, search); the timetable client (wizz-timetable.js) uses them.
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
@@ -84,17 +82,4 @@ function parseWizzResponses(responses) {
   });
 }
 
-async function importWizzResponses(responses, { toPln, flights, now = () => new Date() }) {
-  const rows = parseWizzResponses(responses);
-  const collectedAt = now().toISOString();
-  const priced = [];
-  for (const row of rows) {
-    const pricePln = await toPln(row.price, row.currency);
-    if (pricePln) priced.push({ ...row, pricePln, collectedAt });
-  }
-  const result = await flights.mergeRows(priced);
-  const routes = [...new Set(priced.map((f) => `${f.from}→${f.to}`))];
-  return { found: rows.length, stored: result.stored, routes, days: new Set(priced.map((f) => f.day)).size, times: priced.filter((f) => f.priceType === "list" && f.departure).length, exact: priced.filter((f) => f.priceType === "exact").length };
-}
-
-module.exports = { importWizzResponses, parseWizzResponses };
+module.exports = { parseWizzResponses };

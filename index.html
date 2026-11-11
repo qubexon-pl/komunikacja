@@ -9,6 +9,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Plus+Jakarta+Sans:wght@300..800&display=swap" rel="stylesheet">
 <meta name="theme-color" content="#0B1A33">
+<link rel="icon" type="image/png" sizes="64x64" href="/assets/logo-64.png">
+<link rel="apple-touch-icon" href="/assets/logo-180.png">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
@@ -18,7 +20,7 @@
 
 <nav class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="/podroz" data-brand>W<b>/</b>DROGĘ</a>
+    <a class="brand" href="/podroz"><img class="brand-logo" src="/assets/logo-64.png" alt="" width="34" height="34"><span data-brand>W<b>/</b>DROGĘ</span></a>
     <div class="view-tabs" aria-label="Kategorie">
       <a class="view-tab" data-view="podroz" href="/podroz"><i class="fa-solid fa-route" aria-hidden="true"></i> Zaplanuj podróż</a>
       <div class="dropdown view-drop">
@@ -30,11 +32,11 @@
         </ul>
       </div>
       <div class="dropdown view-drop">
-        <a class="view-tab dropdown-toggle" data-view="pks" href="/pks" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-bus-simple" aria-hidden="true"></i> PKS</a>
+        <a class="view-tab dropdown-toggle" data-view="pks" href="/pks" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-bus-simple" aria-hidden="true"></i> Podmiejskie</a>
         <ul class="dropdown-menu">
           <li><a class="dropdown-item" data-go="pks" data-sub="" href="/pks"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Dokąd dojedziesz</a></li>
           <li><a class="dropdown-item" data-go="pks" data-sub="rozklad" href="/pks#rozklad"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
-          <li><a class="dropdown-item" data-go="pks" data-sub="ulubione" href="/ulubione#pks"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione PKS</a></li>
+          <li><a class="dropdown-item" data-go="pks" data-sub="ulubione" href="/ulubione#pks"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione podmiejskie</a></li>
         </ul>
       </div>
       <div class="dropdown view-drop">
@@ -53,8 +55,6 @@
         <button class="nav-link-btn dropdown-toggle" id="adminMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false">Admin</button>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminMenu">
           <li><button class="dropdown-item" id="refreshBtn" type="button" title="Odśwież teraz"><span class="ico">↻</span> Odśwież</button></li>
-          <li class="admin-only"><button class="dropdown-item" id="refreshFlightsBtn" type="button"><i class="fa-solid fa-plane ico" aria-hidden="true"></i> Pobieranie lotów</button></li>
-          <li class="admin-only"><button class="dropdown-item" id="importWizzBtn" type="button" data-import-wizz><i class="fa-solid fa-file-import ico" aria-hidden="true"></i> Import Wizz Air z przeglądarki (HAR)</button></li>
           <li><button class="dropdown-item" id="settingsBtn" type="button">Ustawienia</button></li>
         </ul>
       </div>
@@ -62,6 +62,7 @@
         <button class="nav-link-btn dropdown-toggle" id="userMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false"><span id="currentUser">Konto</span></button>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
           <li class="guest-only"><a class="dropdown-item" id="loginLink" href="/login">Zaloguj się</a></li>
+          <li><button class="dropdown-item" id="aboutBtn" type="button" data-bs-toggle="modal" data-bs-target="#aboutModal"><i class="fa-solid fa-circle-info ico" aria-hidden="true"></i> O aplikacji</button></li>
           <li><button class="dropdown-item" id="themeBtn" type="button" title="Motyw">Motyw</button></li>
           <li><button class="dropdown-item" id="langBtn" type="button">English</button></li>
           <li class="account-only"><button class="dropdown-item" id="deleteAccountBtn" type="button">Usuń konto</button></li>
@@ -77,7 +78,7 @@
     <div class="hero-left">
       <span class="kicker loading" id="liveKicker"><span class="dot"></span><span id="liveText">Łączenie…</span></span>
       <h1 id="heroTitle">Zaplanuj podróż</h1>
-      <p id="heroLead">Wpisz, skąd i dokąd jedziesz. Porównamy autobusy, PKS, pociągi, samoloty i samochód.</p>
+      <p id="heroLead">Wpisz, skąd i dokąd jedziesz. Porównamy autobusy miejskie i podmiejskie, pociągi, samoloty i samochód.</p>
     </div>
     <div class="hero-right">
     <div class="wx" id="wx"></div>
@@ -94,7 +95,6 @@
   </div>
 </header>
 
-<input type="file" id="importWizzFile" accept=".har,application/json" hidden>
 <div class="toast-note" id="toastNote" role="status" aria-live="polite" hidden></div>
 <main class="shell">
   <div class="stats-band only-live map-part">
@@ -130,7 +130,7 @@
       <button type="button" class="btn-ghost" id="plAddStop"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj przystanek</button>
     <div class="trip-modes" id="plModes" role="group" aria-label="Środki transportu">
       <label class="mode-check"><input type="checkbox" value="bus" checked> <i class="fa-solid fa-bus" aria-hidden="true"></i> Autobus</label>
-      <label class="mode-check"><input type="checkbox" value="pks" checked> <i class="fa-solid fa-bus-simple" aria-hidden="true"></i> PKS</label>
+      <label class="mode-check"><input type="checkbox" value="pks" checked> <i class="fa-solid fa-bus-simple" aria-hidden="true"></i> Podmiejskie</label>
       <label class="mode-check"><input type="checkbox" value="train" checked> <i class="fa-solid fa-train" aria-hidden="true"></i> Pociąg</label>
       <label class="mode-check"><input type="checkbox" value="plane" checked> <i class="fa-solid fa-plane" aria-hidden="true"></i> Samolot</label>
       <label class="mode-check"><input type="checkbox" value="car" checked> <i class="fa-solid fa-car" aria-hidden="true"></i> Samochód</label>
@@ -191,7 +191,7 @@
   <div class="txt-red small fw-semibold mt-2 not-kolej tt-part" id="ttErr"></div>
   <div id="ttResults" class="mt-3 not-kolej tt-part"></div>
 
-  <div class="sec-head only-pks" id="dest-sec"><span class="sec-num">01</span><h2>Dokąd dojedziesz PKS-em</h2><span class="sec-rule"></span></div>
+  <div class="sec-head only-pks" id="dest-sec"><span class="sec-num">01</span><h2>Dokąd dojedziesz komunikacją podmiejską</h2><span class="sec-rule"></span></div>
   <div class="dest-bar only-pks"><div class="pl-field"><label for="destSearch">Szukaj miejscowości</label><div class="pl-inp"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="destSearch" type="search" placeholder="np. Tyczyn, Błażowa, Niebylec" autocomplete="off"></div></div><div class="small text-soft" id="destInfo"></div></div>
   <div id="pksDest" class="dest-grid only-pks"></div>
 
@@ -242,20 +242,30 @@
   <div class="sec-head only-ztm" id="lines-sec" style="margin-top:64px"><span class="sec-num">05</span><h2>Linie i przystanki</h2><span class="sec-rule"></span></div>
   <div id="linesGrid" class="lines-grid only-ztm"></div>
 
-  <p class="footer-note mt-5 mb-0" id="attribution">
-    Dane rozkładowe: <a href="https://otwartedane.erzeszow.pl/dataset/rozklad-jazdy-transxchange" target="_blank" rel="noopener">ZTM Rzeszów</a> (GTFS: <a href="https://mkuran.pl/gtfs/" target="_blank" rel="noopener">mkuran.pl</a>) ·
-    pozycje na żywo: GTFS-Realtime ZTM Rzeszów (<a href="https://www.mpkrzeszow.pl/otwartedane/" target="_blank" rel="noopener">otwarte dane</a>) ·
-    podkład mapy: Esri / © OpenStreetMap (wg wyboru w ustawieniach) ·
-    trasy samochodowe: <a href="https://project-osrm.org/" target="_blank" rel="noopener">OSRM</a> ·
-    trasy piesze: <a href="https://routing.openstreetmap.de/" target="_blank" rel="noopener">FOSSGIS</a> ·
-    rozkład i pozycje PKS: <a href="https://kmrzeszow.live/" target="_blank" rel="noopener">kmrzeszow.live</a> ·
-    pociągi: <a href="https://pdp-api.plk-sa.pl/" target="_blank" rel="noopener">PKP Polskie Linie Kolejowe S.A.</a> (dane orientacyjne) ·
-    stacje i tory: <a href="https://mkuran.pl/gtfs/" target="_blank" rel="noopener">mkuran.pl</a> ·
-    wyszukiwanie ulic: <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">Nominatim</a>, <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a>, dane © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">współtwórcy OpenStreetMap</a> · pogoda: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Gmina Miasto Rzeszów nie ponosi odpowiedzialności za sposób wykorzystania danych.
-  </p>
 </main>
 
-<!-- Flight scan modal -->
+
+<div class="modal fade" id="aboutModal" tabindex="-1" aria-hidden="true" aria-labelledby="aboutTitle">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-hero about-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><img class="about-logo" src="/assets/logo.png" alt="" width="64" height="64"><div><span class="kicker mb-1">O aplikacji</span><h4 id="aboutTitle">W drogę</h4><div class="sub">Planer podróży: autobusy miejskie i podmiejskie, pociągi, samoloty i samochód w jednym miejscu.</div></div></div>
+      <div class="modal-body p-3 p-md-4" id="attribution">
+        <h5 class="about-h">Źródła danych</h5>
+        <ul class="about-list">
+          <li><b>Autobusy miejskie:</b> rozkład <a href="https://otwartedane.erzeszow.pl/dataset/rozklad-jazdy-transxchange" target="_blank" rel="noopener">ZTM Rzeszów</a> (GTFS: <a href="https://mkuran.pl/gtfs/" target="_blank" rel="noopener">mkuran.pl</a>), pozycje na żywo z <a href="https://www.mpkrzeszow.pl/otwartedane/" target="_blank" rel="noopener">otwartych danych MPK</a>, ceny biletów z <a href="https://ztm.erzeszow.pl/media/uploads/2024/09/Cennik.pdf" target="_blank" rel="noopener">cennika ZTM</a>.</li>
+          <li><b>Komunikacja podmiejska:</b> rozkład i pozycje <a href="https://kmrzeszow.live/" target="_blank" rel="noopener">kmrzeszow.live</a>, ceny biletów z <a href="https://pks.rzeszow.pl/" target="_blank" rel="noopener">wyszukiwarki połączeń PKS Rzeszów</a>.</li>
+          <li><b>Pociągi:</b> <a href="https://pdp-api.plk-sa.pl/" target="_blank" rel="noopener">PKP Polskie Linie Kolejowe S.A.</a> (dane orientacyjne), stacje i tory: <a href="https://mkuran.pl/gtfs/" target="_blank" rel="noopener">mkuran.pl</a>.</li>
+          <li><b>Loty:</b> Ryanair (flight-tracker) i rozkład Wizz Air (timetableV2); ceny w złotych wg kursów <a href="https://api.nbp.pl/" target="_blank" rel="noopener">NBP</a>.</li>
+          <li><b>Samochód:</b> trasy <a href="https://project-osrm.org/" target="_blank" rel="noopener">OSRM</a>, cena paliwa: Ministerstwo Energii (cena maksymalna).</li>
+          <li><b>Mapy i adresy:</b> podkład Esri / © OpenStreetMap, trasy piesze <a href="https://routing.openstreetmap.de/" target="_blank" rel="noopener">FOSSGIS</a>, wyszukiwanie ulic <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">Nominatim</a> i <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a>, dane © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">współtwórcy OpenStreetMap</a>.</li>
+          <li><b>Pogoda:</b> <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0).</li>
+        </ul>
+        <p class="small text-soft mb-0">Gmina Miasto Rzeszów nie ponosi odpowiedzialności za sposób wykorzystania danych. Ceny i godziny sprawdź u przewoźnika przed podróżą.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="alertModal" tabindex="-1" aria-hidden="true" aria-labelledby="alertTitle">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -275,50 +285,6 @@
     </div>
   </div>
 </div>
-<div class="modal fade" id="scanModal" tabindex="-1" aria-hidden="true" aria-labelledby="scanTitle">
-  <div class="modal-dialog modal-dialog-centered modal-lg">
-    <div class="modal-content">
-      <div class="modal-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><span class="kicker mb-1">Admin · tanie linie</span><h4 id="scanTitle">Pobieranie lotów</h4><div class="sub">Loty nie są pobierane automatycznie. Wybierz, co odświeżyć.</div></div>
-      <div class="modal-body p-3 p-md-4">
-        <fieldset class="scan-group"><legend>Co odświeżyć</legend>
-          <label class="trip-check"><input type="radio" name="scanScope" value="route" checked> Ceny na wybranej trasie</label>
-          <label class="trip-check"><input type="radio" name="scanScope" value="all"> Wszystkie trasy z listy serwera</label>
-          <label class="trip-check"><input type="radio" name="scanScope" value="network"> Tylko lista połączeń linii</label>
-        </fieldset>
-        <fieldset class="scan-group" data-scan-part="route"><legend>Kierunek</legend>
-          <div class="scan-route">
-            <div class="pl-field"><label for="scanFrom">Z lotniska</label><div class="pl-inp"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="scanFrom" list="scanAirportList" placeholder="Dowolne — wpisz miasto lub kod" autocomplete="off"></div></div>
-            <button type="button" class="pl-swap" id="scanSwap" title="Zamień kierunek" aria-label="Zamień kierunek"><i class="fa-solid fa-right-left" aria-hidden="true"></i></button>
-            <div class="pl-field"><label for="scanTo">Do lotniska</label><div class="pl-inp"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="scanTo" list="scanAirportList" placeholder="Dowolne — wpisz miasto lub kod" autocomplete="off"></div></div>
-            <datalist id="scanAirportList"></datalist>
-          </div>
-          <div class="scan-ways">
-            <label class="trip-check"><input type="radio" name="scanWay" value="out" checked> Tylko tam</label>
-            <label class="trip-check"><input type="radio" name="scanWay" value="back"> Tylko z powrotem</label>
-            <label class="trip-check"><input type="radio" name="scanWay" value="both"> W obie strony</label>
-          </div>
-        </fieldset>
-        <fieldset class="scan-group" data-scan-part="dates"><legend>Daty</legend>
-          <div class="scan-dates">
-            <div class="pl-field"><label for="scanStart">Od</label><div class="pl-inp"><input id="scanStart" type="date"></div></div>
-            <div class="pl-field"><label for="scanEnd">Do</label><div class="pl-inp"><input id="scanEnd" type="date"></div></div>
-          </div>
-        </fieldset>
-        <fieldset class="scan-group" data-scan-part="dates"><legend>Linie lotnicze</legend>
-          <div class="scan-airlines" id="scanAirlines">
-            <label class="trip-check"><input type="checkbox" value="RYANAIR" checked> Ryanair</label>
-            <span class="small text-soft">Wizz Air: przez API.SH albo import strony z przeglądarki (Admin › Import Wizz Air)</span>
-          </div>
-        </fieldset>
-        <div class="small text-soft mt-3" id="scanInfo"></div>
-        <div class="small fw-semibold mt-2" id="flightStatus" role="status"></div>
-        <div class="d-flex justify-content-end gap-2 mt-3"><button class="btn-ghost" type="button" data-bs-dismiss="modal">Zamknij</button><button class="btn-grad" type="button" id="scanGo">Uruchom</button></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Flight modal -->
 <div class="modal fade" id="flightModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
@@ -478,11 +444,11 @@
           <div class="set-group">
             <div class="form-check form-switch mb-2">
               <input class="form-check-input" type="checkbox" id="sPks">
-              <label class="form-check-label" for="sPks"><b>PKS Rzeszów</b> — linie podmiejskie na mapie i w wyszukiwarce</label>
+              <label class="form-check-label" for="sPks"><b>Komunikacja podmiejska</b> (PKS Rzeszów) — linie na mapie i w wyszukiwarce</label>
             </div>
-            <label class="form-label" for="sPksRt">PKS · GTFS-Realtime (jeden URL na linię)</label>
+            <label class="form-label" for="sPksRt">Komunikacja podmiejska · GTFS-Realtime (jeden URL na linię)</label>
             <textarea class="form-control mb-2" id="sPksRt" rows="2" spellcheck="false"></textarea>
-            <label class="form-label" for="sPksStatic">PKS · rozkład GTFS .zip (jeden URL na linię)</label>
+            <label class="form-label" for="sPksStatic">Komunikacja podmiejska · rozkład GTFS .zip (jeden URL na linię)</label>
             <textarea class="form-control" id="sPksStatic" rows="2" spellcheck="false"></textarea>
             <div class="form-text text-soft">Domyślne adresy pochodzą z kmrzeszow.live i z ich kopii na mpkrzeszow.pl. Dokładne linki („Pobierz plik”) znajdziesz na kmrzeszow.live/otwartedane — wklej je tutaj.</div>
           </div>

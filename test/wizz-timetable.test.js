@@ -62,3 +62,30 @@ test("the price of one departure replaces only that departure, and a refusal pau
   assert.equal(calls, 2); // the second request after the refusal was never sent
   assert.ok(wizz.status().pausedUntil);
 });
+
+test("a moved Wizz API version is found by trying the next likely ones, and remembered", async () => {
+  const { nextVersions } = require("../src/wizz-timetable");
+  assert.deepEqual(nextVersions("29.24.0").slice(0, 3), ["29.24.1", "29.25.0", "29.25.1"]);
+  const tried = [];
+  let saved = null;
+  const { store } = memoryStore();
+  const wizz = createWizzTimetable({ flights: store, toPln: async (a) => a, now: () => NOW, gapMs: 0, version: "29.24.0", saveVersion: async (v) => { saved = v; },
+    fetchSource: async (url) => { const v = /be\.wizzair\.com\/([\d.]+)\//.exec(String(url))[1]; tried.push(v); return v === "29.25.0" ? answer([]) : new Response("", { status: 404 }); } });
+  await wizz.priceForTime({ from: "KRK", to: "BCN", time: `${day(5)}T15:25` });
+  assert.equal(wizz.status().version, "29.25.0");
+  assert.equal(saved, "29.25.0");
+  assert.deepEqual(tried.slice(0, 3), ["29.24.0", "29.24.1", "29.25.0"]);
+});
+
+test("picking another day asks Wizz Air again only when that day's last check is more than 3 hours old", async () => {
+  let clock = NOW, calls = 0;
+  const { store } = memoryStore();
+  const wizz = createWizzTimetable({ flights: store, toPln: async (a) => a, now: () => clock, gapMs: 0, fetchSource: async () => { calls += 1; return answer([]); } });
+  const pair = [{ from: "KRK", to: "BCN", airlines: ["WIZZ"] }];
+  assert.equal(wizz.searchRoutes(pair, day(10)), "started");
+  assert.equal(wizz.searchRoutes(pair, day(12)), "fresh"); // within the two weeks just asked about
+  assert.equal(wizz.searchRoutes(pair, day(30)), "started"); // outside it
+  clock += 3 * 60 * 60 * 1000 + 1;
+  assert.equal(wizz.searchRoutes(pair, day(12)), "started"); // older than 3 hours
+  while (wizz.status().running) await new Promise((r) => setTimeout(r, 5));
+});
