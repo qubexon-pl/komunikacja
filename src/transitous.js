@@ -24,7 +24,7 @@ function createTransitous({ fetchSource = fetch, now = Date.now, minGapMs = MIN_
     queue = run.catch(() => {});
     return run;
   }
-  return { plan: (params) => ask("/plan", params), mapTrips: (params) => ask("/map/trips", params) };
+  return { plan: (params) => ask("/plan", params), mapTrips: (params) => ask("/map/trips", params), geocode: (params) => ask("/geocode", params) };
 }
 
 // Offset (ms) of a time zone at an instant.

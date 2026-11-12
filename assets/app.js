@@ -1056,8 +1056,12 @@ function viewFromPath(){ return Object.keys(VIEWS).find(k=>VIEWS[k].path===locat
 // Podstrony: '' (wyszukiwarka), 'rozklad' (rozkład jazdy danej kategorii) i 'ulubione' (osobna strona ulubionych).
 const FAV_HASH={ztm:'autobusy', pks:'pks', kolej:'pociagi', podroz:'podroze'};
 const FAVF={kind:'all'};
+// Moje podróże (/moje-podroze) i strona jednej zapisanej podróży (/podroz-szczegoly?id=…).
+const TRIPV={id:'', city:false};
 function pageFromLocation(){
   if(location.pathname==='/kierunki') return {view:'podroz', sub:'kierunki', kind:'all'};
+  if(location.pathname==='/moje-podroze') return {view:'podroz', sub:'moje', kind:'all'};
+  if(location.pathname==='/podroz-szczegoly'){ TRIPV.id=new URLSearchParams(location.search).get('id')||''; return {view:'podroz', sub:'trip', kind:'all'}; }
   if(location.pathname==='/ulubione'){
     const kind=Object.keys(FAV_HASH).find(k=>'#'+FAV_HASH[k]===location.hash)||'all';
     return {view:kind==='all'||kind==='podroz'?'podroz':kind, sub:'ulubione', kind};
@@ -1068,6 +1072,8 @@ function pageFromLocation(){
 function pageUrl(view, sub, kind){
   if(sub==='ulubione') return '/ulubione'+(kind&&kind!=='all'?'#'+FAV_HASH[kind]:'');
   if(sub==='kierunki') return '/kierunki';
+  if(sub==='moje') return '/moje-podroze';
+  if(sub==='trip') return '/podroz-szczegoly?id='+encodeURIComponent(TRIPV.id);
   return VIEWS[view].path+(sub==='rozklad'?'#rozklad':'');
 }
 const planKey=view=>'rzbus.plan.'+(view==='ztm'?'ztm':'podroz');
@@ -1082,7 +1088,7 @@ function setView(view, push, sub='', kind=FAVF.kind){
   FAVF.kind=sub==='ulubione'?kind:'all';
   if(push) history.pushState(null,'',pageUrl(view, sub, FAVF.kind));
   clearRouteLayer(); S.selected=null; S.follow=false; S.lineSet=null;
-  S.agency=view; S.query=''; S.plan=null; S.placeChoice={}; planReq++;
+  S.agency=view; S.query=''; S.plan=null; S.placeChoice={}; planReq++; planBusy();
   document.body.dataset.view=view; map.invalidateSize();
   document.getElementById('heroLead').textContent=V.lead;
   document.getElementById('mapTitle').textContent=V.map||'Mapa na żywo';
@@ -1106,27 +1112,38 @@ function syncNav(){
   document.querySelectorAll('.view-tab').forEach(a=>{ const on=a.dataset.view===tab; a.classList.toggle('active',on); if(on) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
   document.querySelectorAll('[data-go]').forEach(a=>{ const sub=a.dataset.sub||'', on=a.dataset.go===current&&sub===S.sub; a.classList.toggle('active',on); if(on) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
   const all=document.getElementById('favLink'); all.classList.toggle('active', fav&&FAVF.kind==='all');
+  const trip=S.sub==='trip'?findTrip(TRIPV.id):null;
+  document.getElementById('myTripsLink')?.classList.toggle('active', S.sub==='moje'||trip?.status==='booked');
+  if(trip && trip.status!=='booked') all.classList.add('active');
 }
 function setSubpage(sub){
   if(sub==='rozklad' && S.agency==='podroz') sub='';
   if(sub==='kierunki' && S.agency!=='podroz') sub='';
+  if((sub==='moje'||sub==='trip') && S.agency!=='podroz') sub='';
+  if(S.sub==='trip' && sub!=='trip'){ document.getElementById('tripPage').innerHTML=''; TRIPV.city=false; stopVehicles(); }
   S.sub=sub;
   const V=VIEWS[S.agency];
   document.body.classList.toggle('tt-mode', sub==='rozklad');
   document.body.classList.toggle('fav-mode', sub==='ulubione');
   document.body.classList.toggle('explore-mode', sub==='kierunki');
+  document.body.classList.toggle('mytrips-mode', sub==='moje');
+  document.body.classList.toggle('trip-mode', sub==='trip');
   let title=V.title, lead=V.lead;
   if(sub==='rozklad'){ title=S.agency==='kolej'?'Rozkład pociągów':'Rozkład jazdy'; lead=S.agency==='kolej'?'Odjazdy i przyjazdy na wybranej stacji.':'Wpisz przystanek, wybierz dzień i linię.'; }
   if(sub==='ulubione'){ title=FAV_TITLES[FAVF.kind]; lead='Zapisane trasy, linie, przystanki, stacje i pociągi w jednym miejscu.'; }
   if(sub==='kierunki'){ title='Kierunki lotów'; lead='Dokąd polecisz z lotnisk w Polsce liniami Ryanair i Wizz Air. Kliknij kierunek, a zaplanujemy całą podróż.'; }
+  if(sub==='moje'){ title='Moje podróże'; lead='Podróże, które zapisałeś jako swoje: loty, dojazd na lotnisko i z lotniska, pogoda i komunikacja w mieście.'; }
+  if(sub==='trip'){ const t=findTrip(TRIPV.id); title=t?`Podróż do ${t.to}`:'Podróż'; lead=t?.status==='booked'?'Twoja podróż krok po kroku.':'Zaplanowana podróż z ulubionych — zapisz ją jako swoją, gdy będzie pewna.'; }
   document.getElementById('heroTitle').textContent=title;
   document.getElementById('heroLead').textContent=lead;
   document.title=`${title} · ${APP_NAME}`;
   const url=pageUrl(S.agency, sub, FAVF.kind);
-  if(location.pathname+location.hash!==url) history.replaceState(null,'',url);
+  if(location.pathname+location.search+location.hash!==url) history.replaceState(null,'',url);
   syncNav(); renumberSections();
   if(sub==='rozklad'){ if(S.agency==='kolej') renderBoard(); else renderTimetable(); }
   if(sub==='ulubione') renderFavorites();
+  if(sub==='moje') renderMyTrips();
+  if(sub==='trip') renderTripPage();
   if(sub==='kierunki'){ EXPLORE.open=true; setTimeout(()=>{ renderExplore(); EXPLORE.map?.invalidateSize(); }, 60); }
 }
 function setTimetableMode(on){ setSubpage(on?'rozklad':''); }
@@ -1134,7 +1151,7 @@ function setTimetableMode(on){ setSubpage(on?'rozklad':''); }
 function goPage(view, sub='', kind='all'){
   if(sub==='ulubione') FAVF.kind=kind;
   if(view!==S.agency) setView(view, true, sub, kind);
-  else { const before=location.pathname+location.hash; setSubpage(sub); const url=pageUrl(view, sub, FAVF.kind); if(before!==url) history.pushState(null,'',url); }
+  else { const before=location.pathname+location.search+location.hash; setSubpage(sub); const url=pageUrl(view, sub, FAVF.kind); if(before!==url) history.pushState(null,'',url); }
   window.scrollTo({top:0, behavior:'instant'});
   if(sub==='rozklad') setTimeout(()=>document.getElementById(S.agency==='kolej'?'trSearch':'ttStop').focus(), 50);
 }
@@ -1152,6 +1169,28 @@ document.addEventListener('click', e=>{
   if(!e.target.closest('[data-edit-search]')) return;
   e.target.closest('details')?.removeAttribute('open');
   const box=document.querySelector('.search-box'); box?.scrollIntoView({behavior:'smooth', block:'center'}); setTimeout(()=>plDate.focus(),400);
+});
+// Czysty planer: przycisk „Resetuj”, zakładka „Zaplanuj podróż” i logo zaczynają od zera (bez wczytanej podróży).
+function resetPlanner(){
+  planReq++; S.plan=null; S.restore=null; S.placeChoice={}; S.planView={picked:{}, sort:S.planView.sort};
+  plFrom.value=''; plTo.value=''; plDate.value=''; plBack.value=''; plTime.value=''; plWhen.value='dep';
+  clearVias(); store(planKey(S.agency), {from:'', to:''});
+  document.getElementById('planResults').innerHTML=''; document.getElementById('planErr').textContent=''; document.getElementById('planHint').textContent='';
+  if(typeof closeRange==='function') closeRange();
+  syncReturn(); planBusy();
+}
+document.getElementById('plReset').addEventListener('click', ()=>{ resetPlanner(); plFrom.focus(); });
+document.querySelectorAll('.brand, .view-tab[data-view="podroz"]').forEach(a=>a.addEventListener('click', e=>{
+  if(e.ctrlKey||e.metaKey||e.shiftKey) return;
+  e.preventDefault(); goPage('podroz'); resetPlanner();
+}));
+document.getElementById('myTripsLink').addEventListener('click', e=>{
+  if(e.ctrlKey||e.metaKey||e.shiftKey) return;
+  e.preventDefault(); goPage('podroz', 'moje');
+});
+document.addEventListener('click', e=>{
+  const go=e.target.closest('[data-go-mytrips]'); if(!go || e.ctrlKey||e.metaKey||e.shiftKey) return;
+  e.preventDefault(); goPage('podroz','moje');
 });
 document.getElementById('favLink').addEventListener('click', e=>{
   if(e.ctrlKey||e.metaKey||e.shiftKey) return;
@@ -1649,6 +1688,7 @@ function planEditMenu(){
   return `<details class="plan-edit"><summary class="btn-ghost"><i class="fa-solid fa-pen" aria-hidden="true"></i> Edytuj</summary><div class="plan-edit-menu">
     <button type="button" data-flight-step="1"><i class="fa-solid fa-plane" aria-hidden="true"></i> Zmień loty</button>
     <button type="button" data-flight-step="2"><i class="fa-solid fa-route" aria-hidden="true"></i> Zmień dojazd na lotnisko</button>
+    <button type="button" data-flight-step="3"><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> Zmień dojazd do centrum</button>
     <button type="button" data-edit-search><i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Zmień daty lub miejsca</button></div></details>`;
 }
 const tripFlight=f=>f&&!f.placeholder?{from:f.from, to:f.to, day:f.day, back:f.ret?.day||'', airline:f.airline, price:fareTotal(f)}:null;
@@ -1920,12 +1960,12 @@ function railPartSteps(parts){
 // Z domu na stację: pieszo, autobusem z rozkładu albo samochodem z nawigacją.
 function toStation(P, a, station, dep){
   const pt=stopPoint(station)||RAIL_BY_NAME.get(station), dist=pt?Math.round(hav(a,pt)):null;
-  if(dist!=null && dist<=RAIL_WALK_M) return {steps:[step('person-walking',`Idź na stację ${station}`,walkText(dist))], seq:[seqWalk(walkSec(dist))], leave:dep-walkSec(dist)-300, cost:0, parts:{}};
+  if(dist!=null && dist<=RAIL_WALK_M) return {walk:dist, steps:[step('person-walking',`Idź na stację ${station}`,walkText(dist))], seq:[seqWalk(walkSec(dist))], leave:dep-walkSec(dist)-300, cost:0, parts:{}};
   const stops=pt?nearbyStops({points:[pt]}).filter(x=>x.dist<=800):[];
   const o=stops.length && P.origin.names.length && usesTransit(P) ? arrivingBy(P.origin,stops,dep-300,tripAllowed(P)) : null;
-  if(o) return {steps:transitSteps(o,`na stację ${station}`), seq:transitSeq(o), leave:o.dep-o.walkFrom, cost:transitCost(o), parts:transitParts(o)};
+  if(o) return {o, steps:transitSteps(o,`na stację ${station}`), seq:transitSeq(o), leave:o.dep-o.walkFrom, cost:transitCost(o), parts:transitParts(o)};
   const km=(dist||0)/1000*ROAD_FACTOR, min=km/CAR_KMH*60+10;
-  return {steps:[withMap(step('car',`Dojedź na stację ${station}`,`ok. ${fmtKm(km)} · ok. ${fmtDuration(min)} samochodem lub taksówką`),a,pt)], seq:[seqIcon('car',MODE_COLOR.car)], leave:dep-min*60, cost:fuelCost(km), parts:{car:fuelCost(km)}};
+  return {drive:dist, steps:[withMap(step('car',`Dojedź na stację ${station}`,`ok. ${fmtKm(km)} · ok. ${fmtDuration(min)} samochodem lub taksówką`),a,pt)], seq:[seqIcon('car',MODE_COLOR.car)], leave:dep-min*60, cost:fuelCost(km), parts:{car:fuelCost(km)}};
 }
 async function railToAirport(P, f, deadline){
   const a=P.origin.points[0], point=[f.airport.lat,f.airport.lon]; if(!a) return null;
@@ -1943,7 +1983,8 @@ async function railToAirport(P, f, deadline){
     if(target.lastKm){ steps.push(step('bus',`Z dworca ${target.station} na lotnisko ${f.fromLabel}`,`ok. ${fmtKm(target.lastKm)} · autobus lotniskowy lub taksówka — tego odcinka nie ma w rozkładzie PKP`)); seq.push(seqIcon('bus',MODE_COLOR.other)); }
     else steps.push(step('person-walking',`Ze stacji ${target.station} dojdź do terminalu`,walkText(target.walkM)));
     const atAirport=last.arr+target.lastMin*60, fare=railFare(parts);
-    return {id:'rail', title:'Pociąg + samolot', steps, seq, leave:access.leave, atAirport, minutes:(atAirport-access.leave)/60, cost:fare==null?null:fare+access.cost, parts:mergeParts(access.parts,{train:fare??0})};
+    const route={kind:'train', r:{parts, a:first.a, b:last.b, dep:first.dep, arr:last.arr, from:railName(first.a.id), to:target.station, access:access.o||null, walkFrom:access.walk||0, startDist:access.drive??(access.o||access.walk?0:null), walkTo:target.walkM||0}, origin:P.origin, dest:{label:f.fromLabel, points:[point]}};
+    return {id:'rail', title:'Pociąg', route, steps, seq, leave:access.leave, atAirport, minutes:(atAirport-access.leave)/60, cost:fare==null?null:fare+access.cost, parts:mergeParts(access.parts,{train:fare??0})};
   }
   return null;
 }
@@ -1975,7 +2016,7 @@ async function carToAirport(P, f){
     P.carTo.set(f.from,route);
   }
   const d=P.carTo.get(f.from), km=d?d.km:hav(a,b)/1000*ROAD_FACTOR, min=d?d.minutes:km/CAR_KMH*60;
-  return {id:'car', title:'Samochód + samolot', minutes:min, km, cost:fuelCost(km), parts:{car:fuelCost(km)}, seq:[seqIcon('car',MODE_COLOR.car)], steps:[withMap(step('car',`Jedź samochodem na lotnisko ${f.fromLabel}`,`${fmtKm(km)} · ok. ${fmtDuration(min)}${d?'':' · szacunkowo'} · paliwo ok. ${fuelCost(km)} zł`),a,b)]};
+  return {id:'car', title:'Samochód', route:{kind:'car', origin:P.origin, dest:{label:f.fromLabel, points:[b]}}, minutes:min, km, cost:fuelCost(km), parts:{car:fuelCost(km)}, seq:[seqIcon('car',MODE_COLOR.car)], steps:[withMap(step('car',`Jedź samochodem na lotnisko ${f.fromLabel}`,`${fmtKm(km)} · ok. ${fmtDuration(min)}${d?'':' · szacunkowo'} · paliwo ok. ${fuelCost(km)} zł`),a,b)]};
 }
 function flightSteps(P, f){
   if(f.placeholder) return [
@@ -1995,7 +2036,7 @@ async function buildAccess(P, f){
   const stops=nearbyStops({points:[point]}).filter(x=>x.dist<=800);
   const o=stops.length && P.origin.names.length && usesTransit(P) ? arrivingBy(P.origin,stops,deadline,tripAllowed(P)) : null;
   const back=f.ret&&!f.ret.placeholder?f.ret:null;
-  if(o){ const leave=o.dep-o.walkFrom, atAirport=o.arr+o.walkTo; options.push({id:'bus', title:`${transitName(o)} + samolot`, steps:transitSteps(o), seq:transitSeq(o), leave, atAirport, minutes:(atAirport-leave)/60, parts:scaleParts(transitParts(o),back?2:1), cost:transitCost(o)*(back?2:1)}); }
+  if(o){ const leave=o.dep-o.walkFrom, atAirport=o.arr+o.walkTo; options.push({id:'bus', title:transitName(o), route:{kind:'transit', o, origin:P.origin, dest:{label:f.fromLabel, points:[point]}}, steps:transitSteps(o), seq:transitSeq(o), leave, atAirport, minutes:(atAirport-leave)/60, parts:scaleParts(transitParts(o),back?2:1), cost:transitCost(o)*(back?2:1)}); }
   const rail=P.allowed.has('train') ? await railToAirport(P,f,deadline) : null;
   if(rail){
     if(back){ rail.back=await railHome(P,back); rail.cost=rail.cost==null||rail.back?.cost==null?null:rail.cost+rail.back.cost; rail.parts=mergeParts(rail.parts, rail.back?.parts||{}); }
@@ -2048,7 +2089,7 @@ const fareTotal=f=>Math.round(f.pricePln+(f.ret?.pricePln||0));
 // Porównanie dojazdów: kiedy wyjść, ile trwa droga na lotnisko i ile kosztuje razem z lotem.
 // Główne miejsca podróży na pionowej, kropkowanej linii. Szczegóły punktu pokazują się dopiero po jego kliknięciu,
 // a otwartych może być kilka naraz.
-function journeyLine(P, f, o){
+function journeyLine(P, f, o, {only=''}={}){
   const key=offerKey(f), open=P.jlOpen||(P.jlOpen=new Set()), clock=v=>v?v.slice(11,16):'';
   const when=ts=>ts?`${dayOfTs(ts)!==f.day?fmtDay(dayOfTs(ts))+' ':''}${fmtClock(ts)}`:'';
   const panels=[];
@@ -2064,12 +2105,17 @@ function journeyLine(P, f, o){
   const onwardStep=f.fromAirportKm>=1?[withMap(step('car',`Z lotniska ${f.toLabel} do celu: ${P.to}`,`ok. ${fmtKm(f.fromAirportKm)}`), airportPoint(P,f.to), P.dest.points[0])]:[];
   const items=[
     item('start','jl-node',dot,P.from,o?.leave?`wyjście ${when(o.leave)}`:'', o?.leave?stepsHtml([step('house',`Wyjdź o ${when(o.leave)}`, o.title)]):''),
-    item('go','jl-leg',legIco(goModes),o?.title?o.title.replace(/ \+ samolot$/,''):'Dojazd na lotnisko',o?.minutes?fmtDuration(o.minutes)+(o.cost!=null?` · ok. ${o.cost} zł`:''):'', o?.steps?.length?stepsHtml(o.steps):''),
+    item('go','jl-leg',legIco(goModes),o?.title?o.title.replace(/ \+ samolot$/,''):'Dojazd na lotnisko',o?.minutes?fmtDuration(o.minutes)+(o.cost!=null?` · ok. ${Math.round(o.cost)} zł`:''):'', o?.steps?.length?stepsHtml(o.steps)+accessLinks(P,f,o):''),
     item('airport','jl-node',dot,f.fromLabel,f.departure?`wylot ${fmtDay(f.day)} ${clock(f.departure)}`:fmtDay(f.day), stepsHtml(fs.filter(x=>x.icon==='passport'))),
     item('out','jl-leg',legIco(['plane']),`${f.placeholder?'Lot':airlineOf(f).name}${f.flightNumber?' '+f.flightNumber:''}`, f.departure?`${clock(f.departure)}${f.arrival?' – '+clock(f.arrival):''}`:'', stepsHtml(fs.filter(x=>x.icon==='plane-departure'))+(f.placeholder?'':`<button class="btn-ghost mt-2" type="button" data-flight="${esc(fareKey(f))}">Szczegóły lotu</button>`)),
     item('dest','jl-node',dot,f.toLabel,f.arrival?`przylot ${clock(f.arrival)}`:'', ''),
   ];
-  if(onwardStep.length) items.push(item('onward','jl-leg',legIco(['car']),`Do celu: ${P.to}`,`ok. ${fmtKm(f.fromAirportKm)}`, stepsHtml(onwardStep)));
+  const xo=P.xferPick==='skip'?'skip':P.xferPick?airportOptions(P,f)?.options?.find(x=>x.id===P.xferPick):null;
+  const xMode={rail:'train', metro:'train', tram:'train', bus:'bus', taxi:'car', ferry:'car'};
+  if(xo==='skip') items.push(item('onward','jl-leg',legIco(['car']),'Odbiór z lotniska','ktoś odbiera', ''));
+  else if(xo) items.push(item('onward','jl-leg',legIco([xMode[xo.kind]||'bus']),`Do centrum: ${xo.name||xo.line}`, [xo.minutes!=null?'ok. '+fmtDuration(xo.minutes):'', xo.fare?.pln!=null?`ok. ${xo.fare.pln} zł`:'', xo.departures?.length?`odjazdy ${xo.departures.slice(0,3).join(', ')}`:''].filter(Boolean).join(' · '),
+    (xo.board?.name?stepsHtml([step('location-dot',`Gdzie iść: ${xo.board.name}`, xo.alight?`wysiadasz: ${xo.alight}`:'')]):'')+(xo.steps?.length?csSteps(xo.steps):xo.fare?.text?`<p class="text-soft small">${esc(xo.fare.text)}</p>`:'')));
+  else if(onwardStep.length) items.push(item('onward','jl-leg',legIco(['car']),`Do celu: ${P.to}`,`ok. ${fmtKm(f.fromAirportKm)}`, stepsHtml(onwardStep)));
   if(f.ret){
     const r=f.ret, retFlight=home.filter(x=>x.icon==='plane-arrival'), homeSteps=home.filter(x=>x.icon!=='plane-arrival');
     items.push(item('stay','jl-leg',ico('bed'),`Pobyt do ${fmtDay(r.day)}`,'', ''));
@@ -2080,12 +2126,13 @@ function journeyLine(P, f, o){
     items.push(item('end','jl-node',dot,P.from,'', ''));
   }
   const save='';
+  if(only==='go') return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Dojazd na lotnisko krok po kroku</h4></div><div class="jl-steps">${o?.steps?.length?stepsHtml(o.steps):''}</div></div>`;
   return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Przebieg podróży</h4>${save}</div><small class="text-soft">Kliknij punkt podróży, aby zobaczyć szczegóły. Możesz otworzyć kilka naraz.</small><div class="jl-wrap"><ol class="journey-line">${items.join('')}</ol><div class="jl-details">${panels.length?panels.join(''):'<div class="jl-empty"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Szczegóły wybranych punktów pojawią się tutaj.</div>'}</div></div></div>`;
 }
 function compareHtml(P, f, options, picked){
   const list=options.filter(o=>o.minutes!=null||o.cost!=null); if(!list.length) return '';
   const fast=Math.min(...list.map(o=>o.minutes??Infinity)), cheap=Math.min(...list.map(o=>o.cost??Infinity)), flight=f.placeholder?null:fareTotal(f), many=list.length>1;
-  const rows=list.map(o=>`<tr class="acc-row ${o===picked?'on':''}" data-acc-pick="${esc(offerKey(f))}" data-acc-id="${o.id}" tabindex="0"><th scope="row"><span class="acc-seq">${modeChips([...mainModes(o.steps),'plane'])}</span> ${esc(o.title)}${many&&o.minutes===fast?' <span class="pc-badge alt">Najszybciej</span>':''}${many&&o.cost===cheap?' <span class="pc-badge cheap">Najtaniej</span>':''}</th>
+  const rows=list.map(o=>`<tr class="acc-row ${o===picked?'on':''}" data-acc-pick="${esc(offerKey(f))}" data-acc-id="${o.id}" tabindex="0"><th scope="row"><span class="acc-seq">${modeChips(mainModes(o.steps))}</span> ${esc(o.title)}${many&&o.minutes===fast?' <span class="pc-badge alt">Najszybciej</span>':''}${many&&o.cost===cheap?' <span class="pc-badge cheap">Najtaniej</span>':''}</th>
     <td data-label="Wyjście">${o.leave?(dayOfTs(o.leave)!==f.day?fmtDay(dayOfTs(o.leave))+' ':'')+fmtClock(o.leave):'—'}</td><td data-label="Droga na lotnisko">${o.minutes!=null?fmtDuration(o.minutes):'—'}</td><td data-label="Koszt dojazdu">${o.cost!=null?'ok. '+Math.round(o.cost)+' zł':'—'}</td><td data-label="Razem z lotem">${o.cost!=null&&flight!=null?'ok. '+Math.round(flight+o.cost)+' zł':'—'}</td></tr>`).join('');
   return `<div class="acc-compare"><b class="acc-title">Dojazd na lotnisko — wybierz sposób</b><table><thead><tr><th>Dojazd</th><th>Wyjście</th><th>Droga na lotnisko</th><th>Koszt dojazdu${f.ret?' (tam i z powrotem)':''}</th><th>Razem z lotem</th></tr></thead><tbody>${rows}</tbody></table>
     <small>Samochód: koszt paliwa, ${esc(fuelNote())}, bez parkingu. Bilety kolejowe i autobusowe to szacunek ceny normalnej.</small></div>`;
@@ -2097,8 +2144,13 @@ const MODE_ICON={bus:'bus', pks:'bus-simple', train:'train', car:'car', plane:'p
 function mainModes(steps){ const out=[]; for(const st of steps||[]){ const m=MODE_OF_ICON[st.icon]; if(m && out[out.length-1]!==m) out.push(m); } return out; }
 function modeChips(modes){ const out=[]; for(const m of modes){ if(m && out[out.length-1]!==m) out.push(m); } return seqHtml(out.map(m=>`<span class="leg-line mode-chip" style="background:${MODE_COLOR[m]||MODE_COLOR.other}" title="${esc({bus:'Autobus',pks:'Autobus podmiejski',train:'Pociąg',car:'Samochód',plane:'Samolot',stay:'Pobyt'}[m]||'')}"><i class="fa-solid fa-${MODE_ICON[m]}" aria-hidden="true"></i></span>`)); }
 const planeChip=icon=>`<span class="leg-line" style="background:${MODE_COLOR.plane}"><i class="fa-solid fa-${icon}" aria-hidden="true"></i></span>`;
+function chosenXfer(P, f){
+  if(P.xferPick==='skip') return 'skip';
+  return P.xferPick?airportOptions(P,f)?.options?.find(x=>x.id===P.xferPick)||null:null;
+}
+const XFER_MODE={rail:'train', metro:'train', tram:'train', bus:'bus', taxi:'car', ferry:'car'};
 function journeyRow(P, f){
-  const o=pickedAccess(P,f), onward=f.fromAirportKm>=1?['car']:[];
+  const xo=chosenXfer(P,f), o=pickedAccess(P,f), onward=xo==='skip'?['car']:xo?[XFER_MODE[xo.kind]||'bus']:f.fromAirportKm>=1?['car']:[];
   const modes=[...mainModes(o?.steps), 'plane', ...onward];
   if(f.ret) modes.push('stay', ...onward, 'plane', ...mainModes(o?.back?.steps||(o?.id==='car'?[{icon:'car'}]:[])));
   return `<div class="fl-access fl-journey"><span class="fl-access-lbl">Cała podróż</span>${modeChips(modes)}</div>`;
@@ -2106,21 +2158,25 @@ function journeyRow(P, f){
 // Cena za osobę rozbita na środki transportu. Bilety autobusu, PKS i pociągu dojdą później; na razie są miejscem na nie.
 function priceSplit(P, f){
   if(f.placeholder) return '';
+  const c=tripCosts(P,f);
+  return `<ul class="price-split">${c.rows.map(r=>`<li><span><i class="fa-solid fa-${esc(r.icon)}" aria-hidden="true"></i> ${esc(r.label.replace(/ · .*$/,''))}</span><b>${r.value==null?'—':zl(r.value)}</b></li>`).join('')}</ul>`;
   const o=pickedAccess(P,f), p=o?.parts||{}, line=(m,name,value)=>`<li><span><i class="fa-solid fa-${MODE_ICON[m]||'route'}" style="color:${MODE_COLOR[m]||MODE_COLOR.other}" aria-hidden="true"></i> ${name}</span><b>${value}</b></li>`;
   const lines=[line('plane','Lot',`${fareTotal(f)} zł`)];
   if(p.bus) lines.push(line('bus','Autobus ZTM',zl(p.bus)));
   if(p.pks) lines.push(line('pks','Autobus podmiejski',`${p.pksEstimated?'ok. ':''}${zl(p.pks)}`));
   if(p.train) lines.push(line('train','Pociąg (szacunek)',`ok. ${zl(p.train)}`));
   if(p.car) lines.push(line('car','Samochód (paliwo)',`ok. ${zl(p.car)}`));
+  const xo=chosenXfer(P,f);
+  if(xo && xo!=='skip') lines.push(line(XFER_MODE[xo.kind]||'bus',`Lotnisko ↔ centrum${f.ret?' (2×)':''}`,xo.fare?.pln!=null?`ok. ${zl(xo.fare.pln*(f.ret?2:1))}`:'—'));
   if(o && !Object.values(p).some(v=>typeof v==='number'&&v>0) && o.cost==null) lines.push(line('route','Dojazd na lotnisko','—'));
   if(f.fromAirportKm>=1) lines.push(line('car','Dojazd do celu','—'));
   return `<ul class="price-split">${lines.join('')}</ul>`;
 }
 // Cena za osobę razem z lotem dla wybranego sposobu dojazdu na lotnisko (tak jak w tabeli porównania).
 function priceHeadline(P, f){
-  const o=pickedAccess(P,f), flight=fareTotal(f), total=o?.cost!=null?Math.round(flight+o.cost):null;
+  const o=pickedAccess(P,f), flight=fareTotal(f), total=o?.cost!=null?tripCosts(P,f).total:null;
   const how=o?o.title:'';
-  return `<b>${total!=null?'ok. '+total:flight} zł</b><small>${total!=null?`Razem za 1 osobę z lotem${f.ret?' w obie strony':''}`:`Lot za 1 osobę${f.ret?', w obie strony':''}`}</small>${how?`<small class="ps-how">${esc(how)}${o.cost!=null?'':' · koszt dojazdu nieznany'}</small>`:'<small class="ps-how">liczę dojazd…</small>'}`;
+  return `<b>${total!=null?'ok. '+total:flight} zł</b><small>${total!=null?`Razem za ${peopleText(P.people||1)}${f.ret?', w obie strony':''}`:`Lot za 1 osobę${f.ret?', w obie strony':''}`}</small>${how?`<small class="ps-how">${esc(how)}${o.cost!=null?'':' · koszt dojazdu nieznany'}</small>`:'<small class="ps-how">liczę dojazd…</small>'}`;
 }
 function flightPlanCard(f, P, badge){
   const key=offerKey(f), open=!!P.planOpen, options=P.access.get(key); FL.byKey.set(fareKey(f),f);
@@ -2208,34 +2264,42 @@ function fareUpdateButton(f){
   if(!['WIZZ','RYANAIR'].includes(f.airline)) return '';
   return `<button class="btn-ghost fl-update" type="button" data-update-fare="${esc(fareKey(f))}"><i class="fa-solid fa-rotate" aria-hidden="true"></i> Zaktualizuj cenę</button>`;
 }
-// Zapytanie o cenę jednej godziny lotu Wizz Air; serwer czeka na odpowiedź i zapisuje ją w bazie.
+// Zapytanie o cenę jednej godziny lotu (Wizz Air albo Ryanair); serwer czeka na odpowiedź i zapisuje ją w bazie.
 async function wizzTimePrice(P, f){
-  const key=fareKey(f); FL.updating.add(key); (FL.wizzNote||(FL.wizzNote=new Map())).delete(key); runPlan(false);
+  const key=fareKey(f), name=f.airline==='RYANAIR'?'Ryanair':'Wizz Air'; FL.updating.add(key); (FL.wizzNote||(FL.wizzNote=new Map())).delete(key); runPlan(false);
   let note='';
   try{
-    const r=await fetch('/api/flights/wizz-time',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({from:f.from, to:f.to, time:f.departure})});
+    const r=await fetch(f.airline==='RYANAIR'?'/api/flights/ryanair-time':'/api/flights/wizz-time',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({from:f.from, to:f.to, time:f.departure})});
     const body=await r.json().catch(()=>({}));
-    if(!r.ok) note=body.error||'Nie udało się zapytać Wizz Air.';
+    if(!r.ok) note=body.error||`Nie udało się zapytać ${name}.`;
     else if(body.fresh) note='Tę godzinę sprawdzaliśmy w ciągu ostatnich 30 minut.';
-    else if(!body.stored) note='Wizz Air nie podał ceny tej godziny.';
-  }catch(e){ console.warn('Wizz Air', e); note='Nie udało się zapytać Wizz Air.'; }
+    else if(body.unsold) note=`${name} nie sprzedaje już biletów na ten lot (wyprzedany albo sprzedaż zamknięta).`;
+    else if(!body.stored) note=`${name} nie podał ceny tej godziny.`;
+  }catch(e){ console.warn(name, e); note=`Nie udało się zapytać ${name}.`; }
   FL.updating.delete(key);
   if(note) FL.wizzNote.set(key, note);
   if(inPlan(P)) loadTripFlights(P);
 }
+// Aktualna cena jednego lotu, tylko na życzenie: wiersz tego lotu jest wyszarzony, reszta planu działa dalej.
+// Wizz Air odpowiada od razu dla wybranej godziny; Ryanair sprawdza tracker, więc czekamy, aż skończy.
 async function updateFare(P, f){
-  if(document.body.classList.contains('guest')){ P.fetch='login'; runPlan(false); return; }
-  const key=fareKey(f); FL.updating.add(key);
-  P.fetch='asking'; runPlan(false);
+  if(document.body.classList.contains('guest')){ toast('Zaloguj się, aby sprawdzić aktualną cenę u przewoźnika.'); return; }
+  if(['WIZZ','RYANAIR'].includes(f.airline) && f.departure && !f.placeholder) return wizzTimePrice(P,f);
+  const key=fareKey(f); if(FL.updating.has(key)) return;
+  FL.updating.add(key); (FL.wizzNote||(FL.wizzNote=new Map())).delete(key); runPlan(false);
+  let note='';
   try{
     const r=await fetch('/api/flights/fare',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({from:f.from, to:f.to, day:f.day, airline:f.placeholder?'':f.airline})});
     const body=await r.json().catch(()=>({}));
-    P.fetch=r.status===202?'running':r.status===409?'busy':r.status===503?'unavailable':r.ok?(body.reason==='fresh'?'fare-fresh':body.reason||'fare-fresh'):'error';
-  }catch(e){ console.warn('Aktualizacja ceny', e); P.fetch='error'; }
-  if(P.fetch!=='running' && P.fetch!=='busy') FL.updating.delete(key);
-  if(!inPlan(P)) return;
-  runPlan(false);
-  if(P.fetch==='running' || P.fetch==='busy') watchTripFetch(P);
+    if(r.status===202 || r.status===409){
+      for(let i=0;i<120;i++){ await new Promise(res=>setTimeout(res,5000)); const st=await fetch('/api/flights/status').then(x=>x.json()).catch(()=>null); if(!st?.running) break; }
+    } else if(r.status===503) note='Na tym serwerze nie da się teraz zapytać przewoźnika.';
+    else if(r.ok && body.reason==='fresh') note='Tę cenę sprawdzaliśmy w ciągu ostatniej godziny.';
+    else if(!r.ok) note=body.error||'Nie udało się zapytać przewoźnika.';
+  }catch(e){ console.warn('Aktualizacja ceny', e); note='Nie udało się zapytać przewoźnika.'; }
+  FL.updating.delete(key);
+  if(note) FL.wizzNote.set(key, note);
+  if(inPlan(P)) loadTripFlights(P);
 }
 function nearbyCheaper(P){
   const days=P.flights.days||[], date=P.date||ymdOf(0), cur=days.find(d=>d.day===date)?.cheapest;
@@ -2270,18 +2334,21 @@ function priceAge(f){
   const d=Math.round(m/1440); return `cena sprzed ${d} ${d===1?'dnia':'dni'}`;
 }
 function flightPickRows(P, list, kind, picked, C){
-  if(!list.length) return `<div class="empty-note">${kind==='out'?'Brak lotów w tym dniu.':'Brak lotów powrotnych w tym dniu.'}</div>`;
+  if(!list.length) return `<div class="empty-note">${kind==='out'?'Brak lotów w tym dniu — wybierz inny dzień wylotu na pasku powyżej.':'Brak lotów powrotnych w tym dniu — wybierz inny dzień powrotu na pasku powyżej.'}</div>`;
   const known=list.filter(f=>!f.priceUnknown), best=known[0], cheap=Math.min(...known.map(f=>f.pricePln)), home=kind==='out'?'from':'to';
-  return `<div class="fl-table" role="radiogroup" aria-label="${kind==='out'?'Wylot':'Powrót'}">${list.map(f=>{
+  const byTime=[...list].sort((a,b)=>(a.departure||'99').localeCompare(b.departure||'99') || a.pricePln-b.pricePln);
+  return `<div class="fl-table" role="radiogroup" aria-label="${kind==='out'?'Wylot':'Powrót'}">${byTime.map(f=>{
     const key=fareKey(f), on=f===picked, x=airlineOf(f), km=C.kmOf(f[home]); FL.byKey.set(key,f);
     const marks=[f===best?'<span class="pc-badge">Najlepszy</span>':'', !f.priceUnknown&&f.pricePln===cheap?'<span class="pc-badge cheap">Najtańszy</span>':'', P.prefer&&f[home]===P.prefer?'<span class="pc-badge alt">Preferowane lotnisko</span>':'', f[home]===C.closest?'<span class="pc-badge near">Najbliższe lotnisko</span>':''].join('');
-    return `<button type="button" class="fl-row ${on?'on':''}" role="radio" aria-checked="${on}" data-pick-flight="${kind}" data-key="${esc(key)}">
+    const busy=FL.updating.has(key), age=priceAgeMin(f), note=FL.wizzNote?.get(key);
+    const refresh=busy?'':(f.priceUnknown||age==null||age>=45)&&['WIZZ','RYANAIR'].includes(f.airline)?`<span class="fl-refresh" role="button" tabindex="0" data-row-refresh="${esc(key)}" title="Sprawdź aktualną cenę u przewoźnika"><i class="fa-solid fa-rotate" aria-hidden="true"></i> ${f.priceUnknown?'Pobierz cenę':'Odśwież cenę'}</span>`:'';
+    return `<button type="button" class="fl-row ${on?'on':''} ${busy?'updating':''}" role="radio" aria-checked="${on}" ${busy?'aria-busy="true"':''} data-pick-flight="${kind}" data-key="${esc(key)}">
       <span class="fl-radio" aria-hidden="true"></span>
       <span class="fl-airline" style="--a:${x.color}">${AIRLINE_PLANE[f.airline]?`<i class="fa-solid fa-plane" style="color:${AIRLINE_PLANE[f.airline]}" aria-hidden="true"></i> `:''}${esc(x.name)}</span>
       <span class="fl-route"><b>${esc(f.from)} → ${esc(f.to)}</b><small>${esc(kind==='out'?f.fromLabel:f.toLabel)}${Number.isFinite(km)?` · ${km} km od startu`:''}</small></span>
       <span class="fl-when"><b>${clockOf(f.departure)||'—'}${f.arrival?' – '+arrivalOf(f):''}</b><small>${esc([f.flightNumber, durationOf(f)].filter(Boolean).join(' · '))}${f.times?.length>1?` · ${f.times.length} odloty`:''}${f.stops?' · '+changesText(f.stops):''}</small></span>
       <span class="fl-marks">${marks}</span>
-      <span class="fl-price">${f.priceUnknown?(FL.updating.has(key)?'<b><span class="spin sm" aria-hidden="true"></span></b><small>Pytam Wizz Air…</small>':`<b>—</b><small>${FL.wizzNote?.get(key)?esc(FL.wizzNote.get(key)):'cena po wybraniu lotu'}</small>`):`<b>${f.priceType==='list'&&f.airline==='WIZZ'?'od ':''}${Math.round(f.pricePln)} zł</b>${f.priceType==='list'?'<small>cena najtańszego lotu dnia</small>':''}<small class="fl-age ${(priceAgeMin(f)||0)>=PRICE_STALE_MIN?'old':''}">${priceAge(f)}</small>`}</span></button>`;
+      <span class="fl-price">${busy?`<b><span class="spin sm" aria-hidden="true"></span></b><small>Sprawdzam cenę u przewoźnika…</small>`:f.priceUnknown?`<b>—</b><small>${note?esc(note):'brak ceny w bazie'}</small>${refresh}`:`<b>${f.priceType==='list'&&f.airline==='WIZZ'?'od ':''}${Math.round(f.pricePln)} zł</b>${f.priceType==='list'?'<small>cena najtańszego lotu dnia</small>':''}<small class="fl-age ${(age||0)>=PRICE_STALE_MIN?'old':''}">${priceAge(f)}</small>${note?`<small class="fl-note">${esc(note)}</small>`:''}${refresh}`}</span></button>`;
   }).join('')}</div>`;
 }
 // Promień lotnisk może wykluczyć wszystkie lotniska z lotami do celu; wtedy proponujemy najbliższe takie lotnisko.
@@ -2309,7 +2376,7 @@ function flightHints(P, C){
   if(out && ret && ret.to!==out.from) groups.warn.push(hint('triangle-exclamation','Powrót na inne lotnisko', line(esc(`Wylot z ${out.fromLabel}, powrót na ${ret.toLabel}.`))));
   // Okazje
   const b=nearbyCheaper(P);
-  if(b) groups.save.push(hint('piggy-bank','Taniej o ±2 dni', line(`<b>${fmtDay(b.day)}</b> · <span>od ${b.cheapest} zł</span>${b.saves?` <span class="fh-saves">−${b.saves} zł</span>`:''}`), dayBtn(b.day)));
+  if(b) groups.save.push(hint('piggy-bank','Taniej o ±2 dni', line(`<b>${fmtDay(b.day)}</b> · <span>wylot od ${b.cheapest} zł</span>${b.saves?` <span class="fh-saves">−${b.saves} zł</span>`:''}`), dayBtn(b.day)));
   if(first?.fare && first.fare.day!==date){
     const f=first.fare;
     groups.save.push(hint('calendar-check','Pierwszy dostępny lot', line(`<b>${fmtDay(f.day)}${f.departure?' '+clockOf(f.departure):''}</b> · <span>${esc(airlineOf(f).name)}</span> · <span>${f.priceType==='list'?'od ':''}${Math.round(f.pricePln)} zł</span>`)+line(esc(`z lotniska ${first.fromLabel}`)), dayBtn(f.day)));
@@ -2325,10 +2392,9 @@ function flightHints(P, C){
 }
 // Podróż samolotem w trzech krokach: najpierw loty tam i z powrotem, potem dojazd na lotnisko, na końcu krótki plan.
 // Szczegóły (przesiadki, peron, czas lotu, ceny składowe) pokazują się dopiero po „Zobacz szczegóły”.
-const FLIGHT_STEPS=[[1,'Loty','plane'],[2,'Dojazd na lotnisko','route'],[3,'Plan podróży','flag-checkered']];
-function stepBar(P){
+function stepBar(P, f){
   const cur=P.flightStep||1, fetching=ASK_NOTES[P.fetch];
-  return `<div class="fl-stepbar"><ol class="fl-steps">${flightSteps(P).map(([n,name,icon])=>`<li class="${n===cur?'on':n<cur?'done':''}"><button type="button" data-flight-step="${n}" ${n>cur?'disabled':''} aria-current="${n===cur?'step':'false'}"><span class="fl-step-n">${n<cur?'<i class="fa-solid fa-check" aria-hidden="true"></i>':n}</span> ${name}</button></li>`).join('<li class="fl-step-sep" aria-hidden="true"></li>')}</ol>${fetching?`<span class="fl-fetching"><span class="spin sm" aria-hidden="true"></span> ${esc(fetching)}</span>`:''}</div>`;
+  return `<div class="fl-stepbar"><ol class="fl-steps">${wizardSteps(P).map(([n,name])=>{ const info=n<=cur||n===cur+1&&n!==4?stepInfo(P,f,n):''; return `<li class="${n===cur?'on':n<cur?'done':''}"><button type="button" data-flight-step="${n}" ${n>cur?'disabled':''} aria-current="${n===cur?'step':'false'}"><span class="fl-step-n">${n<cur?'<i class="fa-solid fa-check" aria-hidden="true"></i>':n}</span><span class="fl-step-text">${name}${info&&n<=cur?`<small>${esc(info)}</small>`:''}</span></button></li>`; }).join('<li class="fl-step-sep" aria-hidden="true"></li>')}</ol>${fetching?`<span class="fl-fetching"><span class="spin sm" aria-hidden="true"></span> ${esc(fetching)}</span>`:''}</div>`;
 }
 // Gdy wylot jest z innego lotniska niż powrót, trzeba o tym wiedzieć przed wyborem dojazdu.
 function airportMismatch(out, ret){
@@ -2339,8 +2405,15 @@ function chosenFlights(f){
   const leg=(x,label)=>`<span class="fl-chosen-leg"><b>${label}</b> ${esc(x.from)} ${clockOf(x.departure)||''} → ${esc(x.to)} ${arrivalOf(x)||''} · ${fmtDay(x.day)} · ${esc(airlineOf(x).name)}</span>`;
   return `<div class="fl-chosen">${leg(f,'Wylot')}${f.ret?leg(f.ret,'Powrót'):''}<button type="button" class="btn-ghost" data-flight-step="1">Zmień loty</button></div>`;
 }
-function stepNav(back, next, label){
-  return `<div class="fl-nav">${back?`<button type="button" class="btn-ghost" data-flight-step="${back}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Wstecz</button>`:'<span></span>'}${next?`<button type="button" class="btn-grad" data-flight-step="${next}">${label} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
+// Koszt wybranych lotów przy przycisku „Dalej”: wylot + powrót, a przy kilku osobach także razem.
+function flightCost(P, C){
+  const n=Math.max(1,P.people||1), part=(f,label)=>f&&!f.priceUnknown?{label, value:Math.round(f.pricePln)}:f?{label, value:null}:null;
+  const parts=[part(C.out,'wylot'), part(C.ret,'powrót')].filter(Boolean); if(!parts.length) return '';
+  const sum=parts.every(p=>p.value!=null)?parts.reduce((s,p)=>s+p.value,0):null;
+  return `<div class="fl-cost"><small>Koszt lotów${n>1?' na osobę':''}</small><span>${parts.map(p=>`${p.label} <b>${p.value!=null?p.value+' zł':'—'}</b>`).join(' + ')}${parts.length>1&&sum!=null?` = <b>${sum} zł</b>`:''}</span>${n>1&&sum!=null?`<small>za ${peopleText(n)}: <b>${sum*n} zł</b></small>`:''}</div>`;
+}
+function stepNav(back, next, label, middle=''){
+  return `<div class="fl-nav">${back?`<button type="button" class="btn-ghost" data-flight-step="${back}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Wstecz</button>`:'<span></span>'}${middle}${next?`<button type="button" class="btn-grad" data-flight-step="${next}">${label} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
 }
 // Zapisany plan: gdy jego lot jest na liście, od razu pokazujemy krok „Plan podróży” z tymi samymi wyborami.
 function applyRestore(P){
@@ -2348,7 +2421,7 @@ function applyRestore(P){
   const F=P.flights, outs=F.outbound?.length?F.outbound:F.options||[];
   if(outs.some(f=>fareKey(f)===R.out)){
     P.selOut=R.out; if(R.ret && (F.inbound||[]).some(f=>fareKey(f)===R.ret)) P.selRet=R.ret;
-    P.flightStep=3; P.accessWanted=R.access||null; P.restore=null;
+    P.flightStep=R.xfer?4:3; P.accessWanted=R.access||null; P.xferPick=R.xfer||null; P.saved=R.tid||null; P.restore=null;
   } else if(!ASK_NOTES[P.fetch]){ P.restore=null; P.restoreMissed=true; }
 }
 function tripFlights(P){
@@ -2362,31 +2435,127 @@ function tripFlights(P){
   P.destAirport=offer.to; airportTransfer(offer.to,P);
   if(step===1){
     const ready=!P.round || !!C.ret;
-    const hints=flightHints(P,C), missed=P.restoreMissed?'<div class="fl-mismatch" role="status"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <span>Zapisanego lotu nie ma już w rozkładzie. Wybierz inny lot.</span></div>':'';
-    return stepBar(P)+missed+`<div class="fl-step1 ${hints?'has-hints':''}"><div class="fl-step1-main">`+
+    // Koszt wybranych lotów jako karta w prawej kolumnie (pod podpowiedziami); bez kolumny — przy przycisku „Dalej”.
+    const cost=ready?flightCost(P,C):'', side=flightHints(P,C)||(cost?'<aside class="fl-hints" aria-label="Podpowiedzi"></aside>':'');
+    const hints=cost?side.replace(/<\/aside>$/, `<section class="fh-group fh-cost"><h5><i class="fa-solid fa-wallet" aria-hidden="true"></i> ${(P.people||1)>1?'Koszt lotów na osobę':'Koszt lotów'}</h5>${cost}</section></aside>`):side;
+    const missed=P.restoreMissed?'<div class="fl-mismatch" role="status"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <span>Zapisanego lotu nie ma już w rozkładzie. Wybierz inny lot.</span></div>':'';
+    return stepBar(P,offer)+missed+`<div class="fl-step1 ${hints?'has-hints':''}"><div class="fl-step1-main">`+
+      `<div class="fl-fresh"><span><i class="fa-solid fa-database" aria-hidden="true"></i> Ceny zapisane w bazie — przy każdej widać, kiedy była sprawdzona.</span>${document.body.classList.contains('guest')?'':'<button type="button" class="btn-ghost" data-ask-airlines><i class="fa-solid fa-rotate" aria-hidden="true"></i> Sprawdź aktualne ceny wszystkich lotów</button>'}</div>`+
       `<div class="fl-board"><h4 class="fl-board-title"><i class="fa-solid fa-plane-departure" aria-hidden="true"></i> Wylot · ${day(C.out.day)} <small>${C.outs.length} lotów</small></h4>${flightPickRows(P,C.outs,'out',C.out,C)}`+
       (P.round?`<h4 class="fl-board-title"><i class="fa-solid fa-plane-arrival" aria-hidden="true"></i> Powrót · ${day(P.round.back)} <small>${C.ins.length} lotów</small></h4>${flightPickRows(P,C.ins.filter(r=>flightLeavesAfter(C.out,r)),'ret',C.ret,C)}`:'')+
-      `</div>`+(ready?stepNav(0,2,'Dalej: dojazd na lotnisko'):'<div class="empty-note">Wybierz lot powrotny, aby przejść dalej.</div>')+`</div>${hints}</div>`;
+      `</div>`+(ready?stepNav(0,2,'Dalej: dojazd na lotnisko'):'')+`</div>${hints}</div>`;
   }
   const options=P.access.get(offerKey(offer));
   if(step===2){
-    return stepBar(P)+chosenFlights(offer)+airportMismatch(offer,offer.ret)+
-      (options==null?searching('Liczę dojazd na lotnisko…'):options.length?compareHtml(P,offer,options,pickedAccess(P,offer)):'<div class="empty-note">Nie znaleźliśmy dojazdu na lotnisko wybranymi środkami transportu. Zaznacz więcej opcji.</div>')+
-      stepNav(1,options?.length?3:0,'Dalej: plan podróży');
+    const o=pickedAccess(P,offer);
+    return stepBar(P,offer)+chosenFlights(offer)+airportMismatch(offer,offer.ret)+
+      (options==null?searching('Liczę dojazd na lotnisko…'):options.length?compareHtml(P,offer,options,o)+(o?accessDetails(P,offer,o):''):'<div class="empty-note">Nie znaleźliśmy dojazdu na lotnisko wybranymi środkami transportu. Zaznacz więcej opcji.</div>')+
+      stepNav(1,options?.length?3:0,destIsAirport(P,offer.to)?'Dalej: z lotniska do centrum':'Dalej: na miejscu');
   }
-  if(step===4) return stepBar(P)+chosenFlights(offer)+cityStep(offer,P)+stepNav(3,0,'');
-  return stepBar(P)+planSummaryCard(offer,P)+stepNav(2,4,destIsAirport(P,offer.to)?'Dalej: z lotniska do centrum':'Dalej: na miejscu');
+  if(step===3) return stepBar(P,offer)+chosenFlights(offer)+cityStep(offer,P)+(P.xferPick?stepNav(2,4,'Dalej: plan podróży'):stepNav(2,0,'')+'<div class="empty-note cs-need">Wybierz sposób dojazdu albo „Pomiń — ktoś mnie odbierze”, aby zobaczyć cały plan podróży.</div>');
+  return stepBar(P,offer)+planSummaryCard(offer,P)+`<div class="plan-extra">${costCard(tripCosts(P,offer))}${weatherTimeline(planWeatherPoints(P,offer), ()=>{ if(inPlan(P)) runPlan(false); })}</div>`+tripSaveBar(P,offer,airportOptions(P,offer))+stepNav(3,0,'');
+}
+/* ---------- Dojazd na lotnisko: kroki, trasa na mapie i Mapy Google ---------- */
+function accessLinks(P, f, o){
+  const a=P.origin?.points?.[0], b=f.airport?[f.airport.lat,f.airport.lon]:null;
+  const g=a&&b?`https://www.google.com/maps/dir/?api=1&origin=${a[0].toFixed(5)},${a[1].toFixed(5)}&destination=${b[0].toFixed(5)},${b[1].toFixed(5)}&travelmode=${o.id==='car'?'driving':'transit'}`:'';
+  const map=o.route?`<button class="btn-ghost" type="button" data-route="${S.planRoutes.push(o.route)-1}"><i class="fa-solid fa-map" aria-hidden="true"></i> Trasa na mapie</button>`:'';
+  return map||g?`<div class="acc-links">${map}${g?`<a class="btn-ghost" href="${esc(g)}" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right" aria-hidden="true"></i> Google Maps</a>`:''}</div>`:'';
+}
+function accessDetails(P, f, o){
+  return `<div class="journey-box acc-detail"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> ${esc(o.title)} — krok po kroku</h4>${accessLinks(P,f,o)}</div>
+    ${o.steps?.length?stepsHtml(o.steps):''}
+    ${o.back?.steps?.length?`<h5 class="acc-back"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Powrót z lotniska ${esc(f.ret?.toLabel||'')} do domu</h5>${stepsHtml(o.back.steps)}`:''}</div>`;
+}
+/* ---------- Z lotniska do centrum: jak dojść do miejsca odjazdu ---------- */
+function walkTo(d, o){
+  const from=d?.airport?.lat!=null?`${d.airport.lat},${d.airport.lon}`:'';
+  if(o.board?.at && from) return `<a class="cs-walk" href="${esc(`https://www.google.com/maps/dir/?api=1&origin=${from}&destination=${o.board.at[0]},${o.board.at[1]}&travelmode=walking`)}" target="_blank" rel="noopener"><i class="fa-solid fa-person-walking" aria-hidden="true"></i> Jak dojść do odjazdu (mapa)</a>`;
+  const q=[o.board?.name||o.name, d?.airport?.name||''].filter(Boolean).join(', ');
+  return q?`<a class="cs-walk" href="${esc(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`)}" target="_blank" rel="noopener"><i class="fa-solid fa-map-pin" aria-hidden="true"></i> Gdzie to jest (mapa)</a>`:'';
+}
+/* ---------- Koszt całej podróży, po częściach, dla wybranej liczby osób ---------- */
+// Bilety (lot, autobus, pociąg, dojazd do centrum) płaci każdy; paliwo i taksówkę płaci się za auto:
+// do 5 osób w samochodzie, do 4 w taksówce.
+const CAR_SEATS=5, TAXI_SEATS=4;
+const peopleText=n=>`${n} ${n===1?'osobę':n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'osoby':'osób'}`;
+function tripCosts(P, f){
+  const n=Math.max(1,P.people||1), o=pickedAccess(P,f), xo=chosenXfer(P,f), both=!!f.ret, p=o?.parts||{}, rows=[];
+  const add=(group,icon,label,value,note='')=>rows.push({group,icon,label,value:value==null?null:Math.round(value*100)/100,note});
+  const each=(price,extra='')=>[price==null?null:price*n, [n>1&&price!=null?`${n} × ${zl(price)}`:'', extra].filter(Boolean).join(' · ')];
+  if(!f.placeholder){
+    add('Loty','plane-departure',`Wylot ${f.from} → ${f.to} · ${airlineOf(f).name}`,...each(f.pricePln,f.priceUnknown?'cena najtańszego lotu dnia':''));
+    if(f.ret && !f.ret.placeholder) add('Loty','plane-arrival',`Powrót ${f.ret.from} → ${f.ret.to} · ${airlineOf(f.ret).name}`,...each(f.ret.pricePln,f.ret.priceUnknown?'cena najtańszego lotu dnia':''));
+  }
+  const g=`Dojazd na lotnisko${both?' i z powrotem':''}`;
+  if(p.bus) add(g,'bus','Autobus ZTM',...each(p.bus));
+  if(p.pks) add(g,'bus-simple','Autobus podmiejski',...each(p.pks,p.pksEstimated?'szacunek':''));
+  if(p.train) add(g,'train','Pociąg',...each(p.train,'szacunek ceny normalnej'));
+  if(p.car){ const cars=Math.ceil(n/CAR_SEATS); add(g,'car','Samochód (paliwo)',p.car*cars,[cars>1?`${cars} auta × ${zl(p.car)}`:`do ${CAR_SEATS} osób w aucie`,'bez parkingu'].join(' · ')); }
+  if(o && o.cost==null) add(g,'route',o.title,null,'cena nieznana');
+  const x=`Lotnisko ↔ centrum${both?' (tam i z powrotem)':''}`, times=both?2:1;
+  if(xo==='skip') add(x,'car-side','Odbiór z lotniska',0);
+  else if(xo && xo.kind==='taxi'){ const cabs=Math.ceil(n/TAXI_SEATS); add(x,'taxi',xo.name||'Taksówka',xo.fare?.pln!=null?xo.fare.pln*times*cabs:null,xo.fare?.pln!=null?`${cabs>1?`${cabs} taksówki × `:''}${times>1?'2 × ':''}${zl(xo.fare.pln)} · do ${TAXI_SEATS} osób`:'cena nieznana'); }
+  else if(xo) add(x,XMODE[xo.kind]?.[0]||'bus',xo.name||xo.line,xo.fare?.pln!=null?xo.fare.pln*times*n:null,xo.fare?.pln!=null?`${times*n>1?`${times*n} × `:''}${zl(xo.fare.pln)}`:'cena nieznana');
+  const total=Math.round(rows.reduce((s,r)=>s+(r.value||0),0));
+  return {rows, total, people:n, perPerson:Math.round(total/n), missing:rows.some(r=>r.value==null)};
+}
+function costCard(c){
+  if(!c?.rows?.length) return '';
+  const n=c.people||1, groups=[...new Set(c.rows.map(r=>r.group))];
+  return `<section class="cost-card"><h4><i class="fa-solid fa-wallet" aria-hidden="true"></i> Koszt podróży za ${peopleText(n)}</h4>
+    ${groups.map(g=>`<div class="cost-group"><small>${esc(g)}</small>${c.rows.filter(r=>r.group===g).map(r=>`<div class="cost-row"><span><i class="fa-solid fa-${esc(r.icon)}" aria-hidden="true"></i>${esc(r.label)}${r.note?` <em>${esc(r.note)}</em>`:''}</span><b>${r.value==null?'—':r.value===0?'0 zł':`${zl(r.value)}`}</b></div>`).join('')}</div>`).join('')}
+    <div class="cost-total"><span>Razem</span><span>${c.missing?'od ':'ok. '}${c.total} zł</span></div>
+    ${n>1?`<div class="cost-per"><span>Na osobę</span><span>ok. ${Math.round(c.total/n)} zł</span></div>`:''}
+    <small class="cost-note">Bilety autobusowe i kolejowe to szacunek ceny normalnej; samochód to koszt paliwa (do ${CAR_SEATS} osób w aucie), taksówka do ${TAXI_SEATS} osób.</small></section>`;
+}
+/* ---------- Pogoda po drodze: start, lotniska, cel, powrót — na dzień, w którym tam jesteś ---------- */
+function planWeatherPoints(P, f){
+  const o=pickedAccess(P,f), pt=x=>Array.isArray(x)?x:x?[x.lat,x.lon]:null, out=[];
+  const air=code=>airportPoint(P,code)||(code===f.from&&f.airport?[f.airport.lat,f.airport.lon]:null);
+  const add=(icon,label,place,point,day,time)=>{ const p=pt(point); if(p && day) out.push({icon,label,place,lat:Math.round(p[0]*1e4)/1e4,lon:Math.round(p[1]*1e4)/1e4,day,time:time||''}); };
+  const home=P.origin?.points?.[0], dest=P.dest?.points?.[0], d=airportOptions(P,f), centre=d?.target?[d.target.lat,d.target.lon]:dest;
+  add('house','Start',P.from,home,o?.leave?dayOfTs(o.leave):f.day,o?.leave?fmtClock(o.leave):'');
+  add('plane-departure','Wylot',f.fromLabel,air(f.from),f.day,clockOf(f.departure));
+  add('plane-arrival','Przylot',f.toLabel,air(f.to)||centre,(f.arrival||'').slice(0,10)||f.day,arrivalOf(f));
+  add('location-dot','Na miejscu',d?.target?.label||P.to,centre,f.day,'');
+  if(f.ret){
+    add('plane-departure','Powrót',f.ret.fromLabel,air(f.ret.from)||centre,f.ret.day,clockOf(f.ret.departure));
+    add('house','W domu',P.from,home,(f.ret.arrival||'').slice(0,10)||f.ret.day,arrivalOf(f.ret));
+  }
+  return out;
+}
+function weatherTimeline(points, rerender){
+  if(CFG.weather===false || !points?.length) return '';
+  const name=d=>new Date(d+'T12:00:00Z').toLocaleDateString(document.documentElement.lang==='en'?'en-GB':'pl-PL',{weekday:'short', timeZone:'UTC'});
+  const cards=points.map(p=>{
+    const key=`${p.lat.toFixed(2)},${p.lon.toFixed(2)}|${p.day}|${p.day}`;
+    let w=TWX.get(key);
+    if(!w){
+      TWX.set(key,{loading:true});
+      fetch('/api/weather?'+new URLSearchParams({lat:p.lat, lon:p.lon, from:p.day, to:p.day})).then(r=>r.ok?r.json():null)
+        .then(x=>{ TWX.set(key,x||{error:true}); rerender(); }).catch(()=>TWX.set(key,{error:true}));
+      w=TWX.get(key);
+    }
+    const day=w?.days?.[0];
+    const wx=w?.loading?'<span class="spin sm" aria-hidden="true"></span>':day?(()=>{ const [desc,ico]=wmo(day.code); return `<div class="wtl-wx" title="${esc(desc)}"><span class="twx-ico" aria-hidden="true">${ico}</span><strong>${Math.round(day.max)}°</strong><small>${Math.round(day.min)}°</small>${day.rainChance!=null?`<small class="wtl-rain"><i class="fa-solid fa-droplet" aria-hidden="true"></i> ${day.rainChance}%</small>`:''}</div>`; })()
+      :w?.availableFrom?`<small>prognoza od ${fmtDay(w.availableFrom)}</small>`:'<small>brak prognozy</small>';
+    return `<div class="wtl-item"><i class="fa-solid fa-${esc(p.icon)}" aria-hidden="true"></i><small>${esc(p.label)} · ${esc(name(p.day))} ${fmtDay(p.day)}${p.time?' '+esc(p.time):''}</small><b>${esc(p.place)}</b>${wx}</div>`;
+  }).join('');
+  return `<section class="wtl"><h4><i class="fa-solid fa-cloud-sun" aria-hidden="true"></i> Pogoda po drodze</h4><div class="wtl-line">${cards}</div></section>`;
 }
 // Krótki plan: główne środki transportu i najważniejsze godziny; reszta po „Zobacz szczegóły”.
 function planSummaryCard(f, P){
-  const o=pickedAccess(P,f), open=!!P.planOpen; FL.byKey.set(fareKey(f),f);
+  const o=pickedAccess(P,f), open=P.planOpen!==false; FL.byKey.set(fareKey(f),f);
   const clock=v=>v?v.slice(11,16):'—', when=ts=>ts?`${fmtDay(dayOfTs(ts))} ${fmtClock(ts)}`:'—';
   const point=(icon,label,place,time)=>`<div class="ps-point"><i class="fa-solid fa-${icon}" aria-hidden="true"></i><small>${label}</small><b>${esc(time)}</b><span>${esc(place)}</span></div>`;
   const points=[point('house','Wyjście',P.from,when(o?.leave)), point('plane-departure','Wylot',f.fromLabel,`${fmtDay(f.day)} ${clock(f.departure)}`), point('plane-arrival','Przylot',f.toLabel,arrivalOf(f)||'—')];
+  const xo=chosenXfer(P,f);
+  if(xo==='skip') points.push(point('car-side','Odbiór','ktoś odbiera z lotniska','z lotniska'));
+  else if(xo) points.push(point(XMODE[xo.kind]?.[0]||'bus','Do centrum',xo.name||xo.line,xo.minutes!=null?`ok. ${fmtDuration(xo.minutes)}`:'—'));
   if(f.ret) points.push(point('plane-departure','Powrót',f.ret.fromLabel,`${fmtDay(f.ret.day)} ${clock(f.ret.departure)}`), point('plane-arrival','Lądowanie',f.ret.toLabel,arrivalOf(f.ret)||'—'));
   const book=[f, f.ret].filter(x=>x?.bookingUrl).map((x,i)=>`<a class="btn-ghost fl-book" href="${esc(x.bookingUrl)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Sprawdź na ${x.airline==='RYANAIR'?'ryanair.com':x.airline==='WIZZ'?'wizzair.com':esc(airlineOf(x).name)}${f.ret?(i?' (powrót)':' (wylot)'):''}</a>`).join('');
   const details=open?`<div class="trip-open plan-details">
-      <h5 class="plan-details-h">Loty</h5>${legRow(f,'Wylot')}${timesRow(f)}${legUpdate(f)}${f.ret?legRow(f.ret,'Powrót')+timesRow(f.ret)+legUpdate(f.ret):''}
       <div class="fl-incl"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> W cenie: mała torba pod siedzenie</div>
       ${o?journeyLine(P,f,o):searching('Liczę dojazd na lotnisko…')}
     </div>`:'';
@@ -2397,7 +2566,7 @@ function planSummaryCard(f, P){
       ${airportMismatch(f,f.ret)}
       ${details}
     </div>
-    <div class="fl-pricebox">${priceHeadline(P,f)}${open?priceSplit(P,f):''}<button class="btn-grad" type="button" data-open-flight="plan" aria-expanded="${open}">${open?'Zwiń szczegóły':'Zobacz szczegóły'}</button>${book}${alertButton(f)}${o?`<div class="plan-save-row">${saveTrip(P,`f:${fareKey(f)}:${o.id}`,`${o.title} · ${airlineOf(f).name}`,f.ret?`${flightDetail(f)} · powrót ${fmtDay(f.ret.day)}`:flightDetail(f),tripFlight(f),{out:fareKey(f), ret:f.ret?fareKey(f.ret):'', access:o.id})}${planEditMenu()}</div>`:''}</div>
+    <div class="fl-pricebox">${priceHeadline(P,f)}${open?priceSplit(P,f):''}<button class="btn-grad" type="button" data-open-flight="plan" aria-expanded="${open}">${open?'Zwiń szczegóły':'Zobacz szczegóły'}</button>${book}${alertButton(f)}${o?`<div class="plan-save-row">${planEditMenu()}</div>`:''}</div>
   </div>`;
 }
 function flightNote(P){
@@ -2408,7 +2577,7 @@ function flightNote(P){
   const date=P.date||ymdOf(0), F=P.flights, days=F.days||[], best=days.length?days.reduce((x,y)=>y.cheapest<x.cheapest?y:x):null, next=F.next;
   const opts=[];
   if(next) opts.push(`<button type="button" class="fl-none-opt" data-day="${next.day}"><small>Najbliższy lot</small><b>${fmtDay(next.day)}${next.departure?' '+clockOf(next.departure):''}</b><span>${esc(next.from)} → ${esc(next.to)} · ${esc(airlineOf(next).name)} · ${next.priceType==='list'?'od ':''}${Math.round(next.pricePln)} zł</span></button>`);
-  if(best && best.day!==next?.day && best.day!==date) opts.push(`<button type="button" class="fl-none-opt" data-day="${best.day}"><small>Najtaniej w pobliskich dniach</small><b>${fmtDay(best.day)}</b><span>od ${best.cheapest} zł${P.round?' w obie strony':''}</span></button>`);
+  if(best && best.day!==next?.day && best.day!==date) opts.push(`<button type="button" class="fl-none-opt" data-day="${best.day}"><small>Najtaniej w pobliskich dniach</small><b>${fmtDay(best.day)}</b><span>wylot od ${best.cheapest} zł</span></button>`);
   const o=F.outside; if(o){ const need=RADIUS_STEPS.find(r=>r>=o.km)||600; opts.push(`<button type="button" class="fl-none-opt" data-radius="${need}"><small>Dalsze lotnisko</small><b>${esc(o.city)} (${esc(o.code)})</b><span>${o.km} km · pokaż lotniska do ${need} km</span></button>`); }
   return `<div class="fl-none"><i class="fa-solid fa-calendar-xmark" aria-hidden="true"></i><div class="fl-none-body"><b>Brak lotów ${fmtDay(date)}${P.round?` z powrotem ${fmtDay(P.round.back)}`:''}</b><span>${opts.length?'Wybierz inny dzień:':'Nie znamy jeszcze lotów do tego celu z lotnisk w pobliżu. Wybierz inny dzień albo większy promień lotnisk.'}</span>${opts.length?`<div class="fl-none-opts">${opts.join('')}</div>`:''}</div></div>`;
 }
@@ -2417,7 +2586,7 @@ function bestText(best, P, R){
   if(best==='walk') return `Najlepiej pieszo: ok. ${fmtDuration(walkMinutes(P.km))}.`;
   if(best==='transit'){ const {o}=R.chosen; return `${lead}: ${transitName(o)} ${o.legs.map(l=>l.short).join(' › ')}, przyjazd ${fmtClock(o.arr)}.`; }
   if(best==='rail'){ const {r}=R.chosen; return `${lead}: ${r.access?transitName(r.access)+' + pociąg':'pociąg'} ${railParts(r).map(p=>p.t.label).join(' › ')}, przyjazd ${fmtClock(r.doorArr)}.`; }
-  if(best==='flight'){ const f=P.flights.options.reduce((x,y)=>y.totalPln<x.totalPln?y:x), n=nearbyCheaper(P); return `Najtaniej z dojazdem: ${airlineOf(f).name} z ${f.fromLabel}, ${fmtDay(f.day)}, ok. ${f.totalPln} zł${f.ret?' w obie strony':''}.`+(n?` W dniach ±2 taniej: ${fmtDay(n.day)}, od ${n.cheapest} zł.`:''); }
+  if(best==='flight'){ const f=P.flights.options.reduce((x,y)=>y.totalPln<x.totalPln?y:x), n=nearbyCheaper(P); return `Najtaniej z dojazdem: ${airlineOf(f).name} z ${f.fromLabel}, ${fmtDay(f.day)}, ok. ${f.totalPln} zł${f.ret?' w obie strony':''}.`+(n?` W dniach ±2 tańszy wylot: ${fmtDay(n.day)}, od ${n.cheapest} zł.`:''); }
   return 'Brak połączeń komunikacją. Najlepiej dojechać samochodem.';
 }
 function tripSection(title, html, icon){ return `<div class="trip-sec" data-sec="${icon}"><h3 class="trip-title"><i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${esc(title)}</h3>${html}</div>`; }
@@ -2440,7 +2609,7 @@ function tripWeather(P){
   if(!w){
     TWX.set(key,{loading:true});
     fetch('/api/weather?'+new URLSearchParams({lat:pt.lat, lon:pt.lon, from, to})).then(r=>r.ok?r.json():null)
-      .then(d=>{ TWX.set(key,d||{error:true}); if(inPlan(P)) runPlan(false); })
+      .then(d=>{ TWX.set(key,d||{error:true}); if(P.onWx) P.onWx(); else if(inPlan(P)) runPlan(false); })
       .catch(e=>{ console.warn('Pogoda w celu', e); TWX.set(key,{error:true}); });
   }
   const head=`<div class="twx-head"><i class="fa-solid fa-cloud-sun" aria-hidden="true"></i> <b>Pogoda: ${esc(P.to)}</b> <small>2 tygodnie od wyjazdu${back!==from?' · pobyt zaznaczony':''}</small></div>`;
@@ -2463,7 +2632,7 @@ function airportTransfer(code, P){
   }
   return XFER.get(code);
 }
-const XMODE={rail:['train','Pociąg / metro'], bus:['bus','Autobus'], taxi:['taxi','Tylko taksówka'], tram:['train-tram','Tramwaj'], metro:['train-subway','Metro'], ferry:['ferry','Prom'], plane:['plane','Samolot']};
+const XMODE={rail:['train','Pociąg / metro'], bus:['bus','Autobus'], taxi:['taxi','Taksówka'], tram:['train-tram','Tramwaj'], metro:['train-subway','Metro'], ferry:['ferry','Prom'], plane:['plane','Samolot']};
 // Krok 4 „Na miejscu”: wszystkie sposoby dojazdu z lotniska (do centrum, gdy celem jest samo lotnisko) z ceną, czasem
 // i miejscem odjazdu; poniżej mapa komunikacji miasta z pojazdami na żywo i planer przejazdów po mieście.
 // Rozkłady i pojazdy: Transitous (otwarte dane GTFS, opóźnienia tam, gdzie przewoźnik je publikuje), pytany przez serwer.
@@ -2476,10 +2645,17 @@ function airportOptions(P, f){
     XOPT.set(key,{loading:true});
     const q={code:f.to, time, label:P.to||''}; if(pt){ q.lat=pt.lat; q.lon=pt.lon; }
     fetch('/api/airport-transfers/options?'+new URLSearchParams(q)).then(r=>r.ok?r.json():null)
-      .then(d=>{ XOPT.set(key,d||{error:true}); if(inPlan(P)) runPlan(false); })
-      .catch(e=>{ console.warn('Dojazd z lotniska', e); XOPT.set(key,{error:true}); });
+      .then(d=>{ const v=d||{error:true}; XOPT.set(key,v); if(inPlan(P)) runPlan(false); retryOptions(P,key,v); })
+      .catch(e=>{ console.warn('Dojazd z lotniska', e); const v={error:true}; XOPT.set(key,v); retryOptions(P,key,v); });
   }
   return XOPT.get(key);
+}
+// Nieudana odpowiedź (np. chwilowo niedostępne wyszukiwanie adresu) nie zostaje na stałe: raz próbujemy sami po 10 s.
+const XOPT_RETRIED=new Set();
+function retryOptions(P, key, v){
+  if(!(v.error || v.note==='centre-unknown') || XOPT_RETRIED.has(key)) return;
+  XOPT_RETRIED.add(key);
+  setTimeout(()=>{ if(XOPT.get(key)===v){ XOPT.delete(key); if(inPlan(P)) runPlan(false); } }, 10000);
 }
 // Celem jest samo lotnisko (np. „Barcelona El Prat”), więc krok 4 to dojazd do centrum.
 function destIsAirport(P, code){
@@ -2487,9 +2663,18 @@ function destIsAirport(P, code){
   if(t && pt) return hav(pt,[t.airportLat,t.airportLon])<3000;
   return /lotnisk|airport|aeropuert|aeroport|flughafen/i.test(P.to||'');
 }
-function flightSteps(P){
-  const code=P.destAirport, last=code&&destIsAirport(P,code)?'Z lotniska do centrum':'Na miejscu';
-  return [...FLIGHT_STEPS, [4,last,'map-location-dot']];
+function wizardSteps(P){
+  const code=P.destAirport, third=code&&destIsAirport(P,code)?'Z lotniska do centrum':'Na miejscu';
+  return [[1,'Loty','plane'],[2,'Dojazd na lotnisko','route'],[3,third,'map-location-dot'],[4,'Plan podróży','flag-checkered']];
+}
+// Krótka informacja pod krokiem: co zostało wybrane (lot i godzina, dojazd i wyjście, dojazd do centrum).
+function stepInfo(P, f, n){
+  if(!f) return '';
+  if(n===1) return `${f.from} ${clockOf(f.departure)||''} · ${fmtDay(f.day)}${f.ret?` · powrót ${fmtDay(f.ret.day)} ${clockOf(f.ret.departure)||''}`:''}`;
+  if(n===2){ const o=pickedAccess(P,f); return o?`${o.title.replace(/ \+ samolot$/,'')}${o.leave?` · wyjście ${fmtDay(dayOfTs(o.leave))} ${fmtClock(o.leave)}`:''}`:''; }
+  if(n===3){ if(P.xferPick==='skip') return 'odbiór z lotniska'; const o=P.xferPick&&airportOptions(P,f)?.options?.find(x=>x.id===P.xferPick); return o?`${o.name||o.line}${o.minutes!=null?` · ok. ${fmtDuration(o.minutes)}`:''}`:''; }
+  if(n===4) return P.saved?'zapisano':`razem ${fareTotal(f)} zł + dojazdy`;
+  return '';
 }
 // Rozwinięte „Trasa krok po kroku” zostają rozwinięte, gdy plan odświeża się (np. co minutę z danymi na żywo).
 const CS_OPEN=new Set();
@@ -2510,46 +2695,72 @@ function cityStep(f, P){
   const head=`<div class="cs-head"><h4><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> ${destIsAirport(P,f.to)?`Z lotniska ${esc(f.to)} do centrum`:`Z lotniska ${esc(f.to)} do celu`}${d?.target?.label?`: ${esc(d.target.label)}`:''}</h4><small>przylot ${fmtDay(f.day)} ${esc(arrivalOf(f)||'')}${d?.wanted?` · połączenia od ${esc(d.wanted.clock)} (30 min na wyjście z lotniska)`:''}</small></div>`;
   let body='';
   if(!d || d.loading) body=searching('Szukam wszystkich sposobów dojazdu…');
-  else if(d.error || !d.options?.length) body=`<div class="empty-note">${d.note==='centre-unknown'?'Nie znaleźliśmy centrum miasta.':'Nie znaleźliśmy połączeń w otwartych rozkładach.'} ${d.hint?.route?esc(d.hint.route):''}</div>`;
+  else if(d.error || !d.options?.length) body=`<div class="empty-note">${d.error?'Nie udało się pobrać sposobów dojazdu.':d.note==='centre-unknown'?'Nie udało się ustalić centrum miasta.':'Nie znaleźliśmy połączeń w otwartych rozkładach.'} ${d.hint?.route?esc(d.hint.route):''} <button type="button" class="btn-ghost" data-cs-retry><i class="fa-solid fa-rotate" aria-hidden="true"></i> Spróbuj ponownie</button></div>`;
   else {
-    const opts=d.options, priced=opts.filter(o=>o.fare?.eur!=null), timed=opts.filter(o=>o.minutes!=null), first=o=>o.departures?.[0]||'99:99';
-    const cheapest=priced.length?priced.reduce((a,b)=>b.fare.eur<a.fare.eur?b:a):null, fastest=timed.length?timed.reduce((a,b)=>b.minutes<a.minutes?b:a):null;
+    // Odjazdy liczone od godziny po przylocie, więc 00:13 po północy jest później niż 23:13.
+    const from=d.wanted?.clock||'00:00', mins=t=>(+t.slice(0,2)*60+ +t.slice(3,5)-(+from.slice(0,2)*60+ +from.slice(3,5))+1440)%1440;
+    const opts=d.options, priced=opts.filter(o=>o.fare?.pln!=null), timed=opts.filter(o=>o.minutes!=null), first=o=>o.departures?.length?mins(o.departures[0]):9999;
+    const cheapest=priced.length?priced.reduce((a,b)=>b.fare.pln<a.fare.pln?b:a):null, fastest=timed.length?timed.reduce((a,b)=>b.minutes<a.minutes?b:a):null;
     const ridden=opts.filter(o=>o.departures?.length), soonest=ridden.length?ridden.reduce((a,b)=>first(b)<first(a)?b:a):null;
-    const sort=P.csSort||'price', key={price:o=>o.fare?.eur??1e6, time:o=>o.minutes??1e6, dep:o=>o.kind==='taxi'?'00:00':first(o)}[sort];
+    const sort=P.csSort||'price', key={price:o=>o.fare?.pln??1e6, time:o=>o.minutes??1e6, dep:o=>o.kind==='taxi'?-1:first(o)}[sort];
     const list=[...opts].sort((a,b)=>{ const x=key(a), y=key(b); return x<y?-1:x>y?1:(a.minutes??1e6)-(b.minutes??1e6); });
     const card=o=>{
       const [ic,modeName]=XMODE[o.kind]||XMODE.bus, badges=[];
       if(o===cheapest) badges.push('<span class="cs-badge cheap"><i class="fa-solid fa-piggy-bank" aria-hidden="true"></i> Najtaniej</span>');
       if(o===fastest) badges.push('<span class="cs-badge fast"><i class="fa-solid fa-bolt" aria-hidden="true"></i> Najszybciej</span>');
       if(o===soonest) badges.push('<span class="cs-badge soon"><i class="fa-solid fa-clock" aria-hidden="true"></i> Najbliższy odjazd</span>');
-      if(o.kind!=='taxi' && !o.transfers) badges.push('<span class="cs-badge direct"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> Bez przesiadek</span>');
+      if(o.kind!=='taxi' && o.transfers===0) badges.push('<span class="cs-badge direct"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> Bez przesiadek</span>');
+      const picked=P.xferPick===o.id;
       const there=d.target?`${d.target.lat},${d.target.lon}`:'', board=o.board?.at?`${o.board.at[0]},${o.board.at[1]}`:'';
       const gmaps=there&&board?`https://www.google.com/maps/dir/?api=1&origin=${board}&destination=${there}&travelmode=transit`:'';
       const title=o.kind==='taxi'?(o.name||'Taksówka'):(o.name||`${modeName} ${o.line}`);
-      const facts=[o.minutes!=null?`<span><i class="fa-regular fa-clock" aria-hidden="true"></i> ${o.kind==='taxi'?'ok. ':''}${fmtDuration(o.minutes)}</span>`:'', o.kind==='taxi'?(o.km!=null?`<span>${o.km} km</span>`:''):`<span>${o.transfers?`${o.transfers} ${o.transfers===1?'przesiadka':'przesiadki'}`:'bez przesiadek'}</span>`, o.walkMin?`<span><i class="fa-solid fa-person-walking" aria-hidden="true"></i> ${o.walkMin} min pieszo</span>`:''].filter(Boolean).join('');
+      const listed=o.timetable===false && o.kind!=='taxi'; // znany z listy lotniska i cennika, ale nie z otwartych rozkładów
+      const facts=[o.minutes!=null?`<span><i class="fa-regular fa-clock" aria-hidden="true"></i> ${o.kind==='taxi'||listed?'ok. ':''}${fmtDuration(o.minutes)}</span>`:'', o.kind==='taxi'?(o.km!=null?`<span>${o.km} km</span>`:''):o.transfers==null?'':`<span>${o.transfers?`${o.transfers} ${o.transfers===1?'przesiadka':'przesiadki'}`:'bez przesiadek'}</span>`, o.walkMin?`<span><i class="fa-solid fa-person-walking" aria-hidden="true"></i> ${o.walkMin} min pieszo</span>`:''].filter(Boolean).join('');
       const where=o.kind==='taxi'
         ?`<div class="cs-where"><i class="fa-solid fa-location-dot" aria-hidden="true"></i><span>Postój taksówek przed terminalem przylotów · do: <b>${esc(o.alight||'')}</b></span></div>`
-        :`<div class="cs-where"><i class="fa-solid fa-location-dot" aria-hidden="true"></i><span>Gdzie iść: <b>${esc(o.board.name)}</b>${o.board.walkMin?` · ${o.board.walkMin} min pieszo od terminalu`:''}<small>wysiadasz: ${esc(o.alight)}</small></span></div>`;
-      const deps=o.departures?.length?`<div class="cs-deps"><small>Odjazdy</small>${o.departures.map(t=>`<b>${esc(t)}</b>`).join('')}</div>`:'';
+        :listed?`<div class="cs-where"><i class="fa-solid fa-location-dot" aria-hidden="true"></i><span>${o.board?.name?`Gdzie iść: <b>${esc(o.board.name)}</b>`:'Miejsce odjazdu: zobacz na mapie'}${walkTo(d,o)}</span></div>`
+        :`<div class="cs-where"><i class="fa-solid fa-location-dot" aria-hidden="true"></i><span>Gdzie iść: <b>${esc(o.board.name)}</b>${o.board.walkMin?` · ${o.board.walkMin} min pieszo od terminalu`:''}<small>wysiadasz: ${esc(o.alight)}</small>${walkTo(d,o)}</span></div>`;
+      const deps=o.departures?.length?`<div class="cs-deps"><small>Odjazdy</small>${o.departures.map(t=>`<b>${esc(t)}</b>`).join('')}</div>`
+        :listed?'<div class="cs-deps listed"><small>Rozkład</small> u przewoźnika — tej linii nie ma w otwartych rozkładach</div>':'';
       const note=o.fare?.note?`<div class="cs-note">${esc(o.fare.note)}</div>`:'';
-      return `<article class="cs-opt ${o===cheapest?'is-cheap':''} ${o===fastest?'is-fast':''}" data-cs-id="${esc(o.id)}">
+      return `<article class="cs-opt ${o===cheapest?'is-cheap':''} ${o===fastest?'is-fast':''} ${picked?'picked':''}" data-cs-id="${esc(o.id)}">
         ${badges.length?`<div class="cs-badges">${badges.join('')}</div>`:''}
         <div class="cs-title"><span class="cs-mode ${esc(o.kind)}"><i class="fa-solid fa-${ic}" aria-hidden="true"></i></span><div><b>${esc(title)}</b><small>${o.lines.length?o.lines.map(lineChip).join('<i class="fa-solid fa-chevron-right xfer-sep" aria-hidden="true"></i>'):esc(modeName)}${o.agency?` · ${esc(o.agency)}`:''}</small></div></div>
         <div class="cs-facts">${facts}</div>
         ${fareText(o.fare)}
         ${where}${deps}${note}
         ${o.steps?.length?`<details class="cs-more"${CS_OPEN.has(o.id)?' open':''}><summary>Trasa krok po kroku</summary>${csSteps(o.steps)}</details>`:''}
-        <div class="cs-links">${o.shape?.length?`<button type="button" class="btn-ghost" data-cs-show="${esc(o.id)}"><i class="fa-solid fa-map" aria-hidden="true"></i> Na mapie</button>`:''}${o.ticketUrl?`<a href="${esc(o.ticketUrl)}" target="_blank" rel="noopener"><i class="fa-solid fa-ticket" aria-hidden="true"></i> Bilety</a>`:''}${gmaps?`<a href="${esc(gmaps)}" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right" aria-hidden="true"></i> Google Maps</a>`:''}</div>
+        <div class="cs-links"><button type="button" class="cs-pick ${picked?'on':''}" data-cs-pick="${esc(o.id)}" aria-pressed="${picked}">${picked?'<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano':'<i class="fa-regular fa-circle" aria-hidden="true"></i> Wybierz'}</button>${o.ticketUrl?`<a href="${esc(o.ticketUrl)}" target="_blank" rel="noopener"><i class="fa-solid fa-ticket" aria-hidden="true"></i> Bilety</a>`:''}${gmaps?`<a href="${esc(gmaps)}" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right" aria-hidden="true"></i> Google Maps</a>`:''}</div>
       </article>`;
     };
     const tabs=`<div class="cs-sort" role="group" aria-label="Kolejność">${CS_SORTS.map(([v,l])=>`<button type="button" class="${v===sort?'on':''}" data-cs-sort="${v}" aria-pressed="${v===sort}">${l}</button>`).join('')}<small>${opts.length} ${opts.length===1?'sposób':opts.length<5?'sposoby':'sposobów'} dojazdu</small></div>`;
     const hint=d.hint?.walk?`<div class="cs-hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> ${esc(d.hint.walk)}</div>`:'';
-    body=tabs+hint+`<div class="cs-grid">${list.map(card).join('')}</div><small class="cs-src">Rozkłady: Transitous (otwarte dane GTFS) · ceny orientacyjne, przeliczone na złote po kursie NBP — sprawdź u przewoźnika przed podróżą.</small>`;
+    body=tabs+hint+`<div class="cs-grid">${list.map(card).join('')}${skipCard(P)}</div><small class="cs-src">Rozkłady: Transitous (otwarte dane GTFS) · ceny z listy lotnisk i cennika, orientacyjne, przeliczone na złote po kursie NBP — sprawdź u przewoźnika przed podróżą.</small>`;
     CITY.options=new Map(opts.map(o=>[o.id,o]));
   }
-  const ctx={code:f.to, city, zone:d?.zone||XFER.get(f.to)?.zone||'', centre:d?.target||null, airport:d?.airport||null, day:f.day, back:f.ret?.day||null};
-  CITY.want=ctx;
-  return `<div class="city-step">${head}${body}</div><div class="city-slot" data-code="${esc(f.to)}"></div>`;
+  if(d && !d.loading && (d.error || !d.options?.length)) body+=`<div class="cs-grid">${skipCard(P)}</div>`;
+  return `<div class="city-step">${head}${body}</div>`;
+}
+// Ktoś odbiera z lotniska: krok można pominąć, a plan i tak da się zapisać.
+function skipCard(P){
+  const on=P.xferPick==='skip';
+  return `<article class="cs-opt cs-skip ${on?'picked':''}"><div class="cs-title"><span class="cs-mode car"><i class="fa-solid fa-car-side" aria-hidden="true"></i></span><div><b>Pomiń — ktoś mnie odbierze</b><small>Bez dojazdu komunikacją z lotniska</small></div></div>
+    <div class="cs-links"><button type="button" class="cs-pick ${on?'on':''}" data-cs-pick="skip" aria-pressed="${on}">${on?'<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano':'<i class="fa-regular fa-circle" aria-hidden="true"></i> Wybierz'}</button></div></article>`;
+}
+// Na końcu planu: wybrany sposób dojazdu i dwa zapisy — w ulubionych (plan, jeszcze niepewny) albo jako moja podróż.
+function tripSaveBar(P, f, d){
+  const pick=P.xferPick, opt=pick&&pick!=='skip'?d?.options?.find(o=>o.id===pick):null;
+  const chosen=pick==='skip'?'ktoś mnie odbierze z lotniska':opt?`${opt.name||((XMODE[opt.kind]||XMODE.bus)[1]+' '+opt.line)}${opt.minutes!=null?` · ok. ${fmtDuration(opt.minutes)}`:''}${opt.fare?.pln!=null?` · ok. ${opt.fare.pln} zł`:''}`:'';
+  const saved=P.saved && FAV.items.find(x=>x.type==='trip' && x.tid===P.saved);
+  const ready=!!chosen;
+  const done=saved?`<div class="cs-saved" role="status"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> ${saved.status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano w ulubionych jako plan.'} <a href="/podroz-szczegoly?id=${esc(saved.tid)}" data-trip-open="${esc(saved.tid)}">Zobacz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a></div>`:'';
+  return `<div class="cs-save">
+    <div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz plan w ulubionych albo jako swoją podróż.</div>
+    <div class="cs-save-btns">
+      <button type="button" class="btn-ghost" data-trip-save="planned" ${ready?'':'disabled'}><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
+      <button type="button" class="btn-grad" data-trip-save="booked" ${ready?'':'disabled'}><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button>
+    </div>${done}
+  </div>`;
 }
 
 /* ---------- Mapa komunikacji miasta i planer przejazdów (jeden trwały panel, przenoszony do kroku 4) ---------- */
@@ -2590,7 +2801,7 @@ function setCityStatus(text){ const s=CITY.el?.querySelector('.cp-status'); if(s
 function localNow(zone){ try{ return new Date().toLocaleString('sv-SE',{timeZone:zone}).slice(0,16).replace(' ','T'); }catch{ return ''; } }
 // Po każdym odświeżeniu planu panel trafia z powrotem do kroku 4; poza nim mapa przestaje pytać o pojazdy.
 function mountCity(){
-  const slot=document.querySelector('#planResults .city-slot');
+  const slot=document.querySelector('.city-slot');
   if(!slot || !CITY.want){ stopVehicles(); return; }
   const el=cityPanel(); slot.appendChild(el);
   const w=CITY.want, fresh=CITY.code!==w.code;
@@ -2609,6 +2820,7 @@ function mountCity(){
     const today=localNow(w.zone).slice(0,10); form.when.value=today>=w.day&&(!w.back||today<=w.back)?localNow(w.zone):`${w.day}T12:00`;
     CITY.map.setView([w.centre.lat,w.centre.lon],14);
     if(w.airport) setEnd('from',[w.airport.lat,w.airport.lon],`Lotnisko ${w.code}`,true);
+    else if(w.home) setEnd('from',[w.home.lat,w.home.lon],w.home.label,true);
   } else if(!CITY.code) CITY.map.setView([w.centre?.lat||RZ_CENTER[0], w.centre?.lon||RZ_CENTER[1]],13);
   setTimeout(()=>CITY.map.invalidateSize(),0);
   startVehicles();
@@ -2658,7 +2870,7 @@ function startVehicles(){ if(!CITY.timer){ CITY.timer=setInterval(()=>loadVehicl
 function stopVehicles(){ clearInterval(CITY.timer); clearInterval(CITY.anim); CITY.timer=CITY.anim=null; }
 function clearVehicles(){ CITY.vLayer?.clearLayers(); CITY.vehicles=[]; setCityStatus(''); }
 async function loadVehicles(force){
-  if(!CITY.map || !CITY.live || !CITY.el?.isConnected || document.hidden || CITY.fetching) return;
+  if(!CITY.map || !CITY.live || !CITY.el?.isConnected || !CITY.el.offsetParent || document.hidden || CITY.fetching) return;
   const z=CITY.map.getZoom(), b=CITY.map.getBounds();
   if(z<12){ clearVehicles(); setCityStatus('Przybliż mapę, by zobaczyć pojazdy.'); return; }
   const q={min:`${b.getSouth().toFixed(4)},${b.getWest().toFixed(4)}`, max:`${b.getNorth().toFixed(4)},${b.getEast().toFixed(4)}`, zoom:Math.round(z)};
@@ -2717,8 +2929,7 @@ function renderStage(P, R, paged){
   if(modes.includes('car') && !flightsNeeded) sections.push(tripSection('Samochód', carCard(P), 'car'));
   if(!sections.length) sections.push(`<div class="empty-note">${P.by?`Wybranymi środkami nie dojedziesz na ${fmtClock(P.by)}. Zmień godzinę albo zaznacz więcej środków transportu.`:'Brak połączeń wybranymi środkami transportu. Zaznacz więcej opcji.'}</div>`);
   if(P.round && !flightsNeeded) sections.push(tripSection(`Powrót ${fmtDay(P.round.back)} od ${fmtClock(backAt)}`, back.length||railBack.length?back.map(o=>transitCard(o,P,P.dest,home)).join('')+railBack.map(r=>trainCard(r,P,P.dest,home)).join(''):'<div class="empty-note">Brak połączeń komunikacją w dniu powrotu. Wróć tą samą trasą.</div>', 'rotate-left'));
-  return `<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span>${favButton({type:'route',view:'podroz',from:P.from,to:P.to},'Zapisz trasę')}<span class="text-soft">${P.km==null?'':'<span>w linii prostej '+fmtKm(P.km)+'</span> · '}<span>${stageTime(P)}</span>${P.round?` · powrót od ${fmtDay(P.round.back)}`:''}</span></div>`+tripWeather(P)+
-    stageEstimate(P,R)+(best?`<div class="trip-best">${esc(bestText(best,P,R))}</div>`:'')+sections.join('');
+  return `<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span>${favButton({type:'route',view:'podroz',from:P.from,to:P.to},'Zapisz trasę')}<span class="text-soft">${P.km==null?'':'<span>w linii prostej '+fmtKm(P.km)+'</span> · '}<span>${stageTime(P)}</span>${P.round?` · powrót od ${fmtDay(P.round.back)}`:''}</span></div>`+`<div class="stage-top">${tripWeather(P)}${best?`<div class="trip-best">${esc(bestText(best,P,R))}</div>`:''}${stageEstimate(P,R)}</div>`+sections.join('');
 }
 function stationsNear(place){ return place.points.length ? nearbyStops({points:place.points},'kolej') : []; }
 function placeCity(place){ return place.place?.locality || place.label; }
@@ -2849,12 +3060,22 @@ function runPlan(scroll){
   }
   const single=stages.length===1, first=results.get(stages[0]).chosen, last=results.get(stages[stages.length-1]).chosen;
   const summary=single?'':`<div class="trip-summary"><b>${stages.map((P,k)=>esc(P.from)+(k&&stages[k-1].stay?` <small>(${stages[k-1].stay} min)</small>`:'')).join(' <span class="txt-red">→</span> ')} <span class="txt-red">→</span> ${esc(stages[stages.length-1].to)}</b><span>wyjazd ${fmtClock(first.leave)} · na miejscu ${fmtClock(last.arrive)}</span></div>`;
+  // Odświeżenie nie może przesuwać strony: panel mapy wraca na miejsce, zanim cokolwiek zmierzy układ (inaczej strona na
+  // chwilę jest krótsza i przeglądarka podciąga widok do góry), a położenie strony wraca do poprzedniego.
+  const kept=scrollState(document.getElementById('planResults')), pageY=window.scrollY;
   document.getElementById('planResults').innerHTML=resultsFrame('plan', planStrip(), summary+stages.map((P,k)=>{
     const R=results.get(P), html=renderStage(P,R,single&&!P.by);
     const stay=k<stages.length-1?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(P.to)}: postój ${fmtStay(P.stay)}, dalej ${P.stay>=1440?fmtDay(dayOfTs(R.chosen.arrive+P.stay*60))+' ':''}ok. ${fmtClock(R.chosen.arrive+P.stay*60)}</div>`:'';
     return `<section class="trip-stage" data-stage="${k}">${single?'':`<h3 class="stage-title">Etap ${k+1} z ${stages.length}</h3>`}${html}</section>${stay}`;
   }).join(''), PLAN_SORTS, S.planView.sort);
-  applyPlanView(); centerStrip(document.getElementById('planResults')); mountCity();
+  mountCity(); applyPlanView(); restoreScroll(document.getElementById('planResults'), kept); planBusy(); wireStrips();
+  if(!scroll && Math.abs(window.scrollY-pageY)>1) window.scrollTo({top:pageY, behavior:'instant'});
+  // Po zmianie środków transportu wyniki zachowują wysokość, dopóki dojazdy się nie przeliczą, więc strona nie skacze.
+  if(S.holdY!=null){
+    const box=document.getElementById('planResults');
+    window.scrollTo({top:S.holdY, behavior:'instant'});
+    if(!stages.some(P=>[...P.access.values()].some(v=>v==null))){ box.style.minHeight=''; S.holdY=null; }
+  }
   if(scroll) document.getElementById('planResults').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 function inPlan(P){ return !!S.plan?.stages.includes(P); }
@@ -2885,14 +3106,44 @@ function resultsFrame(id, strip, body, sorts, sort){
 }
 function countText(n){ return n===1?'1 wynik':n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?`${n} wyniki`:`${n} wyników`; }
 // Pasek kolejnych dni: dwa tygodnie przed i po wybranym dniu; przy lotach z ceną i najtańszym dniem.
-const STRIP_DAYS=14;
-function dateStrip(kind, selected, prices, label='', min='', byAirline=null){
+const STRIP_DAYS=56;
+// Przewijanie paska dni (tydzień po tygodniu): dni bez ceny w bazie są sprawdzane u przewoźników; dni z ceną pokazują
+// zapisaną cenę bez pytania. Aktualne ceny sprawdzamy tylko dla wybranego na początku okresu.
+const STRIPFILL={plan:false, back:false}, FILLED=new Set();
+let stripQuiet=0;
+function wireStrips(){
+  stripQuiet=Date.now()+900; // przewinięcie przy odświeżeniu strony to nie ruch użytkownika
+  document.querySelectorAll('#planResults .date-strip .ds-days').forEach(box=>{
+    let t; box.addEventListener('scroll', ()=>{ if(Date.now()<stripQuiet) return; clearTimeout(t); t=setTimeout(()=>fillStrip(box.closest('.date-strip')), 700); }, {passive:true});
+  });
+}
+async function fillStrip(strip){
+  if(!strip || document.body.classList.contains('guest')) return;
+  const kind=strip.dataset.strip==='back'?'back':'plan', box=strip.querySelector('.ds-days'), P=S.plan?.stages.find(x=>wantsFlights(x) && x.flights);
+  if(!P || STRIPFILL[kind] || ASK_NOTES[P.fetch]) return;
+  const left=box.scrollLeft, right=left+box.clientWidth, today=ymdOf(0);
+  const missing=[...box.querySelectorAll('.ds-day')].filter(b=>b.offsetLeft-box.offsetLeft+b.offsetWidth>left && b.offsetLeft-box.offsetLeft<right && b.dataset.priced==='0' && b.dataset.day>=today).map(b=>b.dataset.day);
+  if(!missing.length) return;
+  const start=missing[0], end=missing.at(-1), key=[kind,pointParam(P.origin.points[0]),pointParam(P.dest.points[0]),start,end].join('|');
+  if(FILLED.has(key)) return; FILLED.add(key);
+  STRIPFILL[kind]=true; strip.classList.add('filling'); strip.insertAdjacentHTML('afterbegin','<span class="ds-filling"><span class="spin sm" aria-hidden="true"></span> Sprawdzam ceny tych dni…</span>');
+  let started=false;
+  try{
+    const r=await fetch('/api/flights/fill',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({origin:pointParam(P.origin.points[0]), dest:pointParam(P.dest.points[0]), start, end, dir:kind==='back'?'back':'out', prefer:preferredAirport(), radius:flightRadius()})});
+    started=r.status===202;
+  }catch(e){ console.warn('Ceny dni', e); }
+  if(started){ for(let i=0;i<90;i++){ await new Promise(res=>setTimeout(res,2000)); const st=await fetch('/api/flights/status').then(x=>x.json()).catch(()=>null); if(!st?.running) break; } }
+  STRIPFILL[kind]=false;
+  if(inPlan(P)) loadTripFlights(P); else document.querySelectorAll('.ds-filling').forEach(x=>x.remove());
+}
+function dateStrip(kind, selected, prices, label='', min='', byAirline=null, fromMin=false){
   const first=min&&min>ymdOf(0)?min:ymdOf(0), last=lastPlanDay(), days=[];
-  for(let i=-STRIP_DAYS;i<=STRIP_DAYS;i++){ const d=addDays(selected,i); if(d>=first && d<=last) days.push(d); }
+  if(fromMin){ for(let d=first; d<=addDays(selected,STRIP_DAYS) && d<=last; d=addDays(d,1)) days.push(d); } // powrót: od dnia wylotu
+  else for(let i=-STRIP_DAYS;i<=STRIP_DAYS;i++){ const d=addDays(selected,i); if(d>=first && d<=last) days.push(d); }
   const known=prices?days.map(d=>prices.get(d)).filter(p=>p!=null):[], cheapest=known.length?Math.min(...known):null;
   const name=d=>new Date(d+'T12:00:00Z').toLocaleDateString(document.documentElement.lang==='en'?'en-GB':'pl-PL',{weekday:'short', timeZone:'UTC'});
-  return `${label?`<div class="ds-label">${esc(label)}</div>`:''}<div class="date-strip" data-strip="${kind}"><button type="button" class="ds-arrow" data-shift="-1" aria-label="Wcześniejsze dni">‹</button><div class="ds-days">${days.map(d=>{ const p=prices?.get(d), cheap=p!=null&&p===cheapest;
-    return `<button type="button" class="ds-day ${d===selected?'on':''} ${cheap?'cheap':''}" data-day="${d}">${cheap?'<em>Najtaniej</em>':''}<span>${esc(name(d))}</span><b>${fmtDay(d)}</b>${prices?(byAirline?airlineDayRows(byAirline.get(d)):`<small>${p!=null?Math.round(p)+' zł':'—'}</small>`):''}</button>`; }).join('')}</div><button type="button" class="ds-arrow" data-shift="1" aria-label="Późniejsze dni">›</button></div>`;
+  return `${label?`<div class="ds-label">${esc(label)}</div>`:''}<div class="date-strip ${STRIPFILL[kind]?'filling':''}" data-strip="${kind}">${STRIPFILL[kind]?'<span class="ds-filling"><span class="spin sm" aria-hidden="true"></span> Sprawdzam ceny tych dni…</span>':''}<button type="button" class="ds-arrow" data-shift="-1" aria-label="Wcześniejsze dni">‹</button><div class="ds-days">${days.map(d=>{ const p=prices?.get(d), cheap=p!=null&&p===cheapest;
+    return `<button type="button" class="ds-day ${d===selected?'on':''} ${cheap?'cheap':''}" data-day="${d}" data-priced="${p!=null?1:0}">${cheap?'<em>Najtaniej</em>':''}<span>${esc(name(d))}</span><b>${fmtDay(d)}</b>${prices?(byAirline?airlineDayRows(byAirline.get(d)):`<small>${p!=null?Math.round(p)+' zł':'—'}</small>`):''}</button>`; }).join('')}</div><button type="button" class="ds-arrow" data-shift="1" aria-label="Późniejsze dni">›</button></div>`;
 }
 const AIRLINE_PLANE={RYANAIR:'#F1C933', WIZZ:'#7B2D8E'};
 function airlineDayRows(prices){
@@ -2901,6 +3152,21 @@ function airlineDayRows(prices){
 }
 function centerStrip(root){
   root.querySelectorAll('.ds-day.on').forEach(on=>{ const box=on.parentElement; box.scrollLeft=on.offsetLeft-box.offsetLeft-(box.clientWidth-on.offsetWidth)/2; });
+}
+// Odświeżenie planu (np. co kilka sekund z danymi na żywo) nie może przewijać pasków dni ani list z powrotem na początek:
+// paski i przewijane listy wracają tam, gdzie były; pasek dni wyśrodkowuje się tylko po wyborze innego dnia.
+const KEEP_SCROLL='.ds-days,.twx-days,.timeline,.cp-results';
+function scrollState(root){
+  return [...root.querySelectorAll(KEEP_SCROLL)].map(el=>({left:el.scrollLeft, top:el.scrollTop, day:el.querySelector('.ds-day.on')?.dataset.day||''}));
+}
+function restoreScroll(root, kept){
+  const now=[...root.querySelectorAll(KEEP_SCROLL)];
+  if(now.length!==kept.length){ centerStrip(root); return; }
+  now.forEach((el,i)=>{
+    const was=kept[i], on=el.querySelector('.ds-day.on');
+    if(on && on.dataset.day!==was.day){ el.scrollLeft=on.offsetLeft-el.offsetLeft-(el.clientWidth-on.offsetWidth)/2; return; }
+    el.scrollLeft=was.left; el.scrollTop=was.top;
+  });
 }
 /* ---------- Widok wyników planera ---------- */
 const PLAN_SORTS=[['best','Najlepsze'],['leave','Najwcześniejszy odjazd'],['arrive','Najwcześniejszy przyjazd'],['time','Najkrótszy czas'],['changes','Najmniej przesiadek']];
@@ -2919,10 +3185,10 @@ function airlinePrices(list){ return list?new Map(list.map(d=>[d.day,d.airlines|
 function planStrip(){
   const round=plRound.checked && plBack.value && S.agency==='podroz', P=S.plan?.stages.find(x=>wantsFlights(x) && x.flights?.backDays);
   const PF=S.plan?.stages.find(x=>wantsFlights(x) && x.flights?.days);
-  const out=dateStrip('plan', plDate.value||ymdOf(0), planPrices(), round?'Wylot (cena w obie strony przy tej samej długości pobytu)':'', '', airlinePrices(PF?.flights?.days));
+  const out=dateStrip('plan', plDate.value||ymdOf(0), planPrices(), round?'Wylot':'', '', airlinePrices(PF?.flights?.days));
   if(!round) return out;
   const back=P?new Map(P.flights.backDays.map(d=>[d.day,d.cheapest])):null;
-  return out+dateStrip('back', plBack.value, back, 'Powrót (wylot bez zmian)', plDate.value||ymdOf(0), airlinePrices(P?.flights?.backDays));
+  return out+dateStrip('back', plBack.value, back, 'Powrót', plDate.value||ymdOf(0), airlinePrices(P?.flights?.backDays), true);
 }
 function applyPlanView(){
   const root=document.getElementById('planResults'), box=document.getElementById('planFilters'); if(!box) return;
@@ -2983,8 +3249,8 @@ async function loadTripFlights(P){
     const prefer=preferredAirport(); P.prefer=prefer;
 
   }catch(e){ console.warn('Loty', e); P.flights=null; }
-  // Każde planowanie podróży pyta też przewoźników o te dni; serwer nie powtarza tej samej trasy i dnia przez 6 godzin.
-  if(P.flights && !P.asked && inPlan(P) && !document.body.classList.contains('guest')){ askAirlines(P); return; }
+  // Najpierw ceny zapisane w bazie. Przewoźników pytamy sami tylko wtedy, gdy na te dni nie ma żadnych lotów;
+  // aktualną cenę lotu sprawdza przycisk „Odśwież cenę”, a wszystkich lotów — „Sprawdź aktualne ceny”.
   if(P.flights && !P.flights.options.length && !P.asked && inPlan(P)){ if(document.body.classList.contains('guest')){ P.asked=true; P.fetch='login'; } else { askAirlines(P); return; } }
   if(inPlan(P)) runPlan(false);
 }
@@ -2992,6 +3258,9 @@ async function loadTripFlights(P){
 // o trasy z najbliższych lotnisk, z których w ogóle da się dolecieć do celu — tylko o wybrane dni.
 async function askAirlines(P){
   P.asked=true; P.fetch='asking'; if(inPlan(P)) runPlan(false);
+  const C=P.flights?.options?flightChoice(P):null;
+  for(const x of [C?.out, C?.ret]) if(x?.departure && !x.placeholder && ['WIZZ','RYANAIR'].includes(x.airline))
+    fetch(x.airline==='RYANAIR'?'/api/flights/ryanair-time':'/api/flights/wizz-time',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({from:x.from, to:x.to, time:x.departure})}).catch(()=>{});
   try{
     const r=await fetch('/api/flights/trip',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({origin:pointParam(P.origin.points[0]), dest:pointParam(P.dest.points[0]), date:P.date||ymdOf(0), back:P.round?.back||'', prefer:preferredAirport(), radius:flightRadius()})});
     const body=await r.json().catch(()=>({}));
@@ -3001,11 +3270,24 @@ async function askAirlines(P){
   runPlan(false);
   if(P.fetch==='running' || P.fetch==='busy') watchTripFetch(P);
 }
+// Pasek postępu: ile zapytań do przewoźników jest zaplanowanych i ile już odpowiedziało (bez tego pasek „płynie”).
+function busyProgress(p){
+  S.busyProgress=p||null;
+  const box=document.querySelector('#planResults .plan-busy'); if(!box) return;
+  const bar=box.querySelector('.plan-busy-bar'), fill=bar?.querySelector('span'), count=box.querySelector('.plan-busy-count');
+  const known=p && p.total>0, pct=known?Math.max(4,Math.min(100,Math.round(p.done/p.total*100))):0;
+  bar?.classList.toggle('indet', !known);
+  if(fill) fill.style.width=known?pct+'%':'';
+  bar?.setAttribute('aria-valuenow', String(pct));
+  if(count) count.textContent=known?`${p.done} z ${p.total} zapytań do przewoźników`:'Łączę się z przewoźnikami…';
+}
 async function watchTripFetch(P){
-  await new Promise(resolve=>setTimeout(resolve, 5000));
+  await new Promise(resolve=>setTimeout(resolve, 1500));
   if(!inPlan(P)) return;
   let st=null; try{ st=await (await fetch('/api/flights/status')).json(); }catch(e){ console.warn('Stan pobierania lotów', e); }
+  if(st?.progress) busyProgress(st.progress);
   if(st?.running){ watchTripFetch(P); return; }
+  busyProgress(st?.progress?.total?{done:st.progress.total, total:st.progress.total}:null);
   if(P.fetch==='busy'){ P.asked=false; P.fetch=null; } // inne pobieranie się skończyło: sprawdzamy bazę i dopiero wtedy pytamy o swoje dni
   else P.fetch=st?.error?'failed':'done';
   FL.updating.clear();
@@ -3016,6 +3298,21 @@ const ASK_NOTES={
   running:'Pobieram aktualne ceny…',
   busy:'Pobieram aktualne ceny…',
 };
+// Gdy pobieramy aktualne ceny od przewoźników, plan i formularz są wyszarzone i zablokowane (inert), aż wszystko się
+// skończy — wybór lotu czy dnia w trakcie pobierania i tak zostałby nadpisany nowymi cenami.
+function planBusy(){
+  const res=document.getElementById('planResults'), form=document.getElementById('planForm');
+  const note=S.plan?.stages.map(P=>ASK_NOTES[P.fetch]).find(Boolean)||'';
+  res.querySelector(':scope > .plan-busy')?.remove();
+  res.classList.toggle('is-busy',!!note); res.inert=!!note;
+  if(form){ form.classList.toggle('is-busy',!!note); form.inert=!!note; }
+  if(!note) S.busyProgress=null;
+  if(note){
+    res.insertAdjacentHTML('afterbegin',`<div class="plan-busy" role="status"><div class="plan-busy-top"><span class="spin sm" aria-hidden="true"></span> <b>${esc(note)}</b> <small>Poczekaj — wybór lotów i dalsze kroki odblokują się po zakończeniu.</small></div>
+      <div class="plan-busy-bar" role="progressbar" aria-label="Postęp pobierania cen" aria-valuemin="0" aria-valuemax="100"><span></span></div><small class="plan-busy-count"></small></div>`);
+    busyProgress(S.busyProgress);
+  }
+}
 const ASK_RESULTS={
   done:'Przewoźnicy nie mają lotów w tym dniu z lotnisk w pobliżu.',
   fresh:'Te dni sprawdzaliśmy u przewoźników w ciągu ostatnich 6 godzin.',
@@ -3031,7 +3328,7 @@ const ASK_RESULTS={
 /* ---------- Sprawdź kierunki: mapa świata z liniami lotów ---------- */
 // Łuki z lotnisk w pobliżu do wszystkich kierunków z listy połączeń linii: Ryanair na żółto, Wizz Air na fioletowo.
 // Kliknięcie kierunku wpisuje go w „Dokąd?”.
-const EXPLORE={map:null, layer:null, from:null, airlines:new Set(['RYANAIR','WIZZ']), hidden:new Set(), removed:new Set(), open:store('rzbus.explore.open')!==false, drawn:''};
+const EXPLORE={markers:new Map(), map:null, layer:null, from:null, airlines:new Set(['RYANAIR','WIZZ']), hidden:new Set(), removed:new Set(), open:store('rzbus.explore.open')!==false, drawn:''};
 const EXPLORE_COLORS={RYANAIR:'#F7C948', WIZZ:'#B04AE0'};
 function exploreAirports(){ return new Map((FL.data?.airports||[]).filter(a=>a.lat!=null&&a.lon!=null).map(a=>[a.code,a])); }
 // Punkt startu: miejsce z „Skąd?” zaplanowanej podróży, a bez niego Rzeszów.
@@ -3079,7 +3376,7 @@ function renderExplore(){
   const t=document.getElementById('exploreToggle'); t.setAttribute('aria-expanded',String(EXPLORE.open)); t.querySelector('span').textContent=EXPLORE.open?'Ukryj mapę':'Pokaż mapę'; t.querySelector('i').className=`fa-solid fa-chevron-${EXPLORE.open?'up':'down'}`;
   document.querySelectorAll('[data-explore-air]').forEach(b=>{ const on=EXPLORE.airlines.has(b.dataset.exploreAir); b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); });
   if(!FL.network.length || !FL.data){ document.getElementById('exploreInfo').textContent=FL.data===null?'Połączenia są chwilowo niedostępne.':'Wczytuję połączenia…'; return; }
-  const origins=exploreOrigins(); renderExploreFrom(origins);
+  const origins=exploreOrigins(); renderExploreFrom(origins); exploreSuggestions();
   if(!EXPLORE.open) return;
   const m=ensureExploreMap(); if(!m) return;
   m.invalidateSize();
@@ -3087,7 +3384,7 @@ function renderExplore(){
   const routes=FL.network.filter(r=>from.has(r.from) && airports.has(r.to) && !EXPLORE.hidden.has(r.to) && r.airlines.some(x=>EXPLORE.airlines.has(x)));
   const key=[...from].sort().join(',')+'|'+[...EXPLORE.airlines].sort().join(',')+'|'+[...EXPLORE.hidden].sort().join(',')+'|'+routes.length;
   if(EXPLORE.drawn===key) return;
-  EXPLORE.drawn=key; EXPLORE.layer.clearLayers();
+  EXPLORE.drawn=key; EXPLORE.layer.clearLayers(); EXPLORE.markers.clear();
   const dests=new Map(), bounds=[];
   for(const r of routes){
     const a=airports.get(r.from), b=airports.get(r.to), pa=[a.lat,a.lon], pb=[b.lat,b.lon];
@@ -3107,7 +3404,7 @@ function renderExplore(){
   for(const d of dests.values()){
     const both=d.airlines.size>1, color=both?'#FFFFFF':EXPLORE_COLORS[[...d.airlines][0]];
     const names=[...d.airlines].map(x=>AIRLINES[x]?.name||x).join(', ');
-    L.circleMarker([d.airport.lat,d.airport.lon],{radius:4, color, weight:1.5, fillColor:color, fillOpacity:0.9, className:'explore-dot'})
+    const dot=L.circleMarker([d.airport.lat,d.airport.lon],{radius:4, color, weight:1.5, fillColor:color, fillOpacity:0.9, className:'explore-dot'}); EXPLORE.markers.set(d.airport.code, dot); dot
       .bindTooltip(`<b>${esc(d.airport.city)} (${esc(d.airport.code)})</b><br>${esc(d.airport.country||'')}<br>${esc(names)} · z ${esc([...d.from].join(', '))}${d.price!=null?`<br>od <b>${d.price} zł</b>`:''}`,{className:'explore-tip', direction:'top', sticky:true})
       .bindPopup(`<div class="explore-pop"><b>${esc(d.airport.city)} (${esc(d.airport.code)})</b><small>${esc(names)}${d.price!=null?` · od ${d.price} zł`:''}</small><div class="explore-pop-btns"><button type="button" data-explore-pick="${esc(d.airport.code)}"><i class="fa-solid fa-location-arrow" aria-hidden="true"></i> Jedź tutaj</button><button type="button" data-explore-hide="${esc(d.airport.code)}"><i class="fa-solid fa-eye-slash" aria-hidden="true"></i> Ukryj na mapie</button></div></div>`,{className:'explore-popup', closeButton:false})
       .addTo(EXPLORE.layer);
@@ -3141,6 +3438,39 @@ sessionUser.then(async user=>{
   if(!user){ applyExploreView(store('rzbus.explore.view')); return; }
   try{ const r=await fetch('/api/preferences'); if(r.ok) applyExploreView((await r.json()).preferences?.exploreView); }catch(e){ console.warn('Widok mapy', e); }
 }).catch(()=>{});
+// Szukanie miasta: podpowiedzi to wszystkie kierunki z polskich lotnisk; wybrane miasto mapa przybliża i otwiera jego kartę.
+// Gdy z wybranych lotnisk tam nie latamy, dodajemy polskie lotniska, które mają ten kierunek.
+function exploreDestinations(){
+  const airports=exploreAirports(), polish=new Set([...airports.values()].filter(a=>a.country==='Polska').map(a=>a.code)), out=new Map();
+  for(const r of FL.network){ const a=airports.get(r.to); if(!a || !polish.has(r.from) || polish.has(r.to)) continue; (out.get(r.to)||out.set(r.to,{airport:a, from:new Set()}).get(r.to)).from.add(r.from); }
+  return out;
+}
+function exploreSuggestions(){
+  const list=document.getElementById('exploreDestList'); if(!list || list.dataset.n===String(FL.network.length)) return;
+  list.dataset.n=String(FL.network.length);
+  list.innerHTML=[...exploreDestinations().values()].sort((x,y)=>natSort(x.airport.city||'',y.airport.city||'')).map(d=>`<option value="${esc(d.airport.city)}, ${esc(d.airport.country||'')} (${esc(d.airport.code)})"></option>`).join('');
+}
+function exploreFind(text){
+  const code=/\(([A-Z]{3})\)\s*$/.exec(text.trim())?.[1], dests=exploreDestinations();
+  if(code && dests.has(code)) return dests.get(code);
+  const q=foldText(text.trim()); if(q.length<2) return null;
+  const all=[...dests.values()];
+  return all.find(d=>d.airport.code.toLowerCase()===q) || all.find(d=>foldText(d.airport.city)===q) || all.find(d=>foldText(d.airport.city).startsWith(q)) || all.find(d=>foldText(`${d.airport.city} ${d.airport.country}`).includes(q)) || null;
+}
+function exploreShow(text){
+  const d=exploreFind(text);
+  if(!d){ document.getElementById('exploreInfo').textContent=`Nie znaleźliśmy kierunku „${text.trim()}” z lotnisk w Polsce.`; return; }
+  const code=d.airport.code;
+  EXPLORE.hidden.delete(code);
+  if(![...d.from].some(c=>EXPLORE.from?.has(c))){ for(const c of d.from){ EXPLORE.removed.delete(c); EXPLORE.from.add(c); } toast(`Do ${d.airport.city} latamy z: ${[...d.from].join(', ')} — dodano te lotniska wylotu.`); }
+  if(!EXPLORE.open){ EXPLORE.open=true; store('rzbus.explore.open', true); }
+  EXPLORE.drawn=''; renderExplore();
+  const dot=EXPLORE.markers.get(code); if(!dot || !EXPLORE.map) return;
+  EXPLORE.map.setView(dot.getLatLng(), Math.max(EXPLORE.map.getZoom(),5), {animate:true});
+  setTimeout(()=>dot.openPopup(), 300);
+}
+document.getElementById('exploreSearchForm').addEventListener('submit', e=>{ e.preventDefault(); exploreShow(document.getElementById('exploreSearch').value); });
+document.getElementById('exploreSearch').addEventListener('change', e=>{ if(/\([A-Z]{3}\)\s*$/.test(e.target.value)) exploreShow(e.target.value); });
 // Wybrany kierunek przenosi do planera z uzupełnionym celem.
 function exploreChoose(airport){
   goPage('podroz','');
@@ -3289,7 +3619,7 @@ function toggleFavorite(item){
   const key=favKey(item);
   FAV.items=isFavorite(item) ? FAV.items.filter(f=>favKey(f)!==key) : [...FAV.items, item].slice(-50);
   saveFavorites().catch(e=>console.warn('Nie zapisano ulubionych', e));
-  renderFavorites(); syncStars();
+  renderFavorites(); syncStars(); if(S.sub==='moje') renderMyTrips();
 }
 // Rodzaj ulubionego: trasy i podróże należą do planera, przystanki zapisane w planerze to autobusy.
 function favKind(f){ return f.type==='route'||f.type==='trip' ? 'podroz' : f.view==='podroz' ? 'ztm' : f.view; }
@@ -3316,7 +3646,7 @@ async function loadSavedPrice(key, fl){
     const out=await price(fl.from,fl.to,fl.day), back=fl.back?await price(fl.to,fl.from,fl.back):0;
     FAVP.set(key,{state:'done', price:out!=null&&back!=null?Math.round(out+back):null});
   }catch(e){ console.warn('Cena zapisanej podróży', e); FAVP.set(key,{state:'done', price:null}); }
-  if(S.sub==='ulubione') renderFavorites();
+  if(S.sub==='ulubione') renderFavorites(); else if(S.sub==='trip') renderTripPage();
 }
 async function refreshSavedPrice(key, fl){
   FAVP.set(key,{state:'asking'}); renderFavorites();
@@ -3369,7 +3699,7 @@ function favCard(f){
 }
 // Zapisane podróże z datami na osi czasu: miesiące, a w nich podróże od najbliższej; minione na końcu, przygaszone.
 const longDay=(d, opts)=>new Date(d+'T12:00:00Z').toLocaleDateString(document.documentElement.lang==='en'?'en-GB':'pl-PL',{timeZone:'UTC', ...opts});
-function tripTimeline(list){
+function tripTimeline(list, {booked=false}={}){
   const today=ymdOf(0), dated=[], rest=[];
   for(const f of list){ const fl=f.type==='trip'?savedFlight(f):null; (fl?.day?dated:rest).push({f, fl}); }
   const end=x=>x.fl.back||x.fl.day;
@@ -3387,9 +3717,9 @@ function tripTimeline(list){
           <button class="fav-card-open" type="button" data-fav-open="${key}"><b>Podróż do ${esc(f.to)}</b>
             <small class="tl-dates"><span>${longDay(fl.day,{weekday:'short', day:'numeric', month:'long'})}</span>${fl.back?` – <span>${longDay(fl.back,{weekday:'short', day:'numeric', month:'long', year:'numeric'})}</span>`:` <span>${longDay(fl.day,{year:'numeric'})}</span>`}${stay?` · <span>${stay} ${stay===1?'dzień':'dni'}</span>`:''}</small></button>
           <span class="tl-when ${now?'now':''}">${when}</span>
-          <button class="fav-card-remove" type="button" data-fav-remove="${key}" title="Usuń z ulubionych" aria-label="Usuń z ulubionych"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>
-        <div class="tl-sub"><span>${esc(f.from)} → ${esc(f.to)}</span>${f.name?` · <span>${esc(f.name)}</span>`:''}</div>
-        ${gone?'':savedPriceHtml(favKey(f), fl, f.flight?.price)}
+          <button class="fav-card-remove" type="button" data-fav-remove="${key}" title="${booked?'Usuń podróż':'Usuń z ulubionych'}" aria-label="${booked?'Usuń podróż':'Usuń z ulubionych'}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>
+        <div class="tl-sub"><span>${esc(f.from)} → ${esc(f.to)}</span>${f.name?` · <span>${esc(f.name)}</span>`:''}${f.trip?.xfer?` · <span>${f.trip.xfer.skip?'odbiór z lotniska':esc(f.trip.xfer.name)}</span>`:''}</div>
+        ${gone||booked?'':savedPriceHtml(favKey(f), fl, f.flight?.price)}
       </div></div>`;
   };
   let month='', html='';
@@ -3401,8 +3731,15 @@ function tripTimeline(list){
   if(past.length) html+=`<div class="tl-month tl-past">Minione</div>`+past.map(item).join('');
   return (html?`<div class="trip-timeline">${html}</div>`:'')+(rest.length?`<h4 class="fav-subtitle">Zapisane trasy</h4><div class="fav-grid">${rest.map(x=>favCard(x.f)).join('')}</div>`:'');
 }
+// Liczniki w prawym górnym rogu przycisków „Moje podróże” i „Ulubione”.
+function navCounts(){
+  const set=(id,n,label)=>{ const el=document.getElementById(id); if(!el) return; el.hidden=!n; el.textContent=n>99?'99+':String(n); el.setAttribute('aria-label',`${n} ${label}`); };
+  set('myTripsCount', FAV.items.filter(f=>f.type==='trip' && f.status==='booked').length, 'podróży');
+  set('favCount', FAV.items.filter(f=>f.status!=='booked').length, 'ulubionych');
+}
 function renderFavorites(){
-  const filters=document.getElementById('favFilters'), page=document.getElementById('favPage'), items=FAV.items;
+  navCounts();
+  const filters=document.getElementById('favFilters'), page=document.getElementById('favPage'), items=FAV.items.filter(f=>f.status!=='booked');
   if(!page) return;
   const count=kind=>kind==='alerts'?ALERTS.list.length:items.filter(f=>kind==='all'||favKind(f)===kind).length+(kind==='all'?ALERTS.list.length:0);
   if(!ALERTS.loaded && !document.body.classList.contains('guest')) loadAlerts();
@@ -3432,25 +3769,351 @@ document.getElementById('favFilters').addEventListener('click', e=>{
   FAVF.kind=b.dataset.favKind; setSubpage('ulubione');
 });
 // Wybory zapisanego planu; starsze zapisy mają wylot i dojazd tylko w identyfikatorze („f:<lot>:<dojazd>”).
+/* ---------- Zapisane podróże: plan w ulubionych albo „Moje podróże”, z osobną stroną szczegółów ---------- */
+// Identyfikator strony podróży: nowe zapisy mają własny, starsze dostają skrót z klucza ulubionego.
+function hashText(t){ let h=5381; for(let i=0;i<t.length;i++) h=((h<<5)+h+t.charCodeAt(i))>>>0; return h.toString(36); }
+const tidOf=f=>f.tid||('k'+hashText(favKey(f))).padEnd(6,'0');
+const newTid=()=>(Math.random().toString(36).slice(2)+Date.now().toString(36)).slice(0,12);
+function findTrip(id){ return id?FAV.items.find(f=>f.type==='trip' && tidOf(f)===id)||null:null; }
+function openTrip(id){ TRIPV.id=id; TRIPV.city=false; TRIPV.step='go'; goPage('podroz','trip'); }
+// Jak podróż wyglądała w chwili zapisu: loty, dojazd na lotnisko, wybrany dojazd do centrum, cel i lotnisko docelowe.
+function tripSnapshot(P, f, o, d){
+  const p=P.dest?.points?.[0], pt=Array.isArray(p)?{lat:p[0], lon:p[1]}:p, t=XFER.get(f.to);
+  const pick=P.xferPick, opt=pick&&pick!=='skip'?d?.options?.find(x=>x.id===pick):null;
+  const r4=v=>Math.round(v*1e4)/1e4, ap=code=>{ const q=airportPoint(P,code)||(code===f.from&&f.airport?[f.airport.lat,f.airport.lon]:code===f.to&&t?[t.airportLat,t.airportLon]:null); return q&&q[0]!=null?[r4(q[0]),r4(q[1])]:null; };
+  const stepsOf=list=>(list||[]).slice(0,14).map(s=>({icon:s.icon, text:s.text, sub:s.sub||'', ...(s.link?.href&&s.link.href.length<=300?{link:{href:s.link.href, label:s.link.label||'Mapy Google'}}:{})}));
+  const home=P.origin?.points?.[0];
+  const leg=x=>x?{from:x.from, to:x.to, fromLabel:x.fromLabel||x.from, toLabel:x.toLabel||x.to, day:x.day, arrDay:(x.arrival||'').slice(0,10)||x.day, fromPoint:ap(x.from), toPoint:ap(x.to), dep:clockOf(x.departure)||'', arr:arrivalOf(x)||'',
+    airline:x.airline||'', airlineName:airlineOf(x).name, price:x.pricePln!=null?Math.round(x.pricePln):null, booking:x.bookingUrl&&x.bookingUrl.length<=300?x.bookingUrl:''}:null;
+  const xfer=pick==='skip'?{skip:true}:opt?{name:opt.name||`${(XMODE[opt.kind]||XMODE.bus)[1]} ${opt.line}`.trim(), kind:opt.kind, line:opt.line||'', agency:opt.agency||'',
+    lines:(opt.lines||[]).slice(0,6).map(l=>({kind:l.kind, line:l.line, color:l.color||'', textColor:l.textColor||''})), board:opt.board?.name||'', walkMin:opt.board?.walkMin||0, alight:opt.alight||'',
+    minutes:opt.minutes??null, transfers:opt.transfers??null, fare:opt.fare?.text||'', pln:opt.fare?.pln??null, departures:(opt.departures||[]).slice(0,4), ticketUrl:opt.ticketUrl&&opt.ticketUrl.length<=300?opt.ticketUrl:'',
+    timetable:opt.timetable!==false, km:opt.km??null, boardAt:opt.board?.at?[r4(opt.board.at[0]),r4(opt.board.at[1])]:null, steps:(opt.steps||[]).slice(0,8).map(s=>({kind:s.kind, line:s.line||'', from:s.from||'', to:s.to||'', dep:s.dep||'', arr:s.arr||'', minutes:s.minutes||0}))}:null;
+  return {
+    out:leg(f), ret:leg(f.ret), total:fareTotal(f)!=null?Math.round(fareTotal(f)):null,
+    access:o?{title:o.title||'', mode:o.id||'', leave:o.leave||null, arrive:o.arrive||null, steps:stepsOf(o.steps), backSteps:stepsOf(o.back?.steps)}:null,
+    dest:{label:P.to, lat:pt?.lat??null, lon:pt?.lon??null}, home:{label:P.from, lat:home?r4(home[0]):null, lon:home?r4(home[1]):null},
+    airport:{code:f.to, city:t?.city||d?.city||'', zone:d?.zone||t?.zone||'', lat:t?.airportLat??d?.airport?.lat??null, lon:t?.airportLon??d?.airport?.lon??null},
+    centre:d?.target?{label:d.target.label||'', lat:d.target.lat, lon:d.target.lon}:null,
+    xfer, people:Math.max(1,P.people||1), costs:tripCosts(P,f), weather:planWeatherPoints(P,f), savedAt:new Date().toISOString(),
+  };
+}
+function saveMyTrip(P, status){
+  const C=flightChoice(P); if(!C?.out) return;
+  const f={...C.out, ret:C.ret||null, returns:[]}, o=pickedAccess(P,f), d=airportOptions(P,f);
+  if(!P.xferPick) return;
+  const id=`f:${fareKey(f)}:${o?.id||''}`, before=FAV.items.find(x=>x.type==='trip' && x.id===id);
+  const item={type:'trip', view:'podroz', id, tid:before?.tid||newTid(), status, from:P.from, to:P.to,
+    name:o?`${o.title} · ${airlineOf(f).name}`:airlineOf(f).name, detail:f.ret?`${flightDetail(f)} · powrót ${fmtDay(f.ret.day)}`:flightDetail(f),
+    flight:tripFlight(f), plan:{out:fareKey(f), ret:f.ret?fareKey(f.ret):'', access:o?.id||'', xfer:P.xferPick}, trip:{...tripSnapshot(P,f,o,d), ...(before?.trip?.hotel?{hotel:before.trip.hotel}:{})}};
+  FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && x.id===id)), item].slice(-50);
+  saveFavorites().catch(e=>console.warn('Nie zapisano podróży', e));
+  P.saved=item.tid; renderFavorites(); syncStars(); runPlan(false); navCounts();
+  toast(status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano plan w ulubionych.');
+}
+// Moje podróże: oś czasu jak w ulubionych, bez cen do sprawdzania (bilety są już kupione).
+function renderMyTrips(){
+  const page=document.getElementById('myTripsPage'); if(!page) return;
+  const list=FAV.items.filter(f=>f.type==='trip' && f.status==='booked');
+  page.innerHTML=list.length?tripTimeline(list,{booked:true}):`<div class="empty-note">Nie masz jeszcze zapisanych podróży. Zaplanuj lot, a na ostatnim kroku „Z lotniska do centrum” kliknij „Zapisz moją podróż”. Plany, których nie jesteś pewien, zapisuj w ulubionych.</div>`;
+}
+const fmtTs=ts=>ts?`${fmtDay(dayOfTs(ts))} ${fmtClock(ts)}`:'';
+/* ---------- Pogoda jako mała plakietka przy miejscu (start, lotniska, centrum) ---------- */
+function wxChipHtml(w){
+  if(!w || w.loading) return '<span class="spin sm" aria-hidden="true"></span>';
+  const d=w.days?.[0];
+  if(!d) return w.availableFrom?`<small>prognoza od ${fmtDay(w.availableFrom)}</small>`:'';
+  const [desc,ico]=wmo(d.code);
+  return `<span class="wx-ico" title="${esc(desc)}" aria-hidden="true">${ico}</span><b>${Math.round(d.max)}°</b><small>${Math.round(d.min)}°</small>${d.rainChance?`<small class="wtl-rain"><i class="fa-solid fa-droplet" aria-hidden="true"></i>${d.rainChance}%</small>`:''}`;
+}
+function wxChip(point, day){
+  if(CFG.weather===false || !point || point[0]==null || !day) return '';
+  const key=`${(+point[0]).toFixed(2)},${(+point[1]).toFixed(2)}|${day}|${day}`;
+  if(!TWX.has(key)){
+    TWX.set(key,{loading:true});
+    fetch('/api/weather?'+new URLSearchParams({lat:point[0], lon:point[1], from:day, to:day})).then(r=>r.ok?r.json():null)
+      .then(x=>{ TWX.set(key,x||{error:true}); document.querySelectorAll('[data-wx]').forEach(el=>{ if(el.dataset.wx===key) el.innerHTML=wxChipHtml(TWX.get(key)); }); })
+      .catch(()=>TWX.set(key,{error:true}));
+  }
+  return `<span class="wx-chip" data-wx="${esc(key)}">${wxChipHtml(TWX.get(key))}</span>`;
+}
+const ptOf=x=>Array.isArray(x)&&x[0]!=null?x:x?.lat!=null?[x.lat,x.lon]:null;
+// Rozwinięte „Kroki” zostają rozwinięte, gdy strona podróży się odświeża.
+const TP_OPEN=new Set();
+document.addEventListener('toggle', e=>{ const d=e.target; if(!d.classList?.contains('tp-more') || !d.dataset.k) return; if(d.open) TP_OPEN.add(d.dataset.k); else TP_OPEN.delete(d.dataset.k); }, true);
+const more=(k,label,html)=>html?`<details class="tp-more" data-k="${esc(k)}"${TP_OPEN.has(k)?' open':''}><summary>${label}</summary>${html}</details>`:'';
+const iconLink=(href,icon,title)=>href?`<a class="icon-btn" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(title)}" aria-label="${esc(title)}"><i class="fa-solid fa-${icon}" aria-hidden="true"></i></a>`:'';
+const iconMap=(key,title='Na mapie')=>`<button type="button" class="icon-btn" data-tp-map="${esc(key)}" title="${esc(title)}" aria-label="${esc(title)}"><i class="fa-solid fa-map" aria-hidden="true"></i></button>`;
+function tripPoints(T){
+  const pt=(icon,label,time,place,wx,cls='')=>`<div class="tp-point ${cls}"><i class="fa-solid fa-${icon}" aria-hidden="true"></i><small>${label}</small><b>${esc(time||'—')}</b><span>${esc(place||'')}</span>${wx||''}</div>`;
+  const x=T.xfer, pts=[], centre=ptOf(T.centre)||ptOf(T.dest);
+  if(T.access) pts.push(pt('house','Wyjście',fmtTs(T.access.leave),T.home?.label,wxChip(ptOf(T.home),T.access.leave?dayOfTs(T.access.leave):T.out?.day)));
+  if(T.out){ pts.push(pt('plane-departure','Wylot',`${fmtDay(T.out.day)} ${T.out.dep}`,T.out.fromLabel,wxChip(T.out.fromPoint,T.out.day))); pts.push(pt('plane-arrival','Przylot',T.out.arr,T.out.toLabel,wxChip(T.out.toPoint||centre,T.out.arrDay||T.out.day))); }
+  if(x) pts.push(x.skip?pt('car-side','Odbiór','z lotniska','ktoś odbiera','', 'soft'):pt((XMODE[x.kind]||XMODE.bus)[0],'Do centrum',x.minutes!=null?`ok. ${fmtDuration(x.minutes)}`:'',x.name,''));
+  if(T.ret){ pts.push(pt('plane-departure','Powrót',`${fmtDay(T.ret.day)} ${T.ret.dep}`,T.ret.fromLabel,wxChip(T.ret.fromPoint||centre,T.ret.day))); pts.push(pt('plane-arrival','Lądowanie',T.ret.arr,T.ret.toLabel,wxChip(ptOf(T.home)||T.ret.toPoint,T.ret.arrDay||T.ret.day))); }
+  return `<div class="tp-points">${pts.join('<i class="fa-solid fa-chevron-right ps-sep" aria-hidden="true"></i>')}</div>`;
+}
+function tripFlightDetails(T){
+  const ap=(p,label,key,day)=>`<span class="tp-ap"><b>${esc(label)}</b>${wxChip(p,day)}<span class="tp-icons">${p?iconMap(key,'Lotnisko na mapie'):''}${iconLink(gPlace(p,label+' airport'),'diamond-turn-right','Lotnisko w Google Maps')}</span></span>`;
+  const row=(x,label,key)=>x?`<div class="tp-fl"><div class="tp-fl-main"><span class="tp-flight-l">${label}</span><b>${esc(x.dep)} → ${esc(x.arr)}</b><small>${longDay(x.day,{weekday:'short', day:'numeric', month:'short'})} · ${esc(x.airlineName||x.airline)}${x.price!=null?` · ${x.price} zł/os.`:''}${x.booking?` · <a href="${esc(x.booking)}" target="_blank" rel="noopener">u przewoźnika</a>`:''}</small></div>
+    <div class="tp-fl-aps">${ap(x.fromPoint,x.fromLabel,key+'-from',x.day)}<i class="fa-solid fa-arrow-right tp-arrow" aria-hidden="true"></i>${ap(x.toPoint,x.toLabel,key+'-to',x.arrDay||x.day)}</div></div>`:'';
+  return row(T.out,'Wylot','out')+row(T.ret,'Powrót','ret');
+}
+function tripAccessDetails(T, f){
+  const a=T.access; if(!a) return '<div class="empty-note">Bez zapisanego dojazdu.</div>';
+  const home=ptOf(T.home), mode=a.mode==='car'?'driving':'transit';
+  return `<div class="tp-line"><div><b>${esc((a.title||'').replace(/ \+ samolot$/,''))}</b><small>${a.leave?`wyjście ${fmtTs(a.leave)} · `:''}${esc(T.home?.label||f.from)} → ${esc(T.out?.fromLabel||'')}</small></div>
+    <span class="tp-icons">${home&&T.out?.fromPoint?iconMap('access','Trasa na mapie'):''}${iconLink(gDir(home,T.out?.fromPoint,mode),'diamond-turn-right','Wskazówki dojazdu (Google Maps)')}</span></div>
+    ${more('access-go',`<i class="fa-solid fa-list-ol" aria-hidden="true"></i> Kroki dojazdu (${a.steps?.length||0})`,a.steps?.length?stepsHtml(a.steps):'')}
+    ${a.backSteps?.length?`<div class="tp-line"><div><b>Powrót do domu</b><small>${esc(T.ret?.toLabel||'')} → ${esc(T.home?.label||'')}</small></div><span class="tp-icons">${iconLink(gDir(T.ret?.toPoint,home,mode),'diamond-turn-right','Wskazówki powrotu (Google Maps)')}</span></div>${more('access-back',`<i class="fa-solid fa-list-ol" aria-hidden="true"></i> Kroki powrotu (${a.backSteps.length})`,stepsHtml(a.backSteps))}`:''}`;
+}
+function tripXferCard(T){
+  const x=T.xfer, centre=ptOf(T.centre)||ptOf(T.dest), day=T.out?.arrDay||T.out?.day;
+  if(!x) return '<div class="empty-note">Nie wybrano dojazdu z lotniska. Otwórz podróż w planerze, aby go wybrać.</div>';
+  if(x.skip) return `<div class="tp-line"><div><b>Ktoś mnie odbierze</b><small>Bez dojazdu komunikacją z lotniska.</small></div>${wxChip(centre,day)}</div>`;
+  const [ic,modeName]=XMODE[x.kind]||XMODE.bus, air=T.out?.toPoint||ptOf(T.airport), board=x.boardAt||null;
+  return `<div class="tp-line"><div class="tp-x"><span class="cs-mode ${esc(x.kind)}"><i class="fa-solid fa-${ic}" aria-hidden="true"></i></span><div><b>${esc(x.name)}</b>
+      <small>${[x.minutes!=null?`ok. ${fmtDuration(x.minutes)}`:'', x.transfers!=null&&x.kind!=='taxi'?(x.transfers?`${x.transfers} ${x.transfers===1?'przesiadka':'przesiadki'}`:'bez przesiadek'):'', x.pln!=null?`ok. ${x.pln} zł/os.`:''].filter(Boolean).join(' · ')}</small></div></div>
+    <span class="tp-icons">${air&&centre?iconMap('xfer','Trasa na mapie'):''}${iconLink(board?gDir(air,board,'walking'):gPlace(null,`${x.board||x.name}, ${T.airport?.city||''}`),'person-walking','Jak dojść do odjazdu')}${iconLink(gDir(board||air,centre,x.kind==='taxi'?'driving':'transit'),'diamond-turn-right','Trasa do centrum (Google Maps)')}${x.ticketUrl?iconLink(x.ticketUrl,'ticket','Bilety'):''}</span></div>
+    ${x.board?`<div class="tp-where"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Odjazd: <b>${esc(x.board)}</b>${x.alight?` · wysiadasz: ${esc(x.alight)}`:''}${x.departures?.length?` · odjazdy ${x.departures.map(esc).join(', ')}`:x.timetable===false&&x.kind!=='taxi'?' · rozkład u przewoźnika':''}</div>`:''}
+    <div class="tp-where">${wxChip(centre,day)} <small>${esc(T.centre?.label||T.dest?.label||'')} w dniu przylotu</small></div>
+    ${x.fare?`<small class="text-soft">${esc(x.fare)}</small>`:''}
+    ${more('xfer-steps',`<i class="fa-solid fa-list-ol" aria-hidden="true"></i> Trasa krok po kroku (${x.steps?.length||0})`,x.steps?.length?csSteps(x.steps):'')}`;
+}
+function tripXferLinks(){ return ''; }
+function tripFlightRows(T){
+  const row=(x,label)=>x?`<div class="tp-flight"><span class="tp-flight-l">${label}</span><b>${esc(x.from)} ${esc(x.dep)} → ${esc(x.to)} ${esc(x.arr)}</b><small>${longDay(x.day,{weekday:'short', day:'numeric', month:'long'})} · ${esc(x.airlineName||x.airline)}${x.price!=null?` · ${x.price} zł`:''}</small>${x.booking?`<a href="${esc(x.booking)}" target="_blank" rel="noopener">u przewoźnika <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a>`:''}</div>`:'';
+  return row(T.out,'Wylot')+row(T.ret,'Powrót');
+}
+// Przebieg podróży jako klikalna oś: każdy punkt pokazuje pod spodem swoje szczegóły i miejsce na mapie.
+const TRIP_STEPS=['go','out','arr','xfer','hotel','ret','home'];
+const STEP_MAP={go:'access', out:'out-from', arr:'out-to', xfer:'xfer', hotel:'hotel', ret:'ret-from', home:'ret-to'};
+function tripFlow(T){
+  const x=T.xfer, centre=ptOf(T.centre)||ptOf(T.dest), cur=TRIPV.step||'go';
+  const pt=(key,icon,label,time,place,wx,cls='')=>`<button type="button" class="tp-point ${cls} ${key===cur?'on':''}" data-tp-step="${key}" aria-pressed="${key===cur}"><i class="fa-solid fa-${icon}" aria-hidden="true"></i><small>${label}</small><b>${esc(time||'—')}</b><span>${esc(place||'')}</span>${wx||''}</button>`;
+  const pts=[];
+  if(T.access) pts.push(pt('go','house','Wyjście',fmtTs(T.access.leave),T.home?.label,wxChip(ptOf(T.home),T.access.leave?dayOfTs(T.access.leave):T.out?.day)));
+  if(T.out){ pts.push(pt('out','plane-departure','Wylot',`${fmtDay(T.out.day)} ${T.out.dep}`,T.out.fromLabel,wxChip(T.out.fromPoint,T.out.day))); pts.push(pt('arr','plane-arrival','Przylot',T.out.arr,T.out.toLabel,wxChip(T.out.toPoint||centre,T.out.arrDay||T.out.day))); }
+  if(x) pts.push(x.skip?pt('xfer','car-side','Odbiór','z lotniska','ktoś odbiera','','soft'):pt('xfer',(XMODE[x.kind]||XMODE.bus)[0],'Do centrum',x.minutes!=null?`ok. ${fmtDuration(x.minutes)}`:'',x.name,''));
+  pts.push(T.hotel?pt('hotel','hotel','Nocleg',T.hotel.checkin?`${fmtDay(T.hotel.checkin)}–${fmtDay(T.hotel.checkout)}`:'hotel',T.hotel.name,''):pt('hotel','bed','Nocleg','dodaj hotel','szukaj lub wpisz','','soft'));
+  if(T.ret){ pts.push(pt('ret','plane-departure','Powrót',`${fmtDay(T.ret.day)} ${T.ret.dep}`,T.ret.fromLabel,wxChip(T.ret.fromPoint||centre,T.ret.day))); pts.push(pt('home','plane-arrival','Lądowanie',T.ret.arr,T.ret.toLabel,wxChip(ptOf(T.home)||T.ret.toPoint,T.ret.arrDay||T.ret.day))); }
+  return `<nav class="tp-flow" aria-label="Przebieg podróży">${pts.join('<span class="tp-conn" aria-hidden="true"></span>')}</nav>`;
+}
+function flightBox(x, label, key){
+  const ap=(p,name,k,day)=>`<span class="tp-ap"><b>${esc(name)}</b>${wxChip(p,day)}<span class="tp-icons">${p?iconMap(k,'Lotnisko na mapie'):''}${iconLink(gPlace(p,name+' airport'),'diamond-turn-right','Lotnisko w Google Maps')}</span></span>`;
+  return `<div class="tp-fl"><div class="tp-fl-main"><span class="tp-flight-l">${label}</span><b>${esc(x.dep)} → ${esc(x.arr)}</b><small>${longDay(x.day,{weekday:'short', day:'numeric', month:'short'})} · ${esc(x.airlineName||x.airline)}${x.price!=null?` · ${x.price} zł/os.`:''}${x.booking?` · <a href="${esc(x.booking)}" target="_blank" rel="noopener">u przewoźnika</a>`:''}</small></div>
+    <div class="tp-fl-aps">${ap(x.fromPoint,x.fromLabel,key+'-from',x.day)}<i class="fa-solid fa-arrow-right tp-arrow" aria-hidden="true"></i>${ap(x.toPoint,x.toLabel,key+'-to',x.arrDay||x.day)}</div></div>`;
+}
+function tripStepPanel(T, f, price){
+  const step=TRIPV.step||'go', home=ptOf(T.home), a=T.access, mode=a?.mode==='car'?'driving':'transit', centre=ptOf(T.centre)||ptOf(T.dest);
+  const box=(icon,title,body)=>`<section class="tp-sec tp-panel"><h4><i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${title}</h4><div class="tp-sec-body">${body}</div></section>`;
+  if(step==='go') return box('route','Dojazd na lotnisko', a?`<div class="tp-line"><div><b>${esc((a.title||'').replace(/ \+ samolot$/,''))}</b><small>${a.leave?`wyjście ${fmtTs(a.leave)} · `:''}${esc(T.home?.label||f.from)} → ${esc(T.out?.fromLabel||'')}</small></div>
+      <span class="tp-icons">${home&&T.out?.fromPoint?iconMap('access','Trasa na mapie'):''}${iconLink(gDir(home,T.out?.fromPoint,mode),'diamond-turn-right','Wskazówki dojazdu (Google Maps)')}</span></div>${a.steps?.length?stepsHtml(a.steps):''}`:'<div class="empty-note">Bez zapisanego dojazdu.</div>');
+  if(step==='out' && T.out) return box('plane-departure','Wylot', flightBox(T.out,'Wylot','out')+price);
+  if(step==='arr' && T.out) return box('plane-arrival',`Przylot: ${esc(T.out.toLabel)}`, `<div class="tp-line"><div><b>${esc(T.out.arr)} · ${longDay(T.out.arrDay||T.out.day,{weekday:'short', day:'numeric', month:'long'})}</b><small>${esc(T.out.toLabel)}</small></div><span class="tp-icons">${T.out.toPoint?iconMap('out-to','Lotnisko na mapie'):''}${iconLink(gPlace(T.out.toPoint,T.out.toLabel+' airport'),'diamond-turn-right','Lotnisko w Google Maps')}</span></div>
+      <div class="tp-where">${wxChip(T.out.toPoint||centre,T.out.arrDay||T.out.day)} <small>pogoda w dniu przylotu</small></div>
+      <div class="tp-where"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Dalej: ${T.xfer?.skip?'odbiór z lotniska':T.xfer?`${esc(T.xfer.name)}${T.xfer.board?` — odjazd: ${esc(T.xfer.board)}`:''}`:'wybierz dojazd do centrum w planerze'} <button type="button" class="btn-ghost tp-next" data-tp-step="xfer">Zobacz <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>`);
+  if(step==='xfer') return box('map-location-dot',`Z lotniska ${esc(T.airport?.code||'')} do centrum`, tripXferCard(T));
+  if(step==='hotel') return box('hotel','Nocleg', hotelSection(f,T));
+  if(step==='ret' && T.ret) return box('plane-departure','Powrót', flightBox(T.ret,'Powrót','ret')+price);
+  if(step==='home') return box('house','Powrót do domu', a?.backSteps?.length?`<div class="tp-line"><div><b>${esc(T.ret?.toLabel||'')} → ${esc(T.home?.label||'')}</b><small>po lądowaniu ${esc(T.ret?.arr||'')}</small></div><span class="tp-icons">${iconLink(gDir(T.ret?.toPoint,home,mode),'diamond-turn-right','Wskazówki powrotu (Google Maps)')}</span></div>${stepsHtml(a.backSteps)}`
+    :`<div class="tp-line"><div><b>${esc(T.ret?.toLabel||'')} → ${esc(T.home?.label||'')}</b><small>tą samą drogą co na lotnisko</small></div><span class="tp-icons">${iconLink(gDir(T.ret?.toPoint,home,mode),'diamond-turn-right','Wskazówki powrotu (Google Maps)')}</span></div>`);
+  return box('route','Dojazd na lotnisko','');
+}
+function renderTripPage(){
+  const page=document.getElementById('tripPage'); if(!page) return;
+  const f=findTrip(TRIPV.id);
+  if(!f){ page.innerHTML=`<div class="empty-note">Nie znaleźliśmy tej podróży. Zobacz <a href="/moje-podroze" data-go-mytrips>Moje podróże</a> albo <a href="/ulubione#podroze" data-fav-goto>ulubione</a>.</div>`; stopVehicles(); return; }
+  const booked=f.status==='booked', T=f.trip||null, fl=savedFlight(f);
+  document.getElementById('heroTitle').textContent=`Podróż do ${f.to}`;
+  const today=ymdOf(0), day=T?.out?.day||fl?.day, back=T?.ret?.day||fl?.back||'';
+  const stay=day&&back?Math.round((Date.parse(back)-Date.parse(day))/86400000)+1:0;
+  const when=!day?'':(back||day)<today?'minęła':day<=today?'trwa':`za ${Math.round((Date.parse(day)-Date.parse(today))/86400000)} dni`;
+  const head=`<div class="tp-head">
+    <div class="tp-title"><span class="tp-status ${booked?'booked':'planned'}">${booked?'<i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Moja podróż':'<i class="fa-regular fa-bookmark" aria-hidden="true"></i> Plan w ulubionych'}</span>
+      <h3>${esc(f.from)} <span class="txt-red">→</span> ${esc(f.to)}</h3>
+      <small>${day?`${longDay(day,{weekday:'short', day:'numeric', month:'long'})}${back?` – ${longDay(back,{weekday:'short', day:'numeric', month:'long', year:'numeric'})}`:''}`:''}${stay?` · ${stay} ${stay===1?'dzień':'dni'}`:''}${when?` · ${when}`:''}</small></div>
+    <div class="tp-actions">
+      ${booked?'':'<button type="button" class="btn-grad" data-tp-book><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button>'}
+      <button type="button" class="btn-ghost" data-tp-plan><i class="fa-solid fa-pen" aria-hidden="true"></i> Edytuj w planerze</button>
+      <button type="button" class="btn-ghost" data-tp-remove><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Usuń</button>
+      <a class="tp-back" href="${booked?'/moje-podroze':'/ulubione#podroze'}" ${booked?'data-go-mytrips':'data-fav-goto'}><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${booked?'Moje podróże':'Ulubione'}</a>
+    </div></div>`;
+  if(!T){
+    page.innerHTML=`<div class="tp">${head}<div class="tp-card"><h4><i class="fa-solid fa-plane" aria-hidden="true"></i> Lot</h4>${fl?`<div class="tp-flight"><b>${esc(fl.from)} → ${esc(fl.to)}</b><small>${longDay(fl.day,{weekday:'short', day:'numeric', month:'long'})}${fl.back?` – powrót ${longDay(fl.back,{day:'numeric', month:'long'})}`:''}${f.flight?.price?` · zapisano za ${f.flight.price} zł`:''}</small></div>`:''}
+      <div class="empty-note">Ta podróż została zapisana, zanim strona podróży powstała. Otwórz ją w planerze i zapisz ponownie na ostatnim kroku, aby zobaczyć tu cały plan.</div></div></div>`;
+    stopVehicles(); return;
+  }
+  const city=T.centre?.label||T.airport?.city||f.to, old=!T.access?.steps;
+  const n=T.people||1;
+  const price=booked?(T.total!=null?`<div class="tp-total">Loty razem: <b>${T.total*(T.people||1)} zł</b>${(T.people||1)>1?` <small>(${T.people} × ${T.total} zł)</small>`:''}</div>`:''):(fl?savedPriceHtml(favKey(f), fl, f.flight?.price):'');
+  const cityBox=booked?`<section class="tp-city"><div class="tp-city-head"><div><h4><i class="fa-solid fa-train-subway" aria-hidden="true"></i> Komunikacja: ${esc(city)}</h4><small>Metro, tramwaje, autobusy i pociągi na mapie oraz planer przejazdów po mieście.</small></div>
+      <button type="button" class="${TRIPV.city?'btn-ghost':'btn-grad'}" data-tp-city aria-expanded="${TRIPV.city}"><i class="fa-solid fa-${TRIPV.city?'chevron-up':'map-location-dot'}" aria-hidden="true"></i> ${TRIPV.city?'Ukryj':'Zaplanuj przejazd po mieście'}</button></div>${TRIPV.city?'<div class="city-slot"></div>':''}</section>`:'';
+  page.innerHTML=`<div class="tp">${head}${tripFlow(T)}
+    ${old?'<div class="fl-mismatch" role="status"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <span>Ta podróż została zapisana wcześniej, bez kroków dojazdu i miejsc na mapie. Otwórz ją w planerze („Edytuj w planerze”) i zapisz ponownie na ostatnim kroku, aby zobaczyć wszystkie szczegóły.</span></div>':''}
+    ${tripStepPanel(T,f,price)}
+    <div class="plan-extra tp-extra">${costCard(tripCostsWithHotel(T))}<section class="tp-map-box"><h4><i class="fa-solid fa-map" aria-hidden="true"></i> Mapa podróży</h4><div class="tp-map-slot"></div><small class="text-soft">Kliknij punkt podróży u góry, aby pokazać go na mapie.</small></section></div>
+    ${cityBox}</div>`;
+  mountTripMap(f,T);
+  if(booked && TRIPV.city && T.airport?.zone){
+    CITY.want={code:`${T.airport.code}:${tidOf(f)}`, city, zone:T.airport.zone, centre:T.centre||(T.dest?.lat!=null?T.dest:null)||(T.airport.lat!=null?{lat:T.airport.lat, lon:T.airport.lon}:null), airport:null,
+      home:T.hotel?.lat!=null?{lat:T.hotel.lat, lon:T.hotel.lon, label:T.hotel.name}:T.dest?.lat!=null&&T.centre&&(T.dest.lat!==T.centre.lat)?{lat:T.dest.lat, lon:T.dest.lon, label:T.dest.label}:null, day, back:back||null};
+    mountCity();
+  } else stopVehicles();
+}
+// Pogoda po drodze odświeża tylko swoją sekcję (mapa i reszta strony zostają).
+function tripWeatherRefresh(){
+  const f=findTrip(TRIPV.id), el=document.querySelector('#tripPage .wtl');
+  if(f?.trip?.weather && el) el.outerHTML=weatherTimeline(f.trip.weather, tripWeatherRefresh);
+}
+const gDir=(a,b,mode)=>a&&b?`https://www.google.com/maps/dir/?api=1&origin=${a[0]},${a[1]}&destination=${b[0]},${b[1]}&travelmode=${mode}`:'';
+const gPlace=(p,q='')=>p?`https://www.google.com/maps/search/?api=1&query=${p[0]},${p[1]}`:q?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`:'';
+const linkBtn=(href,icon,label)=>href?`<a class="btn-ghost" href="${esc(href)}" target="_blank" rel="noopener"><i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${label}</a>`:'';
+const mapBtn=(key,label='Na mapie')=>`<button type="button" class="btn-ghost" data-tp-map="${esc(key)}"><i class="fa-solid fa-map" aria-hidden="true"></i> ${label}</button>`;
+/* ---------- Hotel: Booking.com (sandbox Demand API), link do wyszukiwania albo własny hotel ---------- */
+const HOT=new Map();
+function hotelQuery(T){
+  const c=T.centre?.lat!=null?T.centre:T.dest?.lat!=null?T.dest:T.airport;
+  const checkin=(T.out?.arrDay)||T.out?.day, checkout=T.ret?.day||(checkin?addDays(checkin,1):'');
+  return c?.lat!=null&&checkin?{lat:c.lat, lon:c.lon, checkin, checkout:checkout>checkin?checkout:addDays(checkin,1), adults:T.people||1, city:T.airport?.city||T.centre?.label||''}:null;
+}
+function hotelCard(h, actions){
+  return `<div class="hotel-card">${h.photo?`<img src="${esc(h.photo)}" alt="" loading="lazy">`:'<span class="hotel-noimg"><i class="fa-solid fa-hotel" aria-hidden="true"></i></span>'}<div class="hotel-body">
+    <b>${esc(h.name)}</b>${h.stars?`<span class="hotel-stars">${'★'.repeat(Math.round(h.stars))}</span>`:''}
+    <small>${[h.address, h.km!=null?`${h.km} km od centrum`:''].filter(Boolean).map(esc).join(' · ')}</small>
+    <div class="hotel-meta">${h.score?`<span class="hotel-score">${h.score.toFixed?h.score.toFixed(1):h.score}</span>${h.reviews?` <small>${h.reviews} opinii</small>`:''}`:''}${h.price!=null?`<b class="hotel-price">${Math.round(h.price)} ${esc(h.currency||'zł')}</b><small>za cały pobyt</small>`:''}</div>
+    <div class="acc-links">${actions}</div></div></div>`;
+}
+function hotelSection(f, T){
+  const h=T.hotel, q=hotelQuery(T), st=HOT.get(tidOf(f));
+  if(h){
+    const p=h.lat!=null?[h.lat,h.lon]:null, centre=T.xfer?.boardAt?null:(T.centre?.lat!=null?[T.centre.lat,T.centre.lon]:null), from=T.out?.toPoint;
+    return `<div class="hotel-chosen">${hotelCard(h, `${p?mapBtn('hotel'):''}${linkBtn(gPlace(p, `${h.name}, ${h.address||T.airport?.city||''}`),'location-dot','Google Maps')}${linkBtn(gDir(from,p,'transit'),'diamond-turn-right','Z lotniska do hotelu')}${h.url?linkBtn(h.url,'arrow-up-right-from-square','Booking.com'):''}<button type="button" class="btn-ghost" data-tp-hotel-remove><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Usuń z podróży</button>`)}
+      <small class="text-soft">${h.checkin?`Pobyt ${fmtDay(h.checkin)} – ${fmtDay(h.checkout)}`:''}${h.manual?' · dodany ręcznie':' · cena z Booking.com przy dodaniu'}</small></div>`;
+  }
+  if(!q) return '<div class="empty-note">Brak miejsca lub dat podróży do szukania hotelu.</div>';
+  let body='';
+  if(!st) body=`<button type="button" class="btn-grad" data-tp-hotel-search><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj hotelu w ${esc(q.city||'mieście')} · ${fmtDay(q.checkin)} – ${fmtDay(q.checkout)}</button>`;
+  else if(st.loading) body=searching('Szukam hoteli na Booking.com…');
+  else if(st.error) body=`<div class="empty-note">${esc(st.error)}</div>`;
+  else if(st.configured===false) body=`<div class="empty-note">Wyszukiwarka hoteli w aplikacji czeka na klucz Booking.com (BOOKING_API_KEY i BOOKING_AFFILIATE_ID na serwerze). Do tego czasu szukaj na Booking.com i dodaj wybrany hotel poniżej.</div>`;
+  else if(!st.hotels?.length) body='<div class="empty-note">Booking.com nie znalazł wolnych pokoi w okolicy w tych dniach.</div>';
+  else body=`${st.sandbox?'<small class="text-soft">Dane z piaskownicy Booking.com (sandbox) — testowe.</small>':''}<div class="hotel-list">${st.hotels.map(x=>hotelCard(x, `<button type="button" class="btn-grad" data-tp-hotel-add="${esc(x.id)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj do podróży</button>${x.url?linkBtn(x.url,'arrow-up-right-from-square','Booking.com'):''}`)).join('')}</div>`;
+  const link=st?.bookingUrl||`https://www.booking.com/searchresults.html?${new URLSearchParams({ss:q.city, checkin:q.checkin, checkout:q.checkout, group_adults:'1', no_rooms:'1', group_children:'0'})}`;
+  return `${body}<div class="acc-links">${linkBtn(link,'arrow-up-right-from-square','Szukaj na Booking.com')}</div>
+    <details class="hotel-manual"${TRIPV.manual?' open':''}><summary>Mam już hotel — dodaj go ręcznie</summary>
+      <form class="hotel-form" data-tp-hotel-form><input name="hname" placeholder="Nazwa hotelu" required maxlength="120"><input name="address" placeholder="Adres (pokażemy go na mapie)" maxlength="160"><input name="price" type="number" min="0" step="1" placeholder="Cena za pobyt (zł)"><input name="url" type="url" placeholder="Link do rezerwacji (opcjonalnie)" maxlength="300"><button class="btn-grad" type="submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj hotel</button></form></details>`;
+}
+async function searchHotels(f){
+  const T=f.trip, q=hotelQuery(T); if(!q) return;
+  const key=tidOf(f); HOT.set(key,{loading:true}); renderTripPage();
+  try{
+    const r=await fetch('/api/hotels?'+new URLSearchParams(q)); const d=await r.json().catch(()=>({}));
+    HOT.set(key, r.ok?d:{error:d.error||'Wyszukiwarka hoteli jest chwilowo niedostępna.', bookingUrl:d.bookingUrl});
+  }catch(e){ HOT.set(key,{error:'Wyszukiwarka hoteli jest chwilowo niedostępna.'}); }
+  if(S.sub==='trip' && TRIPV.id===key) renderTripPage();
+}
+function setTripHotel(f, hotel){
+  f.trip={...f.trip, hotel}; saveFavorites().catch(e=>console.warn('Nie zapisano hotelu', e));
+  TRIPMAP.key=''; renderTripPage();
+}
+function tripCostsWithHotel(T){
+  const c=T.costs; if(!c) return null;
+  const h=T.hotel; if(!h || h.price==null) return c;
+  const rows=[...c.rows, {group:'Nocleg', icon:'hotel', label:h.name, value:h.currency&&h.currency!=='PLN'?null:h.price, note:h.currency&&h.currency!=='PLN'?`${Math.round(h.price)} ${h.currency}`:'za cały pobyt'}];
+  return {...c, rows, total:Math.round(rows.reduce((s,r)=>s+(r.value||0),0)), missing:c.missing||rows.some(r=>r.value==null)};
+}
+/* ---------- Mapa podróży: dom, lotniska, dojazd do centrum i hotel ---------- */
+const TRIPMAP={el:null, map:null, layer:null, key:'', marks:{}, base:[], baseKey:null};
+function mountTripMap(f, T){
+  const slot=document.querySelector('#tripPage .tp-map-slot'); if(!slot) return;
+  if(!TRIPMAP.el){ TRIPMAP.el=document.createElement('div'); TRIPMAP.el.className='tp-map'; }
+  slot.appendChild(TRIPMAP.el);
+  if(!TRIPMAP.map){ TRIPMAP.map=L.map(TRIPMAP.el,{zoomControl:true, maxZoom:18}); TRIPMAP.map.attributionControl.setPrefix(false); TRIPMAP.layer=L.layerGroup().addTo(TRIPMAP.map); }
+  pickBaseLayer(TRIPMAP.map, TRIPMAP);
+  setTimeout(()=>TRIPMAP.map.invalidateSize(),0);
+  const key=`${tidOf(f)}|${T.hotel?.name||''}|${T.savedAt||''}`; if(TRIPMAP.key===key) return;
+  TRIPMAP.key=key; TRIPMAP.layer.clearLayers(); TRIPMAP.marks={};
+  const pts=[], P=(x)=>Array.isArray(x)&&x[0]!=null?x:x?.lat!=null?[x.lat,x.lon]:null;
+  const mark=(name,p,icon,color,label)=>{ if(!p) return; pts.push(p); TRIPMAP.marks[name]=L.marker(p,{icon:L.divIcon({className:'tp-pin', html:`<span style="background:${color}"><i class="fa-solid fa-${icon}" aria-hidden="true"></i></span>`, iconSize:[28,28], iconAnchor:[14,14]})}).bindPopup(`<b>${esc(label)}</b>`).addTo(TRIPMAP.layer); };
+  const line=(a,b,opt)=>{ if(a&&b) L.polyline(Array.isArray(opt?.pts)?opt.pts:[a,b],{color:opt?.color||'#555', weight:opt?.weight||3, dashArray:opt?.dash||null, opacity:.85}).addTo(TRIPMAP.layer); };
+  const home=P(T.home), dep=P(T.out?.fromPoint), arr=P(T.out?.toPoint)||P(T.airport), board=P(T.xfer?.boardAt), centre=P(T.centre)||P(T.dest), hotel=P(T.hotel), retDep=P(T.ret?.fromPoint), retArr=P(T.ret?.toPoint);
+  mark('home',home,'house','#DA291C',`Start: ${T.home?.label||''}`);
+  mark('out-from',dep,'plane-departure','#2a5bd7',T.out?.fromLabel||'Lotnisko wylotu');
+  mark('out-to',arr,'plane-arrival','#2a5bd7',T.out?.toLabel||'Lotnisko przylotu');
+  if(retDep && (!arr || retDep[0]!==arr[0])) mark('ret-from',retDep,'plane-departure','#7a4bd1',T.ret?.fromLabel||'Lotnisko powrotu');
+  if(retArr && (!dep || retArr[0]!==dep[0])) mark('ret-to',retArr,'plane-arrival','#7a4bd1',T.ret?.toLabel||'Lotnisko powrotu');
+  TRIPMAP.marks['ret-from']=TRIPMAP.marks['ret-from']||TRIPMAP.marks['out-to']; TRIPMAP.marks['ret-to']=TRIPMAP.marks['ret-to']||TRIPMAP.marks['out-from'];
+  if(board) mark('board',board,'location-dot','#1a7f4b',`Odjazd do centrum: ${T.xfer?.board||''}`);
+  mark('centre',centre,'city','#C9A253',T.centre?.label||T.dest?.label||'Centrum');
+  mark('hotel',hotel,'hotel','#b26b00',T.hotel?.name||'Hotel');
+  line(home,dep,{dash:'6 8'});
+  if(dep&&arr) line(dep,arr,{pts:exploreArc(dep,arr,1), color:'#2a5bd7', weight:2.5, dash:'2 6'});
+  line(arr,board,{dash:'2 6', color:'#1a7f4b'}); line(board||arr,centre,{color:'#1a7f4b', weight:4}); line(centre,hotel,{dash:'4 6', color:'#b26b00'});
+  if(pts.length) TRIPMAP.map.fitBounds(L.latLngBounds(pts),{padding:[30,30], maxZoom:13}); else TRIPMAP.map.setView([50,15],4);
+}
+function showOnTripMap(key, scroll=true){
+  const m=TRIPMAP.map; if(!m) return;
+  if(scroll) TRIPMAP.el.scrollIntoView({behavior:'smooth', block:'center'});
+  const groups={access:['home','out-from'], xfer:['out-to','board','centre'], 'ret-to':['ret-to','home']};
+  const names=groups[key]||[key], marks=names.map(n=>TRIPMAP.marks[n]).filter(Boolean);
+  if(!marks.length) return;
+  setTimeout(()=>{ if(marks.length===1){ m.setView(marks[0].getLatLng(), 14); marks[0].openPopup(); } else m.fitBounds(L.latLngBounds(marks.map(x=>x.getLatLng())),{padding:[40,40], maxZoom:15}); }, 350);
+}
+document.getElementById('tripPage').addEventListener('click', e=>{
+  const f=findTrip(TRIPV.id); if(!f) return;
+  if(e.target.closest('[data-tp-book]')){ f.status='booked'; navCounts(); saveFavorites().catch(err=>console.warn('Nie zapisano podróży', err)); toast('Zapisano w „Moje podróże”.'); setSubpage('trip'); return; }
+  if(e.target.closest('[data-tp-plan]')){ openInPlanner(f); return; }
+  if(e.target.closest('[data-tp-remove]')){ if(!confirm('Usunąć tę podróż?')) return; const booked=f.status==='booked'; FAV.items=FAV.items.filter(x=>x!==f); saveFavorites().catch(err=>console.warn('Nie zapisano', err)); renderFavorites(); syncStars(); goPage('podroz', booked?'moje':'ulubione', 'podroz'); return; }
+  if(e.target.closest('[data-tp-city]')){ TRIPV.city=!TRIPV.city; renderTripPage(); if(TRIPV.city) setTimeout(()=>document.querySelector('#tripPage .city-panel')?.scrollIntoView({behavior:'smooth', block:'start'}),80); return; }
+  const ts=e.target.closest('[data-tp-step]'); if(ts){ TRIPV.step=ts.dataset.tpStep; renderTripPage(); showOnTripMap(STEP_MAP[TRIPV.step], false); return; }
+  const tm=e.target.closest('[data-tp-map]'); if(tm){ showOnTripMap(tm.dataset.tpMap); return; }
+  if(e.target.closest('[data-tp-hotel-search]')){ searchHotels(f); return; }
+  const ha=e.target.closest('[data-tp-hotel-add]'); if(ha){ const st=HOT.get(tidOf(f)), h=st?.hotels?.find(x=>String(x.id)===ha.dataset.tpHotelAdd), q=hotelQuery(f.trip); if(h){ setTripHotel(f,{...h, checkin:q?.checkin||'', checkout:q?.checkout||''}); toast(`Dodano hotel: ${h.name}.`); } return; }
+  if(e.target.closest('[data-tp-hotel-remove]')){ if(!confirm('Usunąć hotel z tej podróży?')) return; const {hotel, ...rest}=f.trip; f.trip=rest; saveFavorites().catch(err=>console.warn('Nie zapisano', err)); TRIPMAP.key=''; renderTripPage(); return; }
+  const rf=e.target.closest('[data-fav-refresh]'); if(rf){ const fl=savedFlight(f); if(fl) refreshSavedPrice(rf.dataset.favRefresh, fl).then(()=>{ if(S.sub==='trip') renderTripPage(); }); return; }
+  const fa=e.target.closest('[data-fav-alert]'); if(fa){ const fl=savedFlight(f); if(fl) openAlertDialog({...fl, price:FAVP.get(fa.dataset.favAlert)?.price??f.flight?.price??null, label:`${f.from} → ${f.to}`}); }
+});
+document.getElementById('tripPage').addEventListener('submit', async e=>{
+  const form=e.target.closest('[data-tp-hotel-form]'); if(!form) return;
+  e.preventDefault();
+  const f=findTrip(TRIPV.id); if(!f?.trip) return;
+  const name=form.hname.value.trim(), address=form.address.value.trim(), price=form.price.value!==''?Number(form.price.value):null, url=form.url.value.trim();
+  if(!name) return;
+  let lat=null, lon=null;
+  if(address){
+    const city=f.trip.airport?.city||f.trip.centre?.label||'';
+    const r=await fetch('/api/geocode?'+new URLSearchParams({q:city&&!address.toLowerCase().includes(city.toLowerCase())?`${address}, ${city}`:address, scope:'world'})).then(x=>x.ok?x.json():null).catch(()=>null);
+    const p=r?.places?.[0]?.points?.[0]; if(p){ lat=p[0]; lon=p[1]; }
+  }
+  const q=hotelQuery(f.trip);
+  setTripHotel(f,{id:'manual', manual:true, name, address, lat, lon, price, currency:'PLN', url:/^https:\/\//.test(url)?url:'', checkin:q?.checkin||'', checkout:q?.checkout||''});
+  toast(`Dodano hotel: ${name}${address&&lat==null?' (adresu nie znaleźliśmy na mapie)':''}.`);
+});
 function savedPlan(f){
-  if(f.plan?.out) return {...f.plan};
+  if(f.plan?.out) return {...f.plan, tid:f.tid||''};
   const m=/^f:([^|]*\|[^|]*\|[A-Z]{3}\|[A-Z]{3}\|\d{4}-\d{2}-\d{2}\|(?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2})?):(.*)$/.exec(f.id||'');
   return m?{out:m[1], ret:'', access:m[2]}:null;
 }
 function openFavorite(f){
   const kind=favKind(f);
-  if(f.type==='route'||f.type==='trip'){
-    goPage('podroz');
-    S.placeChoice={}; clearVias(); plFrom.value=f.from; plTo.value=f.to;
-    const fl=f.type==='trip'?savedFlight(f):null;
-    if(fl?.day){
-      document.querySelector(`[data-round="${fl.back?1:0}"]`)?.click();
-      plDate.value=fl.day; if(fl.back) plBack.value=fl.back; plTime.value='';
-      S.restore=savedPlan(f);
-    }
-    document.getElementById('planForm').requestSubmit();
-    return;
+  if(f.type==='trip'){ openTrip(tidOf(f)); return; }
+  if(f.type==='route'){ openInPlanner(f); return; }
+  openSavedItem(f, kind);
+}
+// Zapisana trasa albo podróż w planerze: te same miejsca i daty, a przy podróży te same loty i wybory.
+function openInPlanner(f){
+  goPage('podroz');
+  S.placeChoice={}; clearVias(); plFrom.value=f.from; plTo.value=f.to;
+  const fl=f.type==='trip'?savedFlight(f):null;
+  if(fl?.day){
+    document.querySelector(`[data-round="${fl.back?1:0}"]`)?.click();
+    plDate.value=fl.day; if(fl.back) plBack.value=fl.back; plTime.value='';
+    S.restore=savedPlan(f);
   }
+  document.getElementById('planForm').requestSubmit();
+}
+function openSavedItem(f, kind){
   if(f.type==='line' && kind!=='kolej'){ goPage(kind); if(GT.routes.has(f.id)) openLine(f.id); return; }
   goPage(kind, 'rozklad');
   if(f.type==='line'){
@@ -3483,7 +4146,7 @@ sessionUser.then(async user=>{
   const {favorites}=await r.json(), known=new Set(favorites.map(favKey)), local=FAV.items.filter(f=>!known.has(favKey(f)));
   FAV.items=[...favorites, ...local].slice(0,50);
   if(local.length) await saveFavorites(); else store('rzbus.favs', FAV.items);
-  renderFavorites();
+  renderFavorites(); if(S.sub==='moje'||S.sub==='trip') setSubpage(S.sub);
 }).catch(e=>console.warn('Nie wczytano ulubionych', e));
 
 function allStopNames(){ return [...new Set([...[...GT.groups.keys()].filter(n=>GT.groupAgency?.get(n)), ...railStationNames()])]; }
@@ -3748,6 +4411,8 @@ document.getElementById('planForm').addEventListener('submit', async e=>{
   const allowed=readModes(); if(!allowed.size){ err.textContent='Zaznacz co najmniej jeden środek transportu.'; return; }
   if(plDate.value>lastPlanDay() || (plRound.checked && plBack.value>lastPlanDay())){ err.textContent=`Podróż można zaplanować najpóźniej na ${fmtDay(lastPlanDay())}.${lastPlanDay().slice(0,4)}.`; return; }
   if(plWhen.value==='arr' && !plTime.value){ err.textContent='Podaj godzinę, o której chcesz być na miejscu.'; return; }
+  if(S.agency==='podroz' && !plDate.value){ err.textContent=plRound.checked?'Wybierz termin podróży: datę wylotu i powrotu.':'Wybierz datę wyjazdu.'; if(plRound.checked) openRange(); else { plDate.focus(); plDate.showPicker?.(); } return; }
+  if(plDate.value && plDate.value<ymdOf(0)){ err.textContent='Data wyjazdu nie może być w przeszłości.'; return; }
   const req=++planReq, go=e.currentTarget.querySelector('.pl-go'), view=S.agency;
   go.disabled=true; go.classList.add('busy'); hint.textContent='';
   const round=readReturn(); if(round?.error){ err.textContent=round.error; go.disabled=false; go.classList.remove('busy'); return; }
@@ -3769,7 +4434,7 @@ document.getElementById('planForm').addEventListener('submit', async e=>{
     await Promise.all(places.map(refineWalks));
     if(req!==planReq || view!==S.agency) return;
     const {at,by,date}=tripStart();
-    const stages=places.slice(1).map((dest,i)=>Object.assign(newStage(places[i],dest,{allowed,date}), {stay:vias[i]?.stay||0}));
+    const stages=places.slice(1).map((dest,i)=>Object.assign(newStage(places[i],dest,{allowed,date,people:planPeople()}), {stay:vias[i]?.stay||0}));
     const last=stages[stages.length-1];
     stages[0].at=at; last.round=round; last.home=places[0];
     S.plan={stages, by}; store(planKey(view), {from:places[0].label,to:last.to});
@@ -3782,7 +4447,23 @@ const MAX_VIAS=5; let viaSeq=0;
 document.getElementById('plAddStop').addEventListener('click', addVia);
 document.getElementById('plStops').addEventListener('click', e=>{ const b=e.target.closest('[data-remove-via]'); if(b){ delete S.placeChoice[b.closest('.pl-stop').dataset.field]; b.closest('.pl-stop').remove(); renumberVias(); } });
 { const saved=store('rzbus.plan.modes'); if(Array.isArray(saved)) document.querySelectorAll('#plModes input').forEach(x=>{ x.checked=saved.includes(x.value); }); }
-document.getElementById('plModes').addEventListener('change', ()=>{ store('rzbus.plan.modes',[...readModes()]); syncPrefer(); if(S.plan) document.getElementById('planForm').requestSubmit(); });
+// Liczba osób: koszty liczą się od nowa w tym samym planie (bez nowego wyszukiwania).
+const planPeople=()=>Math.min(9,Math.max(1,+document.getElementById('plPeople')?.value||1));
+{ const saved=+store('rzbus.plan.people'); if(saved>=1&&saved<=9) document.getElementById('plPeople').value=String(saved); }
+document.getElementById('plPeople').addEventListener('change', ()=>{
+  store('rzbus.plan.people', planPeople());
+  if(!S.plan) return;
+  for(const P of S.plan.stages) P.people=planPeople();
+  runPlan(false);
+});
+document.getElementById('plModes').addEventListener('change', ()=>{
+  store('rzbus.plan.modes',[...readModes()]); syncPrefer();
+  const allowed=readModes(); if(!S.plan || !allowed.size) return;
+  // Ten sam plan, inne środki transportu: dojazdy liczą się od nowa, krok i miejsce na stronie zostają.
+  for(const P of S.plan.stages){ P.allowed=new Set(allowed); P.access=new Map(); P.carTo=new Map(); P.railLinks=new Map(); }
+  const box=document.getElementById('planResults'); box.style.minHeight=box.offsetHeight+'px'; S.holdY=window.scrollY;
+  runPlan(false);
+});
 document.getElementById('plPrefer').addEventListener('change', e=>{ store('rzbus.plan.prefer', e.target.value); if(S.plan) document.getElementById('planForm').requestSubmit(); });
 document.getElementById('plRadius').addEventListener('change', e=>{ store('rzbus.plan.radius', e.target.value); if(S.plan) document.getElementById('planForm').requestSubmit(); });
 // Linie lotnicze sprzedają bilety mniej więcej rok naprzód i tak daleko da się zaplanować podróż.
@@ -3792,13 +4473,15 @@ function lastPlanDay(){ return ymdOf(PLAN_DAYS_AHEAD); }
 function syncReturn(){
   const round=plRound.checked && S.agency==='podroz';
   document.querySelectorAll('.trip-return-fields').forEach(e=>{ e.hidden=!round; });
+  document.querySelectorAll('.one-way-date').forEach(e=>{ e.hidden=round; });
   document.getElementById('planForm').classList.toggle('round', round);
   document.querySelectorAll('[data-round]').forEach(b=>{ const on=(b.dataset.round==='1')===plRound.checked; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); });
   plDate.min=ymdOf(0); plDate.max=lastPlanDay(); plBack.max=lastPlanDay();
   document.getElementById('trDate').min=ymdOf(0); document.getElementById('trDate').max=lastPlanDay();
   document.getElementById('plLimit').textContent='';
   const start=plDate.value||ymdOf(0);
-  plBack.min=start; if(!plBack.value || plBack.value<start) plBack.value=addDays(start,3);
+  plBack.min=start; if(plDate.value && (!plBack.value || plBack.value<start)) plBack.value=addDays(start,3);
+  if(typeof syncRange==='function') syncRange();
   if(typeof syncPrefer==='function') syncPrefer();
 }
 function readReturn(){
@@ -3809,6 +4492,63 @@ function readReturn(){
   return {back:plBack.value, at:dayInfo(off).base+8*3600};
 }
 [plRound,plDate].forEach(e=>e.addEventListener('change', syncReturn));
+/* ---------- Termin podróży w obie strony: jeden kalendarz, pierwszy klik to wylot, drugi powrót ---------- */
+const RNG={open:false, month:null, start:'', end:'', hover:''};
+const RNG_MONTHS=['styczeń','luty','marzec','kwiecień','maj','czerwiec','lipiec','sierpień','wrzesień','październik','listopad','grudzień'];
+const RNG_DAYS=['pn','wt','śr','cz','pt','so','nd'];
+function rangeLabel(){
+  const a=plDate.value, b=plBack.value;
+  if(!a) return '<span class="rng-empty">Wybierz daty</span>';
+  const n=b?Math.round((Date.parse(b)-Date.parse(a))/86400000)+1:0;
+  return `<b>${fmtDay(a)}</b>${b?` – <b>${fmtDay(b)}</b> <small>· ${n} ${n===1?'dzień':'dni'}</small>`:''}`;
+}
+function syncRange(){ const b=document.getElementById('plRange'); if(b) b.innerHTML=`<i class="fa-regular fa-calendar" aria-hidden="true"></i> ${rangeLabel()}`; }
+function openRange(){
+  RNG.open=true; RNG.start=plDate.value||''; RNG.end=plDate.value?plBack.value||'':''; RNG.hover='';
+  RNG.month=(RNG.start||ymdOf(0)).slice(0,7);
+  renderRange();
+}
+function closeRange(){ RNG.open=false; const pop=document.getElementById('rngPop'); if(pop) pop.hidden=true; document.getElementById('plRange')?.setAttribute('aria-expanded','false'); }
+function monthAdd(ym, n){ const [y,m]=ym.split('-').map(Number), d=new Date(Date.UTC(y,m-1+n,1)); return d.toISOString().slice(0,7); }
+function renderRange(){
+  const pop=document.getElementById('rngPop'); if(!pop) return;
+  const today=ymdOf(0), last=lastPlanDay(), lo=RNG.start, hi=RNG.end||(RNG.start&&RNG.hover>RNG.start?RNG.hover:'');
+  const month=ym=>{
+    const [y,m]=ym.split('-').map(Number), first=new Date(Date.UTC(y,m-1,1)), lead=(first.getUTCDay()+6)%7, days=new Date(Date.UTC(y,m,0)).getUTCDate();
+    let cells='<span class="rng-pad"></span>'.repeat(lead);
+    for(let d=1;d<=days;d++){
+      const day=`${ym}-${String(d).padStart(2,'0')}`, off=day<today||day>last;
+      const cls=[day===lo?'from':'', day===hi?'to':'', lo&&hi&&day>lo&&day<hi?'in':'', day===today?'today':''].join(' ');
+      cells+=`<button type="button" class="rng-day ${cls}" data-rng-day="${day}" ${off?'disabled':''}>${d}</button>`;
+    }
+    return `<div class="rng-month"><b>${RNG_MONTHS[m-1]} ${y}</b><div class="rng-grid">${RNG_DAYS.map(x=>`<span class="rng-dow">${x}</span>`).join('')}${cells}</div></div>`;
+  };
+  const step=RNG.start&&!RNG.end?'Teraz wybierz dzień powrotu':'Wybierz dzień wylotu';
+  pop.innerHTML=`<div class="rng-head"><button type="button" class="rng-nav" data-rng-move="-1" ${RNG.month<=today.slice(0,7)?'disabled':''} aria-label="Poprzedni miesiąc">‹</button><span>${step}</span><button type="button" class="rng-nav" data-rng-move="1" ${monthAdd(RNG.month,1)>=last.slice(0,7)?'disabled':''} aria-label="Następny miesiąc">›</button></div>
+    <div class="rng-months">${month(RNG.month)}${month(monthAdd(RNG.month,1))}</div>
+    <div class="rng-foot"><span>${RNG.start?`${fmtDay(RNG.start)}${hi?` – ${fmtDay(hi)} · ${Math.round((Date.parse(hi)-Date.parse(RNG.start))/86400000)+1} dni`:''}`:''}</span><button type="button" class="btn-ghost" data-rng-close>Zamknij</button></div>`;
+  pop.hidden=false; document.getElementById('plRange')?.setAttribute('aria-expanded','true');
+}
+function pickRangeDay(day){
+  if(!RNG.start || RNG.end || day<RNG.start){ RNG.start=day; RNG.end=''; renderRange(); return; }
+  RNG.end=day; plDate.value=RNG.start; plBack.value=RNG.end; syncReturn(); syncRange(); closeRange();
+  document.getElementById('planErr').textContent='';
+}
+document.getElementById('plRange').addEventListener('click', e=>{ e.stopPropagation(); if(RNG.open) closeRange(); else openRange(); });
+document.getElementById('rngPop').addEventListener('click', e=>{
+  e.stopPropagation();
+  const d=e.target.closest('[data-rng-day]'); if(d){ pickRangeDay(d.dataset.rngDay); return; }
+  const mv=e.target.closest('[data-rng-move]'); if(mv){ RNG.month=monthAdd(RNG.month,+mv.dataset.rngMove); renderRange(); return; }
+  if(e.target.closest('[data-rng-close]')) closeRange();
+});
+document.getElementById('rngPop').addEventListener('mouseover', e=>{
+  const d=e.target.closest('[data-rng-day]'); if(!d || !RNG.start || RNG.end || d.dataset.rngDay===RNG.hover) return;
+  RNG.hover=d.dataset.rngDay;
+  const hi=RNG.hover>RNG.start?RNG.hover:'';
+  document.querySelectorAll('#rngPop [data-rng-day]').forEach(b=>{ const x=b.dataset.rngDay; b.classList.toggle('in', !!hi && x>RNG.start && x<hi); b.classList.toggle('to', x===hi); });
+});
+document.addEventListener('click', e=>{ if(RNG.open && !e.target.closest('#rngPop') && !e.target.closest('#plRange')) closeRange(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && RNG.open) closeRange(); });
 document.querySelectorAll('[data-round]').forEach(b=>b.addEventListener('click', ()=>{ plRound.checked=b.dataset.round==='1'; syncReturn(); }));
 attachSuggest(plFrom, {streets:true});
 attachSuggest(plTo, {streets:true});
@@ -3828,14 +4568,15 @@ document.getElementById('planResults').addEventListener('change', e=>{
 });
 document.getElementById('planResults').addEventListener('click', e=>{
   if(e.target.closest('[data-clear-filters]')){ S.planView.picked={}; applyPlanView(); return; }
-  const shift=e.target.closest('#planResults [data-shift]'); if(shift){ const box=shift.closest('.date-strip').querySelector('.ds-days'); box.scrollBy({left:+shift.dataset.shift*box.clientWidth*0.8, behavior:'smooth'}); return; }
+  const shift=e.target.closest('#planResults [data-shift]'); if(shift){ const box=shift.closest('.date-strip').querySelector('.ds-days'); const dayW=box.querySelector('.ds-day')?.offsetWidth||box.clientWidth/7; box.scrollBy({left:+shift.dataset.shift*dayW*7, behavior:'smooth'}); return; }
   const day=e.target.closest('#planResults [data-day]');
   if(day && day.closest('.date-strip')?.dataset.strip==='back'){ plBack.value=day.dataset.day; syncReturn(); document.getElementById('planForm').requestSubmit(); return; }
   if(day){ // powrót przesuwa się razem z wyjazdem, żeby liczba dni się nie zmieniła
     const away=plRound.checked&&plBack.value?Math.round((Date.parse(plBack.value)-Date.parse(plDate.value||ymdOf(0)))/86400000):null;
-    plDate.value=day.dataset.day===ymdOf(0)?'':day.dataset.day; if(away!=null) plBack.value=addDays(day.dataset.day,away);
+    plDate.value=day.dataset.day; if(away!=null) plBack.value=addDays(day.dataset.day,away);
     syncReturn(); document.getElementById('planForm').requestSubmit(); return;
   }
+  const rr=e.target.closest('[data-row-refresh]'); if(rr){ e.preventDefault(); const P=stageOf(rr), f=FL.byKey.get(rr.dataset.rowRefresh); if(P&&f) updateFare(P,f); return; }
   const fl=e.target.closest('[data-flight]'); if(fl){ openFlight(fl.dataset.flight); return; }
   const ask=e.target.closest('[data-ask-airlines]'); if(ask){ askAirlines(stageOf(ask)); return; }
   const pt=e.target.closest('[data-pick-time]');
@@ -3849,10 +4590,13 @@ document.getElementById('planResults').addEventListener('click', e=>{
   const upd=e.target.closest('[data-update-fare]'); if(upd){ const P=stageOf(upd), f=FL.byKey.get(upd.dataset.updateFare); if(P&&f) updateFare(P,f); return; }
   const ex=e.target.closest('[data-expand]'); if(ex){ toggleCard(ex,stageOf(ex).open); return; }
   const cs=e.target.closest('[data-cs-sort]'); if(cs){ const P=stageOf(cs); P.csSort=cs.dataset.csSort; runPlan(false); return; }
-  const cm=e.target.closest('[data-cs-show]'); if(cm){ const o=CITY.options.get(cm.dataset.csShow); if(o&&CITY.map){ drawShape(o.shape); CITY.el.scrollIntoView({behavior:'smooth', block:'center'}); } return; }
-  const fs=e.target.closest('[data-flight-step]'); if(fs){ const P=stageOf(fs); P.flightStep=+fs.dataset.flightStep; if(P.flightStep<3) P.planOpen=false; runPlan(false); document.querySelector('[data-sec="plane"]')?.scrollIntoView({behavior:'smooth', block:'start'}); return; }
+  if(e.target.closest('[data-cs-retry]')){ for(const [k,v] of XOPT) if(v?.error||v?.note==='centre-unknown'||(v&&!v.loading&&!v.options?.length)) XOPT.delete(k); runPlan(false); return; }
+  const cp=e.target.closest('[data-cs-pick]'); if(cp){ const P=stageOf(cp); P.xferPick=P.xferPick===cp.dataset.csPick?null:cp.dataset.csPick; P.saved=null; runPlan(false); return; }
+  const ts=e.target.closest('[data-trip-save]'); if(ts){ saveMyTrip(stageOf(ts), ts.dataset.tripSave); return; }
+  const to=e.target.closest('[data-trip-open]'); if(to){ e.preventDefault(); openTrip(to.dataset.tripOpen); return; }
+  const fs=e.target.closest('[data-flight-step]'); if(fs){ const P=stageOf(fs); P.flightStep=+fs.dataset.flightStep; if(P.flightStep<4) P.planOpen=undefined; runPlan(false); document.querySelector('[data-sec="plane"]')?.scrollIntoView({behavior:'smooth', block:'start'}); return; }
   const of=e.target.closest('[data-open-flight]'); if(of){ const P=stageOf(of); P.planOpen=!P.planOpen; runPlan(false); return; }
-  const pf=e.target.closest('[data-pick-flight]'); if(pf){ const P=stageOf(pf); if(pf.dataset.pickFlight==='out') P.selOut=pf.dataset.key; else P.selRet=pf.dataset.key; P.flightStep=1; runPlan(false); const f=FL.byKey.get(pf.dataset.key); if(f?.airline==='WIZZ'&&f.departure&&(f.priceUnknown||(priceAgeMin(f)||0)>=PRICE_STALE_MIN)&&!FL.updating.has(pf.dataset.key)&&!document.body.classList.contains('guest')) wizzTimePrice(P,f); return; }
+  const pf=e.target.closest('[data-pick-flight]'); if(pf){ const P=stageOf(pf); if(pf.dataset.pickFlight==='out') P.selOut=pf.dataset.key; else P.selRet=pf.dataset.key; P.flightStep=1; runPlan(false); return; }
   const rd=e.target.closest('[data-radius]'); if(rd){ const sel=document.getElementById('plRadius'); sel.value=rd.dataset.radius; store('rzbus.plan.radius', rd.dataset.radius); document.getElementById('planForm').requestSubmit(); return; }
   const ap=e.target.closest('[data-acc-pick]'); if(ap){ const P=stageOf(ap); (P.accessPick||(P.accessPick=new Map())).set(ap.dataset.accPick, ap.dataset.accId); runPlan(false); return; }
   const jl=e.target.closest('[data-jl]'); if(jl){ const P=stageOf(jl), set=P.jlOpen||(P.jlOpen=new Set()); if(set.has(jl.dataset.jl)) set.delete(jl.dataset.jl); else set.add(jl.dataset.jl); runPlan(false); return; }

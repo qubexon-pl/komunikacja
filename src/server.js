@@ -17,6 +17,8 @@ const { readNetwork } = require("./flight-network");
 const { createFlightStore } = require("./flights");
 const { createAlertDatabase, createPriceAlerts } = require("./price-alerts");
 const { createWizzTimetable } = require("./wizz-timetable");
+const { createRyanairApi } = require("./ryanair-api");
+const { createHotels } = require("./hotels");
 const { createTripWeather } = require("./trip-weather");
 const { createPksFares } = require("./pks-fares");
 const { createRates } = require("./rates");
@@ -47,12 +49,12 @@ const MAX_AUTH_BODY_BYTES = 16 * 1024;
 const MAX_FEED_BYTES = 50 * 1024 * 1024;
 const SESSION_COOKIE = "rzbus_session";
 const OAUTH_COOKIE = "rzbus_oauth_state";
-const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/podroz", "/kierunki", "/ulubione"]);
-const MAX_FAVORITES_BYTES = 64 * 1024;
+const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/podroz", "/kierunki", "/ulubione", "/moje-podroze", "/podroz-szczegoly"]);
+const MAX_FAVORITES_BYTES = 512 * 1024; // saved trips carry what they looked like (up to 12 kB each)
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, hotels: 30 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -233,7 +235,7 @@ function serveFlights(res, url, action, flights) {
 // A trip search asks the airlines only about its own routes and days, and the same day of a route at most every 6 hours.
 // A day of a route is asked again when its last check is more than 3 hours old (the same rule as for Wizz Air).
 const TRIP_FETCH_FRESH_MS = 3 * 60 * 60 * 1000;
-async function fetchTripFlights(req, res, collector, flights, asked, wizz = null) {
+async function fetchTripFlights(req, res, collector, flights, asked, wizz = null, ryanair = null) {
   const { origin = "", dest = "", date = "", back = "", prefer = "", radius = 0 } = await readJson(req);
   const preferred = /^[A-Z]{3}$/.test(String(prefer).toUpperCase()) ? String(prefer).toUpperCase() : "";
   const from = parsePoint(origin);
@@ -244,7 +246,7 @@ async function fetchTripFlights(req, res, collector, flights, asked, wizz = null
     json(res, 400, { error: "Nieprawidłowe miejsca lub daty podróży." });
     return;
   }
-  if (!flights || (!collector && !wizz)) {
+  if (!flights || (!collector && !wizz && !ryanair)) {
     respondToRun(res, "unavailable");
     return;
   }
@@ -252,8 +254,11 @@ async function fetchTripFlights(req, res, collector, flights, asked, wizz = null
   // Wizz Air through its timetable: two weeks either side of the chosen days, for the routes Wizz flies.
   const wizzPairs = wizz ? flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined }).filter((pair) => pair.airlines.includes("WIZZ")) : [];
   const viaWizz = wizz && wizzPairs.length ? wizz.searchRoutes(wizzPairs, date, back) : "unavailable";
-  const apis = viaWizz;
-  const out = collector ? withoutWizz(flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined })) : [];
+  // Ryanair through its fare finder and timetable (polite, see ryanair-api.js); the desktop tracker only without it.
+  const ryanairPairs = ryanair ? flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined }).filter((pair) => pair.airlines.includes("RYANAIR")) : [];
+  const viaRyanair = ryanair && ryanairPairs.length ? ryanair.searchRoutes(ryanairPairs, date, back) : "unavailable";
+  const apis = [viaWizz, viaRyanair].find((r) => r === "started") || [viaWizz, viaRyanair].find((r) => r === "busy") || ([viaWizz, viaRyanair].includes("fresh") ? "fresh" : "unavailable");
+  const out = collector && !ryanair ? withoutWizz(flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined })) : [];
   if (!out.length) {
     if (apis === "started" || apis === "busy") respondToRun(res, apis);
     else if (apis === "fresh") json(res, 200, { started: false, reason: "fresh" });
@@ -279,7 +284,27 @@ async function fetchTripFlights(req, res, collector, flights, asked, wizz = null
 // "Update the price" of one flight: the flight-tracker asks the airline about that route and day only.
 // An explicit request may repeat a route and day after an hour, a trip search only after 6 hours.
 const FARE_REFRESH_FRESH_MS = 60 * 60 * 1000;
-async function refreshFare(req, res, collector, flights, asked) {
+// A date strip scrolled to days without stored prices: those days of the trip's routes are asked for (at most 5 weeks).
+async function fillStripDays(req, res, flights, wizz, ryanair) {
+  const { origin = "", dest = "", start = "", end = "", dir = "out", prefer = "", radius = 0 } = await readJson(req);
+  const from = parsePoint(origin), to = parsePoint(dest);
+  const today = new Date().toISOString().slice(0, 10);
+  const ahead = (day) => (Date.parse(day) - Date.parse(today)) / 86400000;
+  if (!from || !to || !ISO_DAY.test(start) || !ISO_DAY.test(end) || end < start || ahead(end) > PLAN_AHEAD_DAYS || ahead(end) < 0 || (Date.parse(end) - Date.parse(start)) / 86400000 > 35 || !["out", "back"].includes(dir)) {
+    json(res, 400, { error: "Nieprawidłowy zakres dni." });
+    return;
+  }
+  if (!flights || (!wizz && !ryanair)) { respondToRun(res, "unavailable"); return; }
+  const preferred = /^[A-Z]{3}$/.test(String(prefer).toUpperCase()) ? String(prefer).toUpperCase() : "";
+  const pairs = flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined });
+  const legsOf = (airline) => pairs.filter((p) => p.airlines.includes(airline)).map((p) => (dir === "out" ? { from: p.from, to: p.to, start, end } : { from: p.to, to: p.from, start, end }));
+  const hasDay = (airline, a, b, day) => flights.known(airline, a, b, day);
+  const results = [wizz ? wizz.fillRange(legsOf("WIZZ"), hasDay) : "unavailable", ryanair ? ryanair.fillRange(legsOf("RYANAIR"), hasDay) : "unavailable"];
+  if (results.includes("started")) json(res, 202, { started: true });
+  else json(res, 200, { started: false, reason: results.includes("fresh") ? "fresh" : "unavailable" });
+}
+
+async function refreshFare(req, res, collector, flights, asked, ryanair = null) {
   const { from = "", to = "", day = "", back = "", airline = "" } = await readJson(req);
   const code = (value) => String(value).trim().toUpperCase();
   const a = code(from);
@@ -288,6 +313,12 @@ async function refreshFare(req, res, collector, flights, asked) {
   const ahead = (value) => (Date.parse(value) - Date.parse(today)) / 86400000;
   if (!/^[A-Z]{3}$/.test(a) || !/^[A-Z]{3}$/.test(b) || a === b || !ISO_DAY.test(day) || (back && !ISO_DAY.test(back)) || ahead(day) < 0 || ahead(back || day) > PLAN_AHEAD_DAYS || (back && back < day)) {
     json(res, 400, { error: "Nieprawidłowa trasa lub data lotu." });
+    return;
+  }
+  if (ryanair && flights && code(airline) !== "WIZZ") {
+    const result = ryanair.searchRoutes([{ from: a, to: b, airlines: ["RYANAIR"] }], day, back);
+    if (result === "fresh") json(res, 200, { started: false, reason: "fresh" });
+    else respondToRun(res, result);
     return;
   }
   if (!collector || !flights) {
@@ -860,7 +891,7 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, hotels = createHotels({ fetchSource }), staticRoot = ROOT }) {
   const transitClient = createTransitous({ fetchSource });
   const airportTransfers = transfers || createAirportTransfers({ transitous: transitClient, toPln: fareRates, geocode, snapshots, drive });
   const city = cityTransit || createCityTransit({ transitous: transitClient });
@@ -900,6 +931,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "weather" && segments.length === 2)
           || (segments[1] === "airport-transfers" && (segments.length === 2 || (segments.length === 3 && ["connections", "options"].includes(segments[2]))))
           || (segments[1] === "transit" && segments.length === 3 && ["plan", "vehicles"].includes(segments[2]))
+          || (segments[1] === "hotels" && segments.length === 2)
         ) ? (segments[1] === "feeds" ? "feeds"
           : segments[1] === "airport-transfers" ? (segments[2] === "options" ? "transfer-options" : segments[2] ? "transfer-trips" : "transfers")
           : segments[1] === "transit" ? (segments[2] === "plan" ? "city-plan" : "vehicles")
@@ -928,7 +960,9 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           const a = collector ? collector.status() : { available: false, running: false };
           // The admin panel reads the tracker; a trip search waits for both.
           const w = wizz ? wizz.status() : { available: false, running: false };
-          json(res, 200, { ...a, available: a.available || w.available, running: a.running || w.running, tracker: a, wizz: w });
+          const r = ryanair ? ryanair.status() : { available: false, running: false };
+          const progress = { done: (w.progress?.done || 0) + (r.progress?.done || 0), total: (w.progress?.total || 0) + (r.progress?.total || 0) };
+          json(res, 200, { ...a, available: a.available || w.available || r.available, running: a.running || w.running || r.running, tracker: a, wizz: w, ryanair: r, progress });
           return;
         }
         if (publicRoute === "flights" && segments[2] === "network") {
@@ -962,6 +996,16 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
             json(res, 200, await airportTransfers.options({ code: q("code"), lat: q("lat") === "" ? NaN : Number(q("lat")), lon: q("lon") === "" ? NaN : Number(q("lon")), time: q("time"), label: q("label") }));
           } catch (error) {
             json(res, [400, 404].includes(error.status) ? error.status : 502, { error: error.message, options: [] });
+          }
+          return;
+        }
+        if (publicRoute === "hotels") {
+          try {
+            const q = (name) => url.searchParams.get(name) || "";
+            json(res, 200, await hotels.search({ lat: Number(q("lat")), lon: Number(q("lon")), checkin: q("checkin"), checkout: q("checkout"), adults: Number(q("adults")) || 1, city: q("city").slice(0, 80) }));
+          } catch (error) {
+            if (error.detail) console.warn("Booking.com:", error.message, error.detail);
+            json(res, [400, 429].includes(error.status) ? error.status : 502, { error: error.message, hotels: [] });
           }
           return;
         }
@@ -1042,6 +1086,16 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           json(res, 401, { error: "Zaloguj się, aby kontynuować." });
           return;
         }
+        if (segments[1] === "flights" && segments[2] === "fill" && segments.length === 3) {
+          if (req.method !== "POST") {
+            res.setHeader("Allow", "POST");
+            json(res, 405, { error: "Method not allowed." });
+            return;
+          }
+          requireSameOrigin(req);
+          await fillStripDays(req, res, flights, wizz, ryanair);
+          return;
+        }
         if (segments[1] === "flights" && segments[2] === "trip" && segments.length === 3) {
           if (req.method !== "POST") {
             res.setHeader("Allow", "POST");
@@ -1049,7 +1103,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
             return;
           }
           requireSameOrigin(req);
-          await fetchTripFlights(req, res, collector, flights, tripAsked, wizz);
+          await fetchTripFlights(req, res, collector, flights, tripAsked, wizz, ryanair);
           return;
         }
         if (segments[1] === "preferences" && segments.length === 2) {
@@ -1058,6 +1112,25 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         }
         if (segments[1] === "alerts" && segments.length <= 3) {
           await serveAlerts(req, res, alerts, segments);
+          return;
+        }
+        if (segments[1] === "flights" && segments[2] === "ryanair-time" && segments.length === 3) {
+          if (req.method !== "POST") {
+            res.setHeader("Allow", "POST");
+            json(res, 405, { error: "Method not allowed." });
+            return;
+          }
+          requireSameOrigin(req);
+          if (!ryanair) {
+            json(res, 503, { error: "Zapytania do Ryanair są wyłączone." });
+            return;
+          }
+          const { from = "", to = "", time = "" } = await readJson(req);
+          try {
+            json(res, 200, await ryanair.priceForTime({ from: String(from).toUpperCase(), to: String(to).toUpperCase(), time: String(time) }));
+          } catch (error) {
+            json(res, error.status && error.status < 600 ? error.status : 502, { error: error.message });
+          }
           return;
         }
         if (segments[1] === "flights" && segments[2] === "wizz-time" && segments.length === 3) {
@@ -1086,7 +1159,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
             return;
           }
           requireSameOrigin(req);
-          await refreshFare(req, res, collector, flights, tripAsked);
+          await refreshFare(req, res, collector, flights, tripAsked, ryanair);
           return;
         }
         if (segments[1] === "settings" && segments[2] === "plk-key" && segments.length === 3) {
@@ -1249,6 +1322,7 @@ async function main() {
     collector,
     alerts,
     wizz,
+    ryanair: createRyanairApi({ flights, toPln: createRates() }),
     database: {
       health: async () => pool.request().query("SELECT 1 AS ok"),
       getSchedule: (agency, sourceKey) => getSchedule(pool, agency, sourceKey),

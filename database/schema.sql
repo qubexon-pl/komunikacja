@@ -527,3 +527,11 @@ BEGIN
     );
 END;
 GO
+
+-- Where the airport list's fare was checked, and the typical ride time of each reviewed way into town.
+IF COL_LENGTH(N'dbo.AirportTransfer', N'fare_source') IS NULL
+    ALTER TABLE dbo.AirportTransfer ADD fare_source NVARCHAR(300) NULL;
+GO
+IF COL_LENGTH(N'dbo.AirportFare', N'minutes') IS NULL
+    ALTER TABLE dbo.AirportFare ADD minutes INT NULL;
+GO

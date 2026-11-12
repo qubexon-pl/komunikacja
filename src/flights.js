@@ -9,8 +9,12 @@ const WINDOW_DAYS = 14;
 const STORE_DAYS = 366;
 const NETWORK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_RETURNS = 5;
-const STRIP_DAYS = 14;
+const STRIP_DAYS = 56; // the date strips reach 8 weeks either way; days without stored prices are asked for when scrolled to
 const LIVE_TTL_MS = 6 * 60 * 60 * 1000;
+// Airlines stop selling a flight shortly before it leaves; a flight of today is offered only when it leaves later than this.
+const SALE_CLOSES_MIN = 120;
+// Local clock of the departure airports (Polish airports, and near enough for most of Europe within the margin above).
+const localNow = (date, plusMin = 0) => new Date(date.getTime() + plusMin * 60000).toLocaleString("sv-SE", { timeZone: "Europe/Warsaw" }).slice(0, 16).replace(" ", "T");
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 // Far enough to reach Warsaw, Wrocław or Budapest when nothing nearer flies there; the cost of getting there is counted.
 const ORIGIN_AIRPORT_KM = 600;
@@ -257,17 +261,14 @@ function pairReturns(outbound, returns, back) {
   return trips.sort((a, b) => a.totalPln - b.totalPln || compareFares(a, b));
 }
 
-// Return days two weeks either side of the chosen one, with the outbound day fixed: the cheapest way out plus the cheapest way home.
+// Return days from the departure day itself up to two weeks after the chosen return: the cheapest way home that day.
 function backDayPrices(outbound, returns, date, back) {
   if (!back) return [];
-  const outPrice = Math.min(...outbound.filter((fare) => fare.day === date).map((fare) => fare.pricePln));
   const byDay = new Map();
   for (const fare of returns) byDay.set(fare.day, Math.min(byDay.get(fare.day) ?? Infinity, fare.pricePln));
   const days = [];
-  for (let offset = -STRIP_DAYS; offset <= STRIP_DAYS; offset += 1) {
-    const day = addDays(back, offset);
-    if (day < date || !byDay.has(day)) continue;
-    days.push({ day, cheapest: Math.round(byDay.get(day) + (Number.isFinite(outPrice) ? outPrice : 0)), outKnown: Number.isFinite(outPrice) });
+  for (let day = date, last = addDays(back, STRIP_DAYS); day <= last; day = addDays(day, 1)) {
+    if (byDay.has(day)) days.push({ day, cheapest: Math.round(byDay.get(day)) });
   }
   return days;
 }
@@ -285,23 +286,14 @@ function perAirline(outbound, returns, prices) {
   return all;
 }
 
-// Cheapest ticket for each departure day two weeks either side; a round trip keeps the same number of days away.
-function dayPrices(outbound, returns, date, back) {
-  const cheapest = (list) => {
-    const byDay = new Map();
-    for (const fare of list) byDay.set(fare.day, Math.min(byDay.get(fare.day) ?? Infinity, fare.pricePln));
-    return byDay;
-  };
-  const out = cheapest(outbound);
-  const ret = back ? cheapest(returns) : null;
-  const away = back ? daysBetween(date, back) : 0;
+// Cheapest way out for each departure day two weeks either side (the return has its own strip and prices).
+function dayPrices(outbound, returns, date) {
+  const out = new Map();
+  for (const fare of outbound) out.set(fare.day, Math.min(out.get(fare.day) ?? Infinity, fare.pricePln));
   const days = [];
   for (let offset = -STRIP_DAYS; offset <= STRIP_DAYS; offset += 1) {
     const day = addDays(date, offset);
-    const price = out.get(day);
-    if (price == null) continue;
-    const home = ret ? ret.get(addDays(day, away)) : 0;
-    if (home != null) days.push({ day, cheapest: Math.round(price + home) });
+    if (out.has(day)) days.push({ day, cheapest: Math.round(out.get(day)) });
   }
   return days;
 }
@@ -332,7 +324,11 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
   const current = () => {
     const fresh = now().getTime() - LIVE_TTL_MS;
     live = live.filter((fare) => fare.collectedAt.getTime() >= fresh);
-    return withDepartureTimes([...fares, ...live].filter((fare) => fare.day >= today()));
+    // Today only flights that can still be bought: leaving at least SALE_CLOSES_MIN from now. A price of today without a
+    // departure time cannot be checked, so it is not offered either.
+    const day = localNow(now()).slice(0, 10), closes = localNow(now(), SALE_CLOSES_MIN);
+    const onSale = (fare) => fare.day > day || (fare.day === day && !!fare.departure && fare.departure >= closes);
+    return withDepartureTimes([...fares, ...live].filter((fare) => fare.day >= today() && onSale(fare)));
   };
   // Answers of the official APIs for one trip search: each search replaces what it found before.
   function addLive(rows, searched = []) {
@@ -345,18 +341,24 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
 
   // New fares replace what is stored for the same airline, route and day; everything else stays.
   // departures: replace only the same departures of a day (the price of one chosen flight), not the whole day.
-  async function mergeRows(rows, { departures = false } = {}) {
+  // clear: days the airline answered for and had no flight on ({airline, from, to, day}); what is stored for them goes.
+  // drop: single departures the airline no longer sells ({airline, from, to, day, departure}); their stored price goes.
+  async function mergeRows(rows, { departures = false, clear = [], drop = [] } = {}) {
     const incoming = inWindow(rows, today());
-    if (!incoming.length) return { received: rows.length, stored: 0 };
+    const gone = new Set(clear.map((c) => `${c.airline}|${c.from}|${c.to}|${c.day}`));
+    const unsold = new Set(drop.map((d) => `${d.airline}|${d.from}|${d.to}|${d.day}|${d.departure}`));
+    const removed = (fare) => gone.has(groupOf(fare)) || unsold.has(`${groupOf(fare)}|${fare.departure || ""}`);
+    if (!incoming.length && !fares.some(removed)) return { received: rows.length, stored: 0, removed: 0 };
     const keyOf = departures ? (fare) => `${groupOf(fare)}|${fare.departure || ""}` : groupOf;
     const groups = new Set(incoming.map(keyOf));
     const unpriced = new Set(incoming.filter((fare) => fare.priceType === "list" && fare.departure).map((fare) => `${groupOf(fare)}|${fare.departure}`));
-    const keep = (fare) => !groups.has(keyOf(fare)) || (fare.priceType !== "list" && !!fare.departure && unpriced.has(`${groupOf(fare)}|${fare.departure}`));
+    const keep = (fare) => !removed(fare) && (!groups.has(keyOf(fare)) || (fare.priceType !== "list" && !!fare.departure && unpriced.has(`${groupOf(fare)}|${fare.departure}`)));
+    const dropped = fares.filter(removed).length;
     const next = [...fares.filter(keep), ...incoming];
     await database.replaceFares(next);
     recordHistory(incoming);
     fares = next;
-    return { received: rows.length, stored: incoming.length };
+    return { received: rows.length, stored: incoming.length, removed: dropped };
   }
 
   async function load() {
@@ -400,7 +402,7 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
   function keepImported(accepted) {
     const newest = new Map();
     for (const fare of accepted) newest.set(groupOf(fare), Math.max(newest.get(groupOf(fare)) || 0, fare.collectedAt.getTime()));
-    const own = (fare) => fare.source.startsWith("wizz.api.");
+    const own = (fare) => fare.source.startsWith("wizz.api.") || fare.source.startsWith("ryanair.api.");
     const kept = fares.filter((fare) => fare.day >= today() && (own(fare) || (fare.source.startsWith("har.") && !(newest.get(groupOf(fare)) >= fare.collectedAt.getTime()))));
     const keptGroups = new Set(kept.map(groupOf));
     return [...accepted.filter((fare) => !keptGroups.has(groupOf(fare))), ...kept];
@@ -531,7 +533,9 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
     }).filter((pair) => pair.airlines.length);
   }
 
-  return { addLive, cheapest, importRows, load, mergeRows, network: () => network, networkIsStale, options, pairsFor, refresh, returnPairs, saveNetwork, search, start, stop, sync, tripPairs };
+  // Whether anything is stored for an airline's route on a day (also an unpriced departure).
+  const known = (airline, from, to, day) => fares.some((fare) => fare.airline === airline && fare.from === from && fare.to === to && fare.day === day);
+  return { addLive, cheapest, importRows, known, load, mergeRows, network: () => network, networkIsStale, options, pairsFor, refresh, returnPairs, saveNetwork, search, start, stop, sync, tripPairs };
 }
 
 module.exports = { WINDOW_DAYS, createFlightStore, withDepartureTimes, withFlightTime, routeClockDiffs, hoursFromPoland, inWindow, lastChange, normalizeFare, rankFares, readFareFile };

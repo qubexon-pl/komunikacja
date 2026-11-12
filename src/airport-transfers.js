@@ -15,6 +15,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createTransitous, localToUtc, utcToLocal, kindOf, itinerary, safeUrl } = require("./transitous");
+const { textOptions, sameService, telling } = require("./airport-text");
 
 const DATA_FILE = path.join(__dirname, "..", "data", "airport-transfers.csv");
 const FARES_FILE = path.join(__dirname, "..", "data", "airport-fares.csv");
@@ -85,6 +86,7 @@ function recordsFromCsv(text) {
       mode: ["rail", "bus", "taxi"].includes(v("Mode")) ? v("Mode") : "bus",
       route: v("Route to centre"), fare: v("Fare"), fareEur: Number.isFinite(num("Fare EUR approx")) ? num("Fare EUR approx") : null,
       walk: v("Walk from terminal"), gtfs: v("GTFS coverage") || "none", airportLat: num("Airport lat"), airportLon: num("Airport lon"),
+      fareSource: at("Fare source") >= 0 ? safeUrl((r[at("Fare source")] ?? "").trim()) || "" : "", // optional column
     };
     if (!CODE.test(code) || ![rec.pickup.lat, rec.pickup.lon, rec.airportLat, rec.airportLon].every(Number.isFinite)) continue;
     out.push(rec);
@@ -102,11 +104,12 @@ function faresFromCsv(text) {
   for (const r of rows) {
     const v = (name) => (r[at(name)] ?? "").trim();
     const code = v("IATA").toUpperCase(), eur = v("Fare EUR") === "" ? NaN : Number(v("Fare EUR"));
+    const minutes = at("Minutes") >= 0 && v("Minutes") !== "" ? Number(v("Minutes")) : NaN; // optional column: typical ride
     if (!CODE.test(code) || !v("Option") || !v("Match")) continue;
     try { new RegExp(v("Match"), "i"); } catch { continue; }
     out.push({
       code, option: v("Option"), match: v("Match"), mode: v("Mode") || "bus", fare: v("Fare"), fareEur: Number.isFinite(eur) ? eur : null,
-      note: v("Note"), checked: v("Checked"), source: safeUrl(v("Source")) || "",
+      note: v("Note"), checked: v("Checked"), source: safeUrl(v("Source")) || "", minutes: Number.isInteger(minutes) && minutes > 0 ? minutes : null,
     });
   }
   return out;
@@ -139,7 +142,6 @@ function tripsFrom(body, zone) {
     .slice(0, 4);
 }
 
-const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function createAirportTransfers({ database = null, snapshots = null, fetchSource = fetch, transitous = null, toPln = null, geocode = null, drive = null, file = DATA_FILE, faresFile = FARES_FILE, now = Date.now, minGapMs = MIN_GAP_MS } = {}) {
   let loading = null;
@@ -179,10 +181,10 @@ function createAirportTransfers({ database = null, snapshots = null, fetchSource
   const ready = () => (loading ||= load().catch((error) => { loading = null; throw error; }));
 
   const zoneOf = (rec) => AIRPORT_ZONES[rec.code] || COUNTRY_ZONES[rec.country] || "UTC";
-  async function pln(eur) {
-    if (eur === 0) return 0;
-    if (!(eur > 0) || !toPln) return null;
-    return toPln(eur, "EUR").then((v) => (v == null ? null : Math.round(v))).catch(() => null);
+  async function pln(amount, currency = "EUR") {
+    if (amount === 0) return 0;
+    if (!(amount > 0) || !toPln) return null;
+    return toPln(amount, currency).then((v) => (v == null ? null : Math.round(v))).catch(() => null);
   }
 
   async function lookup(codes) {
@@ -195,12 +197,34 @@ function createAirportTransfers({ database = null, snapshots = null, fetchSource
     };
   }
 
+  // The centre of the airport's city. Found once and kept (memory and dbo.DataSnapshot): a busy or refusing address
+  // search must not leave a trip without its way into town. The app's address search first, Transitous's second.
+  const centres = new Map();
   async function cityCentre(rec) {
-    if (!geocode) return null;
+    if (centres.has(rec.code)) return centres.get(rec.code);
+    const key = `centre:${rec.code}`;
+    if (snapshots) {
+      const body = await snapshots.read(key).catch(() => null);
+      const saved = body ? JSON.parse(Buffer.from(body).toString("utf8")) : null;
+      if (saved?.lat != null) { centres.set(rec.code, saved); return saved; }
+    }
     const city = rec.city.replace(/\s*\(.*\)\s*$/, "").split("/")[0].trim();
-    const found = await geocode(`${city}, ${rec.country}`, { world: true }).catch(() => null);
-    const p = found?.places?.[0]?.points?.[0];
-    return p ? { lat: p[0], lon: p[1], label: city, centre: true } : null;
+    let point = null;
+    if (geocode) {
+      const found = await geocode(`${city}, ${rec.country}`, { world: true }).catch((error) => { console.warn(`City centre of ${rec.code}:`, error.message); return null; });
+      point = found?.places?.[0]?.points?.[0] || null;
+    }
+    if (!point && client.geocode) {
+      const list = await client.geocode({ text: city }).catch((error) => { console.warn(`City centre of ${rec.code} (Transitous):`, error.message); return null; });
+      const near = (Array.isArray(list) ? list : []).filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon) && km(p.lat, p.lon, rec.airportLat, rec.airportLon) < 120);
+      const hit = near.find((p) => p.type === "PLACE") || near[0];
+      if (hit) point = [hit.lat, hit.lon];
+    }
+    if (!point) return null; // not kept: the next trip asks again
+    const centre = { lat: point[0], lon: point[1], label: city, centre: true };
+    centres.set(rec.code, centre);
+    if (snapshots) snapshots.save(key, { body: Buffer.from(JSON.stringify(centre)), type: "application/json", etag: `"${rec.code}"` }).catch(() => {});
+    return centre;
   }
 
   // Kept in memory and in dbo.DataSnapshot for KEEP_MS; the prefix names the kind of answer.
@@ -256,12 +280,53 @@ function createAirportTransfers({ database = null, snapshots = null, fetchSource
 
   function fareFor(rec, line, agency) {
     const hit = (faresByCode.get(rec.code) || []).find((f) => { const re = new RegExp(f.match, "i"); return re.test(line) || re.test(agency) || re.test(`${agency} ${line}`); });
-    if (hit) return { text: hit.fare, eur: hit.fareEur, option: hit.option, note: hit.note, checked: hit.checked, source: hit.source, curated: true };
-    if (line === "taxi") return null;
-    // The airport list names the main way into town; when this line is mentioned there, its fare applies.
-    const words = [line, agency.replace(/\s*\(.*\)/, "")].filter((w) => w && w.length >= 2).map(escapeRe);
-    if (words.length && new RegExp(`\\b(${words.join("|")})\\b`, "i").test(rec.route)) return { text: rec.fare, eur: rec.fareEur, option: "", note: "", checked: "", source: "", curated: false };
-    return null;
+    return hit ? curatedFare(hit) : null;
+  }
+  const curatedFare = (row) => ({ text: row.fare, eur: row.fareEur, currency: "EUR", amount: row.fareEur, option: row.option, note: row.note, checked: row.checked, source: row.source, curated: true });
+  // The price of an option described in the airport list: its first price, with the others ("GBP 9.90 if booked ahead") in the text.
+  async function textFare(rec, part) {
+    if (!part.prices.length) return null;
+    const [main] = part.prices;
+    return {
+      text: part.prices.map((p) => p.text).join(" · "), eur: main.currency === "EUR" ? main.amount : null, currency: main.currency, amount: main.amount,
+      option: "", note: "", checked: "", source: rec.fareSource || "", curated: false, pln: await pln(main.amount, main.currency),
+    };
+  }
+
+  // Ways into town known from the reviewed prices and the airport list but not found in open timetables (Arlanda
+  // Express, many airport coaches): listed too, with their typical time and price, and "timetable at the operator".
+  async function describedOptions(rec, live) {
+    const rows = (faresByCode.get(rec.code) || []).filter((r) => r.match !== "^taxi$");
+    const covered = (row) => live.some((o) => o.fare?.curated && o.fare.option === row.option);
+    const out = [];
+    const add = (o) => out.push({
+      id: "s" + crypto.createHash("sha1").update(o.name).digest("hex").slice(0, 9), kind: o.kind, line: "", agency: "", name: o.name, color: null, textColor: null,
+      board: { name: o.kind === rec.mode ? rec.pickup.name : "", at: o.kind === rec.mode ? [rec.pickup.lat, rec.pickup.lon] : null, walkMin: 0 },
+      alight: "", lines: [], minutes: o.minutes ?? null, transfers: null, walkMin: 0, departures: [], fare: o.fare, ticketUrl: o.fare?.source || rec.fareSource || null,
+      steps: [], shape: [], timetable: false,
+    });
+    for (const row of rows) if (!covered(row)) add({ name: row.option, kind: ["rail", "metro", "tram", "bus", "ferry"].includes(row.mode) ? row.mode : "bus", minutes: row.minutes, fare: { ...curatedFare(row), pln: await pln(row.fareEur) } });
+    for (const part of textOptions(rec)) {
+      if (part.kind === "taxi") continue;
+      const label = `${part.name} ${part.text}`;
+      const liveHits = live.filter((o) => sameService(part.text, `${o.agency} ${o.line} ${o.name}`));
+      if (liveHits.length) {
+        const fare = await textFare(rec, part);
+        for (const o of liveHits) if (!o.fare && fare) o.fare = { ...fare };
+        continue;
+      }
+      const rowHit = rows.find((r) => sameService(label, r.option) || new RegExp(r.match, "i").test(part.name));
+      if (rowHit) {
+        const o = out.find((x) => x.name === rowHit.option);
+        if (o && o.minutes == null) o.minutes = part.minutes;
+        continue;
+      }
+      if (out.some((x) => sameService(label, x.name))) continue;
+      // Just "coach" or "train" is the same as the coach or train already listed.
+      if (!telling(part.name).length && [...live, ...out].some((o) => o.kind === part.kind)) continue;
+      add({ name: part.name, kind: part.kind, minutes: part.minutes, fare: await textFare(rec, part) });
+    }
+    return out;
   }
 
   // Every way from the airport to the destination (the city centre when the destination is the airport itself) after a
@@ -281,7 +346,7 @@ function createAirportTransfers({ database = null, snapshots = null, fetchSource
     const at = Math.floor((localToUtc(time, zone) + AFTER_LANDING_MIN * 60000) / step) * step;
     const place = `${target.lat.toFixed(3)},${target.lon.toFixed(3)}`;
     const id = crypto.createHash("sha1").update(`${rec.code}|${place}|${at}`).digest("hex").slice(0, 24);
-    return remembered("xopt", id, async () => {
+    return remembered("xopt4", id, async () => {
       // From the terminal's pickup point (the middle of an airport can be a long walk from any stop).
       const base = { fromPlace: `${rec.pickup.lat.toFixed(5)},${rec.pickup.lon.toFixed(5)}`, toPlace: place, time: new Date(at).toISOString(), numItineraries: "5", maxPreTransitTime: "1800" };
       const found = [];
@@ -310,21 +375,33 @@ function createAirportTransfers({ database = null, snapshots = null, fetchSource
           alight: rides.at(-1).to,
           lines: rides.map((x) => ({ kind: x.kind, line: x.line, color: x.color, textColor: x.textColor })),
           minutes: best.minutes, transfers: best.transfers, walkMin: best.walkMin,
-          departures: [...new Set(its.map((x) => x.steps.find((s) => s.kind !== "walk").dep))].sort().slice(0, 4),
+          // In time order, not as text: after a late landing 23:13 comes before 00:13.
+          departures: [...new Set([...its].sort((a, b) => a.startMs - b.startMs).map((x) => x.steps.find((s) => s.kind !== "walk").dep))].slice(0, 4),
           fare: fare ? { ...fare, pln: await pln(fare.eur) } : null,
           ticketUrl: first.ticketUrl || fare?.source || null,
-          steps: best.steps.map(({ fromAt, ...x }) => x), shape: best.shape,
+          steps: best.steps.map(({ fromAt, ...x }) => x), shape: best.shape, timetable: true,
         });
       }
-      const result = list.sort((a, b) => a.minutes - b.minutes).slice(0, MAX_OPTIONS);
-      const taxiFare = fareFor(rec, "taxi", "");
+      // Lines of one service (National Express A6, A7, A9) are one option: the fastest, with all their departures.
+      const result = [];
+      const clockMin = (t) => +t.slice(0, 2) * 60 + +t.slice(3, 5), from = clockMin(utcToLocal(at, zone).clock);
+      const afterLanding = (a, b) => ((clockMin(a) - from + 1440) % 1440) - ((clockMin(b) - from + 1440) % 1440); // 23:13 before 00:13
+      for (const o of list.sort((a, b) => a.minutes - b.minutes)) {
+        const same = o.name && result.find((x) => x.name === o.name);
+        if (same) { same.departures = [...new Set([...same.departures, ...o.departures])].sort(afterLanding).slice(0, 4); continue; }
+        if (result.length < MAX_OPTIONS) result.push(o);
+      }
+      result.push(...await describedOptions(rec, result));
+      let taxiFare = fareFor(rec, "taxi", "");
+      if (!taxiFare) { const t = textOptions(rec).find((p) => p.kind === "taxi"); taxiFare = t ? await textFare(rec, t) : null; }
       const road = drive ? await drive({ lat: rec.pickup.lat, lon: rec.pickup.lon }, target).catch(() => null) : null;
       if (road || taxiFare) {
         result.push({
           id: "taxi", kind: "taxi", line: "Taxi", agency: "", name: taxiFare?.option || "Taxi", color: null, textColor: null,
           board: { name: "", at: null, walkMin: 0 }, alight: target.label, lines: [],
-          minutes: road ? road.minutes + 5 : null, km: road?.km ?? null, transfers: 0, walkMin: 0, departures: [],
-          fare: taxiFare ? { ...taxiFare, pln: await pln(taxiFare.eur) } : null, ticketUrl: null, steps: [], shape: [],
+          minutes: road ? road.minutes + 5 : (fareFor(rec, "taxi", "") ? (faresByCode.get(rec.code) || []).find((r) => r.match === "^taxi$")?.minutes ?? null : null),
+          km: road?.km ?? null, transfers: 0, walkMin: 0, departures: [],
+          fare: taxiFare ? { ...taxiFare, pln: taxiFare.pln ?? await pln(taxiFare.eur) } : null, ticketUrl: null, steps: [], shape: [], timetable: false,
         });
       }
       return {

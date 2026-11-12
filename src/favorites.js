@@ -18,6 +18,29 @@ function text(value) {
   return typeof value === "string" ? value.trim().slice(0, MAX_TEXT) : "";
 }
 
+// What a saved trip looked like when it was saved (flights, the way to the airport, the chosen way into town), so its
+// page can be shown without planning again. It comes from the browser: plain data only — short strings, finite numbers,
+// small lists, a few levels deep — and at most MAX_SNAPSHOT characters.
+const MAX_SNAPSHOT = 24000; // steps to the airport, weather places, costs and a hotel
+function plain(value, depth = 0) {
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") return value.slice(0, 300);
+  if (depth >= 5) return null;
+  if (Array.isArray(value)) return value.slice(0, 20).map((v) => plain(v, depth + 1));
+  if (typeof value === "object") {
+    const out = {};
+    for (const [key, v] of Object.entries(value).slice(0, 40)) if (/^[A-Za-z][A-Za-z0-9]{0,23}$/.test(key) && v !== undefined) out[key] = plain(v, depth + 1);
+    return out;
+  }
+  return null;
+}
+function snapshotOf(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const clean = plain(value);
+  return JSON.stringify(clean).length <= MAX_SNAPSHOT ? clean : null;
+}
+
 // Favourites arrive from the browser, so only known fields of known shapes are kept.
 function normalizeFavorites(value) {
   if (!Array.isArray(value)) return [];
@@ -34,7 +57,12 @@ function normalizeFavorites(value) {
       const flight = flightOf(item.flight);
       if (flight) favorite.flight = flight;
       // The choices of the plan: outbound and return flight (their keys) and the way to the airport.
-      if (item.plan && typeof item.plan === "object" && text(item.plan.out)) favorite.plan = { out: text(item.plan.out), ret: text(item.plan.ret), access: text(item.plan.access) };
+      if (item.plan && typeof item.plan === "object" && text(item.plan.out)) favorite.plan = { out: text(item.plan.out), ret: text(item.plan.ret), access: text(item.plan.access), xfer: text(item.plan.xfer) };
+      // "planned": kept in favourites; "booked": the traveller's own trip, listed under My trips.
+      if (item.status === "booked" || item.status === "planned") favorite.status = item.status;
+      if (/^[a-z0-9]{6,24}$/.test(item.tid || "")) favorite.tid = item.tid;
+      const trip = snapshotOf(item.trip);
+      if (trip) favorite.trip = trip;
     }
     if (!favorite) continue;
     const key = JSON.stringify(favorite);

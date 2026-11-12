@@ -451,10 +451,11 @@ async function replaceAirportTransfers(pool, rows) {
   table.columns.add("airport_lat", sql.Decimal(9, 6), { nullable: false });
   table.columns.add("airport_lon", sql.Decimal(9, 6), { nullable: false });
   table.columns.add("updated_at", sql.DateTime2(0), { nullable: false });
+  table.columns.add("fare_source", sql.NVarChar(300), { nullable: true });
   const at = new Date();
   for (const r of rows) {
     table.rows.add(r.code, r.city, r.country, r.airport, r.ryanair, r.wizz, r.pickup.name, r.pickup.lat, r.pickup.lon, r.pickup.precision,
-      r.mode, r.route, r.fare, r.fareEur, r.walk, r.gtfs, r.airportLat, r.airportLon, at);
+      r.mode, r.route, r.fare, r.fareEur, r.walk, r.gtfs, r.airportLat, r.airportLon, at, r.fareSource || null);
   }
   const tx = new sql.Transaction(pool);
   await tx.begin();
@@ -471,12 +472,12 @@ async function replaceAirportTransfers(pool, rows) {
 async function readAirportTransfers(pool) {
   const result = await pool.request().query(`
     SELECT iata, city, country, airport, ryanair, wizz, pickup, pickup_lat, pickup_lon, pickup_precision, mode, route, fare, fare_eur,
-      walk, gtfs, airport_lat, airport_lon FROM dbo.AirportTransfer;`);
+      walk, gtfs, airport_lat, airport_lon, fare_source FROM dbo.AirportTransfer;`);
   return result.recordset.map((r) => ({
     code: r.iata.trim(), city: r.city, country: r.country, airport: r.airport, ryanair: Boolean(r.ryanair), wizz: Boolean(r.wizz),
     pickup: { name: r.pickup, lat: Number(r.pickup_lat), lon: Number(r.pickup_lon), precision: r.pickup_precision },
     mode: r.mode, route: r.route, fare: r.fare, fareEur: r.fare_eur == null ? null : Number(r.fare_eur), walk: r.walk, gtfs: r.gtfs,
-    airportLat: Number(r.airport_lat), airportLon: Number(r.airport_lon),
+    airportLat: Number(r.airport_lat), airportLon: Number(r.airport_lon), fareSource: r.fare_source || "",
   }));
 }
 
@@ -494,8 +495,9 @@ async function replaceAirportFares(pool, rows) {
   table.columns.add("checked", sql.NVarChar(20), { nullable: false });
   table.columns.add("source", sql.NVarChar(300), { nullable: false });
   table.columns.add("updated_at", sql.DateTime2(0), { nullable: false });
+  table.columns.add("minutes", sql.Int, { nullable: true });
   const at = new Date();
-  rows.forEach((r, i) => table.rows.add(r.code, i, r.option, r.match, r.mode, r.fare, r.fareEur, r.note, r.checked, r.source, at));
+  rows.forEach((r, i) => table.rows.add(r.code, i, r.option, r.match, r.mode, r.fare, r.fareEur, r.note, r.checked, r.source, at, r.minutes ?? null));
   const tx = new sql.Transaction(pool);
   await tx.begin();
   try {
@@ -509,10 +511,10 @@ async function replaceAirportFares(pool, rows) {
 }
 
 async function readAirportFares(pool) {
-  const result = await pool.request().query("SELECT iata, name, match, mode, fare, fare_eur, note, checked, source FROM dbo.AirportFare ORDER BY iata, position;");
+  const result = await pool.request().query("SELECT iata, name, match, mode, fare, fare_eur, note, checked, source, minutes FROM dbo.AirportFare ORDER BY iata, position;");
   return result.recordset.map((r) => ({
     code: r.iata.trim(), option: r.name, match: r.match, mode: r.mode, fare: r.fare, fareEur: r.fare_eur == null ? null : Number(r.fare_eur),
-    note: r.note, checked: r.checked, source: r.source,
+    note: r.note, checked: r.checked, source: r.source, minutes: r.minutes ?? null,
   }));
 }
 

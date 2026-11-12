@@ -50,7 +50,8 @@
       </div>
     </div>
     <div class="nav-links">
-      <a class="nav-fav" id="favLink" href="/ulubione"><i class="fa-solid fa-star" aria-hidden="true"></i> <span>Ulubione</span></a>
+      <a class="nav-fav nav-trips" id="myTripsLink" href="/moje-podroze"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> <span>Moje podróże</span><b class="nav-count" id="myTripsCount" hidden></b></a>
+      <a class="nav-fav" id="favLink" href="/ulubione"><i class="fa-solid fa-star" aria-hidden="true"></i> <span>Ulubione</span><b class="nav-count" id="favCount" hidden></b></a>
       <button class="nav-link-btn" id="alertsBtn" style="display:none"><span class="txt">Komunikaty</span> <span class="badge-num" id="alertsCount">0</span></button>
       <div class="dropdown">
         <button class="nav-link-btn dropdown-toggle" id="adminMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false">Admin</button>
@@ -108,21 +109,26 @@
   <div class="sec-head fav-part" id="fav-sec"><span class="sec-num">01</span><h2 id="favTitle">Ulubione</h2><span class="sec-rule"></span></div>
   <div class="fav-filters fav-part" id="favFilters" role="group" aria-label="Rodzaj ulubionych"></div>
   <div id="favPage" class="fav-part"></div>
+  <div class="sec-head mytrips-part" id="mytrips-sec"><span class="sec-num">01</span><h2>Moje podróże</h2><span class="sec-rule"></span></div>
+  <div id="myTripsPage" class="mytrips-part"></div>
+  <div id="tripPage" class="trip-part"></div>
   <div class="sec-head only-plan" id="plan-sec"><span class="sec-num">01</span><h2 id="planTitle">Dokąd jedziesz?</h2><span class="sec-rule"></span></div>
   <div class="search-box only-plan">
     <div class="trip-tabs only-podroz" role="group" aria-label="Rodzaj podróży">
       <button type="button" class="trip-tab on" data-round="0" aria-pressed="true">W jedną stronę</button>
       <button type="button" class="trip-tab" data-round="1" aria-pressed="false">W obie strony</button>
       <input type="checkbox" id="plRound" hidden>
+      <button type="button" class="btn-ghost pl-reset" id="plReset" title="Wyczyść wyszukiwanie i zacznij od nowa"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Resetuj</button>
     </div>
     <form id="planForm" class="planner" autocomplete="off">
       <div class="pl-pair">
-        <div class="pl-field"><label for="plFrom">Skąd?</label><div class="pl-inp"><input id="plFrom" placeholder="Adres, przystanek, stacja lub miasto"><button type="button" class="pl-map" data-pick="from" title="Wybierz przystanek na mapie"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button><button type="button" id="plGeo" title="Najbliższy przystanek">◎</button></div></div>
+        <div class="pl-field"><label for="plFrom">Skąd?</label><div class="pl-inp"><input id="plFrom" placeholder="Adres, przystanek, stacja lub miasto"><button type="button" id="plGeo" title="Najbliższy przystanek">◎</button></div></div>
         <button type="button" class="pl-swap" id="plSwap" title="Zamień kierunek" aria-label="Zamień kierunek"><i class="fa-solid fa-right-left" aria-hidden="true"></i></button>
-        <div class="pl-field"><label for="plTo">Dokąd?</label><div class="pl-inp"><input id="plTo" placeholder="Adres, przystanek, stacja lub miasto"><button type="button" class="pl-map" data-pick="to" title="Wybierz przystanek na mapie"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button></div></div>
+        <div class="pl-field"><label for="plTo">Dokąd?</label><div class="pl-inp"><input id="plTo" placeholder="Adres, przystanek, stacja lub miasto"></div></div>
       </div>
-      <div class="pl-field pl-time"><label for="plDate">Data wyjazdu</label><div class="pl-inp"><input id="plDate" type="date" title="Puste = dziś"></div></div>
-      <div class="pl-field pl-time trip-return-fields" hidden><label for="plBack">Data powrotu</label><div class="pl-inp"><input id="plBack" type="date"></div></div>
+      <div class="pl-field pl-time one-way-date"><label for="plDate">Data wyjazdu</label><div class="pl-inp"><input id="plDate" type="date"></div></div>
+      <div class="pl-field pl-time pl-range trip-return-fields" hidden><label for="plRange">Termin podróży</label><div class="pl-inp"><button type="button" id="plRange" class="pl-range-btn" aria-haspopup="dialog" aria-expanded="false"></button></div><div class="rng-pop" id="rngPop" hidden role="dialog" aria-label="Wybierz termin podróży"></div></div>
+      <div class="pl-field pl-time" hidden><label for="plBack">Data powrotu</label><div class="pl-inp"><input id="plBack" type="date"></div></div>
       <div class="pl-field pl-time"><select id="plWhen" class="pl-when" aria-label="Znaczenie godziny"><option value="dep">Odjazd</option><option value="arr">Na miejscu o</option></select><div class="pl-inp"><input id="plTime" type="time" title="Puste = teraz" aria-label="Godzina"></div></div>
       <button class="btn-grad pl-go" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj</button>
     </form>
@@ -136,6 +142,7 @@
       <label class="mode-check"><input type="checkbox" value="plane" checked> <i class="fa-solid fa-plane" aria-hidden="true"></i> Samolot</label>
       <label class="mode-check"><input type="checkbox" value="car" checked> <i class="fa-solid fa-car" aria-hidden="true"></i> Samochód</label>
     </div>
+    <label class="pl-people only-podroz" title="Koszty podróży liczymy dla tylu osób"><i class="fa-solid fa-user-group" aria-hidden="true"></i> <span>Osoby</span> <select id="plPeople" aria-label="Liczba osób"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option></select></label>
     <label class="pref-airport" id="plPreferBox" hidden><i class="fa-solid fa-plane-departure" aria-hidden="true"></i> <span>Preferowane lotnisko</span> <select id="plPrefer" aria-label="Preferowane lotnisko"><option value="">Dowolne</option></select><span class="pref-sep" aria-hidden="true"></span><span>Lotniska w promieniu</span> <select id="plRadius" aria-label="Lotniska w promieniu"><option value="100">100 km</option><option value="150">150 km</option><option value="200">200 km</option><option value="300" selected>300 km</option><option value="400">400 km</option><option value="600">600 km</option><option value="any">Dowolna</option></select></label>
     </div>
   </div>
@@ -145,6 +152,7 @@
     <div class="explore-head">
       <div class="explore-title"><h3 id="exploreTitle"><i class="fa-solid fa-earth-europe" aria-hidden="true"></i> Sprawdź kierunki</h3><small id="exploreInfo">Wczytuję połączenia…</small></div>
       <div class="explore-tools">
+        <form class="explore-search" id="exploreSearchForm" role="search" autocomplete="off"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="exploreSearch" list="exploreDestList" placeholder="Szukaj miasta…" aria-label="Szukaj miasta docelowego"><datalist id="exploreDestList"></datalist></form>
         <div class="explore-airlines" role="group" aria-label="Linie lotnicze">
           <button type="button" class="explore-air on" data-explore-air="RYANAIR" aria-pressed="true"><i class="fa-solid fa-plane" aria-hidden="true"></i> Ryanair</button>
           <button type="button" class="explore-air on" data-explore-air="WIZZ" aria-pressed="true"><i class="fa-solid fa-plane" aria-hidden="true"></i> Wizz Air</button>

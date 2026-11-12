@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const { createAirportTransfers, faresFromCsv, FARES_FILE } = require("../src/airport-transfers");
 const { createCityTransit, clip } = require("../src/city-transit");
 const { decodePolyline } = require("../src/transitous");
+const { textOptions } = require("../src/airport-text");
 
 const leg = (mode, line, agency, from, to, start, end, extra = {}) => ({ mode, displayName: line, agencyName: agency, from: { name: from, lat: 41.3, lon: 2.07 }, to: { name: to }, startTime: start, endTime: end, ...extra });
 const walk = (start, end) => ({ mode: "WALK", duration: (Date.parse(end) - Date.parse(start)) / 1000, startTime: start, endTime: end, from: { name: "" }, to: { name: "" } });
@@ -36,8 +37,14 @@ test("every way into town is listed once, from the terminal, with its departures
   assert.equal(asked[0].fromPlace, "41.30331,2.07690"); // the terminal pickup point, not the middle of the airport
   assert.equal(asked[0].time, "2026-11-20T11:00:00.000Z"); // 11:55 local + 30 min, down to the half hour, in UTC
   assert.equal(r.target.centre, true);
-  const by = Object.fromEntries(r.options.map((o) => [o.line, o]));
+  const by = Object.fromEntries(r.options.filter((o) => o.timetable || o.kind === "taxi").map((o) => [o.line, o]));
   assert.deepEqual(Object.keys(by).sort(), ["46", "A2", "R2N", "Taxi"]);
+  // Metro L9 is in the reviewed prices but not in this timetable answer: listed anyway, with its typical time and price.
+  const metro = r.options.find((o) => o.name === "Metro L9 Sud");
+  assert.equal(metro.timetable, false);
+  assert.equal(metro.minutes, 50);
+  assert.equal(metro.fare.eur, 5.5);
+  assert.equal(r.options.filter((o) => !o.timetable && o.kind !== "taxi").length, 1); // "metro L9" from the airport list is the same one
   assert.deepEqual(by.A2.departures, ["12:05", "12:15"]);
   assert.equal(by.A2.name, "Aerobús A1 / A2");
   assert.equal(by.A2.fare.pln, 31);
@@ -48,6 +55,31 @@ test("every way into town is listed once, from the terminal, with its departures
   assert.equal(by.Taxi.fare.eur, 38);
   await t.options({ code: "BCN", time: "2026-11-20T11:58" }); // same half hour: the kept answer
   assert.equal(asked.length, 3);
+});
+
+test("the airport list's words become separate options with their own prices", () => {
+  const parts = textOptions({ route: "Arlanda Express ~18 min; SL commuter train (cheaper)", fare: "SEK 129 coach / SEK 340 Arlanda Express", mode: "rail" });
+  assert.deepEqual(parts.map((p) => [p.kind, p.name, p.minutes, p.prices.map((q) => `${q.currency} ${q.amount}`)]), [
+    ["rail", "Arlanda Express", 18, ["SEK 340"]], ["rail", "SL commuter train", null, []], ["bus", "Coach", null, ["SEK 129"]],
+  ]);
+  const stn = textOptions({ route: "Stansted Express to Liverpool Street ~50 min", fare: "GBP 19-25 walk-up Stansted Express (GBP 9.90 if booked ahead; coach from GBP 7)", mode: "rail" });
+  assert.deepEqual(stn.map((p) => [p.name, p.prices.map((q) => q.amount)]), [["Stansted Express to Liverpool Street", [19, 9.9]], ["Coach", [7]]]);
+  const dub = textOptions({ route: "Dublin Express/Aircoach ~30 min; Dublin Bus 16/41 cheaper", fare: "EUR 2 TFI bus / EUR 8-10 Dublin Express", mode: "bus" });
+  assert.deepEqual(dub.map((p) => [p.kind, p.prices.map((q) => q.amount)]), [["bus", [8]], ["bus", [2]]]);
+  assert.equal(textOptions({ route: "100E airport express bus ~35 min", fare: "HUF 2,500 100E", mode: "bus" })[0].prices[0].amount, 2500);
+});
+
+test("Arlanda Express, missing from open timetables, is still offered with its price and time", async () => {
+  const transitous = { plan: async () => ({ itineraries: [it([leg("REGIONAL_RAIL", "41", "SL", "Arlanda C", "Stockholm City", "2026-11-20T11:44:00Z", "2026-11-20T12:30:00Z")])] }) };
+  const t = createAirportTransfers({ transitous, geocode: async () => ({ places: [{ points: [[59.3303, 18.0586]] }] }), toPln: async (v, cur) => v * ({ SEK: 0.39, EUR: 4.25 }[cur]) });
+  const r = await t.options({ code: "ARN", time: "2026-11-20T12:00" });
+  const ax = r.options.find((o) => o.name === "Arlanda Express");
+  assert.equal(ax.timetable, false);
+  assert.equal(ax.minutes, 18);
+  assert.equal(ax.fare.pln, 128);
+  assert.equal(r.options.find((o) => o.timetable).name, "SL commuter train (pendeltåg)");
+  assert.ok(r.options.some((o) => o.name === "Flygbussarna coach"));
+  assert.equal(r.options.filter((o) => /coach/i.test(o.name)).length, 1);
 });
 
 test("a city journey is planned at the local time of the destination and kept for a while", async () => {
@@ -93,4 +125,22 @@ test("a ride is cut to the asked minutes along its line", () => {
   assert.equal(part.t1, 100000);
   assert.deepEqual(part.path[0], [0, 0.5]);
   assert.deepEqual(part.path.at(-1), [0, 1]);
+});
+
+test("when the address search fails, the city centre comes from Transitous and is then kept", async () => {
+  let geocoded = 0, transitousAsked = 0, planned = 0;
+  const transitous = {
+    geocode: async (q) => { transitousAsked++; assert.equal(q.text, "Stockholm"); return [{ type: "STOP", name: "Far", lat: 10, lon: 10 }, { type: "PLACE", name: "Stockholm", lat: 59.3251, lon: 18.0711 }]; },
+    plan: async () => { planned++; return { itineraries: [] }; },
+  };
+  const geocode = async () => { geocoded++; throw new Error("HTTP 429"); };
+  const t = createAirportTransfers({ transitous, geocode });
+  const r = await t.options({ code: "ARN", time: "2026-11-14T10:15" });
+  assert.equal(r.target.label, "Stockholm");
+  assert.equal(r.target.lat, 59.3251);
+  assert.ok(r.options.some((o) => o.name === "Arlanda Express")); // the listed ways into town are there even without timetables
+  await t.options({ code: "ARN", time: "2026-11-15T18:00" });
+  assert.equal(geocoded, 1);
+  assert.equal(transitousAsked, 1); // the centre is kept
+  assert.ok(planned >= 3);
 });

@@ -387,7 +387,7 @@ test("a saved route list is used and becomes stale after a week", async () => {
   assert.equal(store.networkIsStale(), true);
 });
 
-test("a round trip pairs flights on the chosen days and prices nearby days with the same time away", async () => {
+test("a round trip pairs flights on the chosen days; each strip shows its own one-way prices", async () => {
   const { store } = memoryStore();
   await store.importRows([
     fare({ day: "2026-11-11", pricePln: 100, flightNumber: "OUT" }),
@@ -402,8 +402,10 @@ test("a round trip pairs flights on the chosen days and prices nearby days with 
   assert.deepEqual(result.options.map((trip) => trip.flightNumber), ["OUT"]);
   assert.deepEqual(result.options[0].returns.map((flight) => flight.flightNumber), ["CHEAPER", "OK"]);
   assert.equal(result.options[0].totalPln > result.options[0].ret.totalPln, true);
-  // 9th + return on the 11th (same two days away) and 11th + return on the 13th
-  assert.deepEqual(result.days, [{ day: "2026-11-09", cheapest: 110, airlines: { RYANAIR: 110 } }, { day: "2026-11-11", cheapest: 190, airlines: { RYANAIR: 190 } }]);
+  // the way out alone on each day
+  assert.deepEqual(result.days, [{ day: "2026-11-09", cheapest: 70, airlines: { RYANAIR: 70 } }, { day: "2026-11-11", cheapest: 100, airlines: { RYANAIR: 100 } }]);
+  // the way home alone, from the departure day itself (11th) on
+  assert.deepEqual(result.backDays.map((d) => [d.day, d.cheapest]), [["2026-11-11", 40], ["2026-11-13", 90], ["2026-11-15", 10]]);
   assert.deepEqual(store.options({ ...near, date: "2026-11-12", back: "2026-11-13" }).options, []);
   const oneWay = store.options({ ...near, date: "2026-11-09" });
   assert.deepEqual(oneWay.options.map((flight) => flight.flightNumber), ["EARLIER"]);
@@ -504,6 +506,54 @@ test("a saved trip keeps its flight (airports, days, price) and nothing else", (
 test("a saved trip keeps the chosen flights and way to the airport, as short text", () => {
   const [trip] = normalizeFavorites([{ type: "trip", view: "podroz", id: "f:x", from: "A", to: "B", name: "n",
     plan: { out: "RYANAIR|FR 1|KRK|ARN|2026-11-15|2026-11-15T06:30", ret: "RYANAIR|FR 2|ARN|KRK|2026-11-22|2026-11-22T09:05", access: "rail-1", extra: "x".repeat(500) } }]);
-  assert.deepEqual(trip.plan, { out: "RYANAIR|FR 1|KRK|ARN|2026-11-15|2026-11-15T06:30", ret: "RYANAIR|FR 2|ARN|KRK|2026-11-22|2026-11-22T09:05", access: "rail-1" });
+  assert.deepEqual(trip.plan, { out: "RYANAIR|FR 1|KRK|ARN|2026-11-15|2026-11-15T06:30", ret: "RYANAIR|FR 2|ARN|KRK|2026-11-22|2026-11-22T09:05", access: "rail-1", xfer: "" });
   assert.equal(normalizeFavorites([{ type: "trip", view: "podroz", id: "f:x", from: "A", to: "B", name: "n", plan: { ret: "x" } }])[0].plan, undefined);
+});
+
+test("a trip saved as my own keeps its status, its page id and what it looked like, as plain small data", () => {
+  const [trip] = normalizeFavorites([{ type: "trip", view: "podroz", id: "f:x", from: "A", to: "B", name: "n", status: "booked", tid: "abc123xyz",
+    trip: { out: { from: "KRK", dep: "06:30", price: 400 }, xfer: { name: "Arlanda Express", minutes: 18, pln: 132, steps: [{ kind: "rail" }] }, "bad key": 1, fn: () => 1, deep: { a: { b: { c: { d: { e: 1 } } } } } } }]);
+  assert.equal(trip.status, "booked");
+  assert.equal(trip.tid, "abc123xyz");
+  assert.deepEqual(trip.trip.xfer, { name: "Arlanda Express", minutes: 18, pln: 132, steps: [{ kind: "rail" }] });
+  assert.equal(trip.trip["bad key"], undefined);
+  assert.equal(trip.trip.fn, null);
+  assert.equal(trip.trip.deep.a.b.c.d, null); // no deeper than five levels
+  const [odd] = normalizeFavorites([{ type: "trip", view: "podroz", id: "f:y", from: "A", to: "B", name: "n", status: "admin", tid: "<script>", trip: { note: "x".repeat(20000).split("").map(() => "y") } }]);
+  assert.equal(odd.status, undefined);
+  assert.equal(odd.tid, undefined);
+  const [huge] = normalizeFavorites([{ type: "trip", view: "podroz", id: "f:z", from: "A", to: "B", name: "n", trip: { a: Array(20).fill("x".repeat(300)), b: Array(20).fill("y".repeat(300)), c: Array(20).fill("z".repeat(300)), d: Array(20).fill("w".repeat(300)), e: Array(20).fill("v".repeat(300)) } }]);
+  assert.equal(huge.trip, undefined); // over 24 kB: dropped, the trip itself stays
+});
+
+test("today only flights still on sale are offered: leaving at least two hours from now, with a known time", async () => {
+  let stored = [];
+  const at = new Date("2026-11-12T10:00:00Z"); // 11:00 in Poland
+  const store = createFlightStore({ database: { readFares: async () => stored, replaceFares: async (rows) => { stored = rows; } }, now: () => at });
+  const fare = (day, departure, price) => ({ airline: "WIZZ", from: "KTW", to: "LTN", day, departure, price, currency: "PLN", pricePln: price, priceType: "exact", source: "wizz.api.timetable", collectedAt: "2026-11-12T08:00:00Z" });
+  await store.mergeRows([fare("2026-11-12", "2026-11-12T06:10", 99), fare("2026-11-12", "2026-11-12T12:30", 109), fare("2026-11-12", "2026-11-12T19:45", 119), fare("2026-11-13", "2026-11-13T06:10", 129)]);
+  await store.mergeRows([{ ...fare("2026-11-12", null, 89), airline: "RYANAIR", source: "ryanair" }]);
+  const shown = store.search({ from: "KTW", to: "LTN" }).flights.map((f) => `${f.airline} ${f.day} ${f.departure || "-"}`).sort();
+  assert.deepEqual(shown, ["WIZZ 2026-11-12 2026-11-12T19:45", "WIZZ 2026-11-13 2026-11-13T06:10"]); // 06:10 left, 12:30 no longer sold, no time: not offered
+});
+
+test("days Wizz Air answered without any flight lose the prices stored for them", async () => {
+  let stored = [];
+  const store = createFlightStore({ database: { readFares: async () => stored, replaceFares: async (rows) => { stored = rows; } }, now: () => new Date("2026-11-11T10:00:00Z") });
+  const fare = (day, price) => ({ airline: "WIZZ", from: "KTW", to: "LTN", day, departure: `${day}T19:45`, price, currency: "PLN", pricePln: price, priceType: "exact", source: "wizz.api.timetable", collectedAt: "2026-11-10T08:00:00Z" });
+  await store.mergeRows([fare("2026-11-12", 109), fare("2026-11-13", 119), { ...fare("2026-11-12", 99), airline: "RYANAIR", source: "ryanair" }]);
+  await store.mergeRows([fare("2026-11-13", 125)], { clear: [{ airline: "WIZZ", from: "KTW", to: "LTN", day: "2026-11-12" }] });
+  assert.deepEqual(stored.map((f) => `${f.airline} ${f.day} ${f.pricePln}`).sort(), ["RYANAIR 2026-11-12 99", "WIZZ 2026-11-13 125"]);
+  await store.mergeRows([], { clear: [{ airline: "WIZZ", from: "KTW", to: "LTN", day: "2026-11-13" }] }); // an answer with no flights at all still clears
+  assert.deepEqual(stored.map((f) => `${f.airline} ${f.day}`), ["RYANAIR 2026-11-12"]);
+});
+
+test("dropping one departure removes only that flight's stored price", async () => {
+  let stored = [];
+  const store = createFlightStore({ database: { readFares: async () => stored, replaceFares: async (rows) => { stored = rows; } }, now: () => new Date("2026-11-12T10:00:00Z") });
+  const fare = (departure, price) => ({ airline: "RYANAIR", from: "KRK", to: "BCN", day: "2026-11-20", departure, price, currency: "PLN", pricePln: price, priceType: "exact", source: "ryanair.availability.v4", collectedAt: "2026-11-11T18:00:00Z" });
+  await store.mergeRows([fare("2026-11-20T09:05", 1737), fare("2026-11-20T17:10", 611)]);
+  const result = await store.mergeRows([], { drop: [{ airline: "RYANAIR", from: "KRK", to: "BCN", day: "2026-11-20", departure: "2026-11-20T09:05" }] });
+  assert.equal(result.removed, 1);
+  assert.deepEqual(stored.map((f) => f.departure), ["2026-11-20T17:10"]);
 });

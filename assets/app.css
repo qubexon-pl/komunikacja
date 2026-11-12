@@ -688,7 +688,8 @@ body:not([data-view="podroz"]) #map-sec{margin-top:64px}
 .trip-tab:hover{color:var(--ink)}
 .trip-tab.on{color:var(--ink); border-bottom-color:var(--red)}
 .search-box .planner{grid-template-columns:minmax(0,2.4fr) 150px 170px auto; gap:8px; border:0; background:none}
-.search-box .planner.round{grid-template-columns:minmax(0,2.4fr) 150px 150px 170px auto}
+.search-box .planner.round{grid-template-columns:minmax(0,2.4fr) minmax(250px,auto) 170px auto}
+.planner [hidden]{display:none !important}
 .search-box .pl-field{border:1px solid var(--line); background:var(--bg); grid-column:auto !important}
 .search-box .pl-field:focus-within{border-color:var(--ink)}
 .search-box .pl-field[hidden]{display:none}
@@ -1114,6 +1115,14 @@ body{word-spacing:.06em}
 @media(max-width:560px){ .nav-fav{padding:6px 10px; font-size:.76rem} .view-tab.dropdown-toggle::after{margin-left:3px} }
 
 body:not(.fav-mode) .fav-part{display:none !important}
+body:not(.mytrips-mode) .mytrips-part{display:none !important}
+body.mytrips-mode main.shell > :not(.mytrips-part):not(#attribution){display:none !important}
+body:not(.trip-mode) .trip-part{display:none !important}
+body.trip-mode main.shell > :not(.trip-part):not(#attribution){display:none !important}
+body.mytrips-mode .hero,body.trip-mode .hero{padding:30px 24px 38px !important}
+body.mytrips-mode .hero h1,body.trip-mode .hero h1{font-size:clamp(1.7rem,3.2vw,2.6rem) !important}
+#mytrips-sec{margin-top:36px} #tripPage{margin-top:28px}
+.nav-links .nav-trips{margin-right:2px}
 body.fav-mode main.shell > :not(.fav-part):not(#attribution){display:none !important}
 body.fav-mode .hero{padding:30px 24px 38px !important}
 body.fav-mode .hero h1{font-size:clamp(1.7rem,3.2vw,2.6rem) !important}
@@ -1520,7 +1529,7 @@ body.explore-mode #exploreMap{height:clamp(420px,calc(100vh - 340px),760px)}
 .trip-wx{width:fit-content; max-width:100%; margin:6px auto 16px; padding:10px 14px; border:1px solid var(--line); border-radius:12px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
 .twx-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; margin-bottom:6px; font-size:.86rem}
 .twx-head i{color:var(--gold)} .twx-head small{color:var(--ink-soft)}
-.twx-days{display:grid; grid-auto-flow:column; grid-auto-columns:64px; gap:5px; overflow-x:auto; padding-bottom:2px}
+.twx-days{display:grid; grid-auto-flow:column; grid-auto-columns:80px; gap:6px; overflow-x:auto; padding-bottom:2px}
 .twx-day{display:flex; flex-direction:column; align-items:center; gap:0; padding:5px 2px; border-radius:8px; background:var(--soft); font-size:.7rem; line-height:1.25; text-align:center}
 .twx-day small{color:var(--ink-soft); white-space:nowrap}
 .twx-day b{font-size:.84rem}
@@ -1651,3 +1660,226 @@ body.explore-mode #exploreMap{height:clamp(420px,calc(100vh - 340px),760px)}
 .cp-end.from span{background:var(--gold)}
 .cp-src{display:block; margin-top:8px; color:var(--ink-soft); font-size:.75rem}
 @media (max-width: 900px){ .cp-body{grid-template-columns:1fr} .cp-map{height:380px} .cp-results{max-height:none} }
+/* Pobieranie aktualnych cen: plan i formularz wyszarzone i zablokowane do końca */
+#planResults.is-busy{position:relative}
+#planResults.is-busy > :not(.plan-busy){opacity:.55; filter:blur(7px) grayscale(.5); user-select:none; transition:filter .25s, opacity .25s}
+#planResults.is-busy, #planForm.is-busy{cursor:progress}
+#planForm.is-busy{opacity:.6; filter:blur(2px) grayscale(.6)}
+.plan-busy{position:sticky; top:72px; z-index:20; display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; width:fit-content; max-width:100%; margin:0 auto 10px; padding:10px 16px; border-radius:999px; background:var(--bg-alt); border:1px solid var(--gold); box-shadow:0 6px 20px rgba(0,0,0,.18); font-size:.88rem}
+.plan-busy small{color:var(--ink-soft)}
+
+/* Wybór dojazdu z lotniska i zapis podróży (krok 4) */
+.cs-opt.picked{border-color:var(--gold); box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 70%,transparent)}
+.cs-pick{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--soft); color:var(--ink); border-radius:999px; padding:4px 12px; font-size:.8rem; font-weight:700}
+.cs-pick:hover{border-color:var(--gold)}
+.cs-pick.on{background:var(--gold); border-color:var(--gold); color:#1b1530}
+.cs-skip{border-style:dashed}
+.cs-mode.car{background:#6b6880}
+.cs-deps.listed{color:var(--ink-soft)}
+.cs-save{position:static; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px; margin-top:16px; padding:12px 16px; border:1px solid var(--gold); border-radius:14px; background:var(--bg-alt); box-shadow:0 8px 24px rgba(0,0,0,.14)}
+.cs-choice{font-size:.9rem} .cs-choice i{color:var(--gold); margin-right:4px}
+.cs-save-btns{display:flex; flex-wrap:wrap; gap:8px}
+.cs-save-btns button[disabled]{opacity:.45; cursor:not-allowed}
+.cs-saved{flex-basis:100%; font-size:.86rem; color:#14663c} .cs-saved a{font-weight:700; margin-left:6px}
+
+/* Strona zapisanej podróży */
+.tp{display:flex; flex-direction:column; gap:16px}
+.tp-head{display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:12px 20px; padding:16px 18px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.tp-title h3{margin:6px 0 2px; font-size:1.3rem} .tp-title small{color:var(--ink-soft)}
+.tp-status{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:.76rem; font-weight:700; background:var(--soft)}
+.tp-status.booked{background:var(--gold); color:#1b1530} .tp-status.planned{border:1px dashed var(--gold)}
+.tp-actions{display:flex; flex-wrap:wrap; align-items:center; gap:8px} .tp-back{font-size:.86rem; font-weight:600; margin-left:4px}
+.tp-points{display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:14px 16px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt)}
+.tp-point{display:flex; flex-direction:column; min-width:110px; font-size:.8rem} .tp-point i{color:var(--gold)} .tp-point small{color:var(--ink-soft)} .tp-point b{font-size:.95rem} .tp-point span{color:var(--ink-soft)}
+.tp-point.soft b{color:var(--ink-soft)}
+.tp-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px}
+.tp-card{padding:14px 16px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); box-shadow:var(--shadow-soft); display:flex; flex-direction:column; gap:10px}
+.tp-card h4{margin:0; font-size:1rem} .tp-card h4 i{color:var(--gold)}
+.tp-flight{display:flex; flex-direction:column; gap:2px; font-size:.86rem} .tp-flight small{color:var(--ink-soft)} .tp-flight a{font-size:.8rem}
+.tp-flight-l{font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft)}
+.tp-total{font-size:.9rem}
+.tp-xfer{display:flex; gap:10px; align-items:flex-start} .tp-xfer > div{display:flex; flex-direction:column; gap:6px; min-width:0} .tp-xfer small{color:var(--ink-soft)}
+.tp-city{padding:14px 16px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt)}
+.tp-city-head{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px} .tp-city-head h4{margin:0; font-size:1rem} .tp-city-head h4 i{color:var(--gold)} .tp-city-head small{color:var(--ink-soft)}
+.tp-city .city-panel{margin:14px 0 0; box-shadow:none}
+
+/* Cena z bazy: odświeżenie jednego lotu wyszarza tylko jego wiersz */
+.fl-row.updating{opacity:.5; filter:grayscale(1); pointer-events:none; cursor:progress}
+.fl-refresh{display:inline-flex; align-items:center; gap:5px; margin-top:4px; padding:2px 9px; border:1px solid var(--line); border-radius:999px; background:var(--bg-alt); color:var(--ink); font-size:.72rem; font-weight:700; cursor:pointer; white-space:nowrap}
+.fl-refresh:hover,.fl-refresh:focus-visible{border-color:var(--gold); outline:none}
+.fl-note{color:var(--ink-soft)}
+.fl-fresh{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 14px; margin:0 0 10px; font-size:.82rem; color:var(--ink-soft)}
+.fl-fresh i{color:var(--gold)}
+/* Termin podróży w obie strony */
+.pl-range{position:relative; min-width:0}
+.pl-range-btn{width:100%; min-width:230px; text-align:left; border:0; background:transparent; color:var(--ink); padding:0; font:inherit; white-space:nowrap}
+.pl-range-btn i{color:var(--ink-soft); margin-right:4px} .pl-range-btn small{color:var(--ink-soft)} .rng-empty{color:var(--ink-soft)}
+.rng-pop{position:absolute; z-index:1030; top:calc(100% + 8px); right:0; width:max-content; max-width:calc(100vw - 32px); padding:14px; border:1px solid var(--line); border-radius:16px; background:var(--bg-alt); box-shadow:0 14px 40px rgba(0,0,0,.2)}
+.rng-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; font-weight:700; font-size:.9rem}
+.rng-nav{width:32px; height:32px; border:1px solid var(--line); border-radius:50%; background:var(--soft); color:var(--ink); font-size:1.1rem; line-height:1}
+.rng-nav[disabled]{opacity:.35}
+.rng-months{display:flex; flex-wrap:wrap; gap:18px}
+.rng-month b{display:block; text-align:center; margin-bottom:6px; text-transform:capitalize; font-size:.88rem}
+.rng-grid{display:grid; grid-template-columns:repeat(7,36px); gap:2px 0}
+.rng-dow{text-align:center; font-size:.7rem; color:var(--ink-soft); padding-bottom:4px}
+.rng-day{height:34px; border:0; background:transparent; color:var(--ink); font-size:.84rem; border-radius:8px}
+.rng-day:hover:not([disabled]){background:var(--soft)}
+.rng-day[disabled]{opacity:.3}
+.rng-day.today{font-weight:800; text-decoration:underline}
+.rng-day.in{background:color-mix(in srgb,var(--gold) 22%,transparent); border-radius:0}
+.rng-day.from,.rng-day.to{background:var(--gold); color:#1b1530; font-weight:800}
+.rng-day.from{border-radius:8px 0 0 8px} .rng-day.to{border-radius:0 8px 8px 0} .rng-day.from.to{border-radius:8px}
+.rng-foot{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px; font-size:.82rem; color:var(--ink-soft)}
+@media (max-width: 640px){ .rng-pop{right:auto; left:-8px} .rng-grid{grid-template-columns:repeat(7,34px)} }
+
+/* Liczniki na przyciskach „Moje podróże” i „Ulubione” */
+.nav-fav{position:relative}
+.nav-count{position:absolute; top:-7px; right:-7px; min-width:19px; height:19px; padding:0 5px; border-radius:999px; background:var(--red,#DA291C); color:#fff; font-size:.68rem; font-weight:800; line-height:19px; text-align:center; box-shadow:0 0 0 2px var(--navy,#0b1530)}
+.nav-count[hidden]{display:none}
+/* Resetuj w planerze */
+.trip-tabs{display:flex; align-items:center; gap:8px}
+.pl-reset{margin-left:auto; padding:6px 14px; font-size:.84rem}
+/* Krok z krótką informacją o wyborze */
+.fl-step-text{display:inline-flex; flex-direction:column; align-items:flex-start; line-height:1.15; text-align:left}
+.fl-step-text small{font-size:.7rem; font-weight:500; color:var(--ink-soft); max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.cs-need{margin-top:8px}
+
+/* Dojazd na lotnisko krok po kroku, z mapą i Mapami Google */
+.acc-detail .jl-head{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px}
+.acc-links{display:flex; flex-wrap:wrap; gap:8px; margin:8px 0}
+.acc-links .btn-ghost{display:inline-flex; align-items:center; gap:6px; padding:5px 12px; font-size:.82rem}
+.acc-back{margin:12px 0 4px; font-size:.92rem}
+.cs-walk{display:inline-flex; align-items:center; gap:5px; margin-top:3px; font-size:.78rem; font-weight:600}
+/* Koszt podróży i pogoda po drodze (krok 4 i strona podróży) */
+.plan-extra{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.6fr); gap:14px; margin:14px 0}
+@media (max-width: 1000px){ .plan-extra{grid-template-columns:1fr} }
+.cost-card,.wtl{padding:14px 16px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.cost-card h4,.wtl h4{margin:0 0 10px; font-size:1rem} .cost-card h4 i,.wtl h4 i{color:var(--gold)}
+.cost-group{margin-top:8px} .cost-group > small{display:block; font-weight:700; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em; font-size:.68rem; margin-bottom:2px}
+.cost-row{display:flex; justify-content:space-between; gap:12px; padding:4px 0; font-size:.86rem; border-bottom:1px dashed var(--line)}
+.cost-row span{display:flex; align-items:baseline; gap:6px; min-width:0} .cost-row i{width:16px; text-align:center; color:var(--ink-soft)} .cost-row em{font-style:normal; color:var(--ink-soft); font-size:.74rem}
+.cost-row b{white-space:nowrap}
+.cost-total{display:flex; justify-content:space-between; margin-top:10px; font-size:1.05rem; font-weight:800}
+.cost-note{display:block; margin-top:6px; color:var(--ink-soft); font-size:.74rem}
+.wtl-line{display:flex; gap:8px; overflow-x:auto; padding-bottom:4px}
+.wtl-item{position:relative; flex:0 0 132px; display:flex; flex-direction:column; gap:2px; padding:10px; border-radius:12px; background:var(--soft); font-size:.78rem}
+.wtl-item:not(:last-child)::after{content:''; position:absolute; top:24px; right:-8px; width:8px; border-top:2px dotted var(--line)}
+.wtl-item > i{color:var(--gold)} .wtl-item small{color:var(--ink-soft)} .wtl-item b{font-size:.84rem; line-height:1.2}
+.wtl-wx{display:flex; align-items:center; gap:6px; margin-top:4px} .wtl-wx .twx-ico{font-size:1.4rem} .wtl-wx strong{font-size:1rem}
+.wtl-rain{color:#0284C7}
+
+/* Szukanie miasta na mapie kierunków */
+.explore-search{display:flex; align-items:center; gap:8px; padding:6px 12px; border:1px solid var(--line); border-radius:999px; background:var(--bg-alt); min-width:230px}
+.explore-search i{color:var(--ink-soft)}
+.explore-search input{border:0; outline:none; background:transparent; color:var(--ink); font:inherit; font-size:.88rem; width:100%; min-width:0}
+.explore-search:focus-within{border-color:var(--gold); box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 35%,transparent)}
+@media (max-width: 640px){ .explore-search{min-width:0; flex:1 1 100%} }
+
+/* Strona podróży: sekcje ze szczegółami, mapa podróży i hotel */
+.tp-sec{padding:14px 16px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.tp-sec > h4{margin:0 0 10px; font-size:1.02rem} .tp-sec > h4 i{color:var(--gold)}
+.tp-sec-body{display:flex; flex-direction:column; gap:10px}
+.tp-flight-box{display:grid; grid-template-columns:minmax(200px,1fr) 2fr; gap:10px 18px; padding:10px 0; border-bottom:1px dashed var(--line)}
+.tp-flight-box:last-of-type{border-bottom:0}
+.tp-airports{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.tp-airports > div{display:flex; flex-direction:column; gap:2px; font-size:.86rem} .tp-airports small{color:var(--ink-soft)}
+.tp-airports .acc-links{margin:4px 0 0}
+.tp-book{font-size:.8rem; grid-column:1 / -1}
+@media (max-width: 800px){ .tp-flight-box,.tp-airports{grid-template-columns:1fr} }
+.tp-extra{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr)}
+.tp-map-box{padding:14px 16px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt)}
+.tp-map-box h4{margin:0 0 10px; font-size:1rem} .tp-map-box h4 i{color:var(--gold)}
+.tp-map{height:380px; border-radius:12px; overflow:hidden; border:1px solid var(--line); margin-bottom:6px}
+.tp-pin span{display:grid; place-items:center; width:28px; height:28px; border-radius:50%; color:#fff; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.35); font-size:.8rem}
+.hotel-list{display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:10px}
+.hotel-card{display:flex; gap:12px; padding:10px; border:1px solid var(--line); border-radius:12px; background:var(--bg)}
+.hotel-card img,.hotel-noimg{flex:none; width:110px; height:90px; object-fit:cover; border-radius:10px; background:var(--soft); display:grid; place-items:center; color:var(--ink-soft); font-size:1.6rem}
+.hotel-body{display:flex; flex-direction:column; gap:3px; min-width:0; font-size:.86rem} .hotel-body small{color:var(--ink-soft)}
+.hotel-stars{color:var(--gold); font-size:.8rem}
+.hotel-meta{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px}
+.hotel-score{display:inline-block; padding:1px 6px; border-radius:6px 6px 6px 0; background:#003580; color:#fff; font-weight:800; font-size:.78rem}
+.hotel-price{font-size:1rem}
+.hotel-chosen{display:flex; flex-direction:column; gap:6px}
+.hotel-manual summary{cursor:pointer; font-size:.86rem; font-weight:600}
+.hotel-form{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin-top:8px}
+.hotel-form input{padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink)}
+
+/* Liczba osób w planerze */
+.pl-people{display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border:1px solid var(--line); border-radius:999px; background:var(--bg-alt); font-size:.86rem; font-weight:600}
+.pl-people i{color:var(--gold)} .pl-people select{border:0; background:transparent; color:var(--ink); font-weight:700}
+.cost-per{display:flex; justify-content:space-between; margin-top:2px; font-size:.88rem; color:var(--ink-soft)}
+/* Strona podróży w zwartej formie */
+.tp{gap:12px}
+.tp-head{padding:12px 16px} .tp-title h3{font-size:1.15rem; margin:4px 0 0}
+.tp-points{padding:10px 14px; gap:6px}
+.tp-point{min-width:96px; gap:1px}
+.tp-grid2{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px}
+@media (max-width: 1000px){ .tp-grid2{grid-template-columns:1fr} }
+.tp-sec{padding:12px 14px}
+.tp-sec > h4{margin:0 0 8px; font-size:.98rem} .tp-sec > h4 small{color:var(--ink-soft); font-weight:500}
+.tp-sec-body{gap:8px; font-size:.86rem}
+.tp-fl{display:flex; flex-direction:column; gap:4px; padding:6px 0; border-bottom:1px dashed var(--line)} .tp-fl:last-of-type{border-bottom:0}
+.tp-fl-main{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px} .tp-fl-main small{color:var(--ink-soft)}
+.tp-fl-aps{display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px}
+.tp-ap{display:inline-flex; align-items:center; gap:6px; padding:3px 6px 3px 10px; border-radius:999px; background:var(--soft); font-size:.8rem}
+.tp-arrow{color:var(--ink-soft); font-size:.75rem}
+.tp-line{display:flex; align-items:flex-start; justify-content:space-between; gap:8px} .tp-line small{display:block; color:var(--ink-soft)}
+.tp-x{display:flex; gap:8px; align-items:flex-start} .tp-x .cs-mode{width:28px; height:28px; border-radius:8px; font-size:.8rem}
+.tp-where{display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; font-size:.82rem} .tp-where > i{color:#DA291C} .tp-where small{color:var(--ink-soft)}
+.tp-icons{display:inline-flex; gap:4px; flex:none}
+.icon-btn{display:inline-grid; place-items:center; width:28px; height:28px; border-radius:8px; border:1px solid var(--line); background:var(--bg-alt); color:var(--ink); font-size:.78rem; text-decoration:none; padding:0}
+.icon-btn:hover{border-color:var(--gold); color:var(--ink)}
+.tp-more summary{cursor:pointer; font-size:.82rem; font-weight:600; color:var(--ink-soft)} .tp-more[open] summary{margin-bottom:6px}
+.tp-more .trip-steps{font-size:.84rem}
+.wx-chip{display:inline-flex; align-items:center; gap:3px; padding:1px 7px; border-radius:999px; background:color-mix(in srgb,#0284C7 9%,var(--bg-alt)); font-size:.76rem; white-space:nowrap}
+.wx-chip .wx-ico{font-size:.95rem} .wx-chip small{color:var(--ink-soft)}
+.tp-point .wx-chip{margin-top:3px; align-self:flex-start}
+.tp-extra{margin:0}
+.tp-map{height:320px}
+.hotel-card img,.hotel-noimg{width:90px; height:76px}
+
+/* Pasek postępu pobierania cen */
+.plan-busy{flex-direction:column; align-items:stretch; border-radius:16px; min-width:min(520px,100%); padding:12px 18px}
+.plan-busy-top{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px}
+.plan-busy-bar{position:relative; height:8px; border-radius:999px; background:var(--soft); overflow:hidden; margin-top:8px}
+.plan-busy-bar span{display:block; height:100%; width:0; border-radius:999px; background:linear-gradient(90deg,var(--gold),#2a5bd7); transition:width .6s ease}
+.plan-busy-bar.indet span{width:35%; animation:busy-slide 1.2s ease-in-out infinite}
+@keyframes busy-slide{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}
+@media (prefers-reduced-motion: reduce){ .plan-busy-bar.indet span{animation:none; width:100%; opacity:.4} }
+.plan-busy-count{margin-top:4px; color:var(--ink-soft); font-size:.78rem}
+
+/* Koszt wybranych lotów przy „Dalej” */
+.fl-cost{display:flex; flex-direction:column; align-items:flex-end; margin-left:auto; margin-right:14px; font-size:.9rem; text-align:right}
+.fl-cost small{color:var(--ink-soft); font-size:.74rem} .fl-cost b{font-weight:800}
+.fl-nav{align-items:center}
+@media (max-width: 640px){ .fl-cost{align-items:flex-start; text-align:left; margin:0 0 8px; width:100%} .fl-nav{flex-wrap:wrap} }
+
+/* Pogoda po lewej, obok najlepsza podróż i inne uwagi — w jednym rzędzie */
+.stage-top{display:flex; flex-wrap:wrap; align-items:stretch; gap:12px; margin:6px 0 14px}
+.stage-top .trip-wx{margin:0; flex:0 1 auto}
+.stage-top > .trip-best,.stage-top > :not(.trip-wx){flex:1 1 260px; margin:0}
+.stage-top > .trip-best{display:flex; align-items:center}
+/* Pasek dni: sprawdzanie cen dni bez ceny w bazie */
+.date-strip{position:relative}
+.date-strip.filling .ds-days{opacity:.6}
+.ds-filling{position:absolute; z-index:3; top:-22px; right:12px; display:inline-flex; align-items:center; gap:6px; font-size:.76rem; color:var(--ink-soft)}
+
+/* Koszt lotów jako karta w prawej kolumnie */
+.fh-cost h5{background:color-mix(in srgb,var(--gold) 16%,var(--bg-alt)); color:var(--ink)}
+.fh-cost .fl-cost{align-items:flex-start; text-align:left; margin:0; padding:10px 14px 12px; gap:2px}
+.fh-cost .fl-cost > small:first-child{display:none}
+.fh-cost .fl-cost span{line-height:1.5}
+
+/* Przebieg podróży: wyśrodkowana, klikalna oś z kropkowanymi strzałkami */
+.tp-flow{display:flex; flex-wrap:wrap; justify-content:center; align-items:stretch; row-gap:10px; padding:14px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.tp-flow .tp-point{display:flex; flex-direction:column; align-items:flex-start; gap:1px; min-width:112px; max-width:170px; padding:8px 10px; border:1px solid transparent; border-radius:12px; background:transparent; color:var(--ink); text-align:left; font:inherit; font-size:.8rem; cursor:pointer}
+.tp-flow .tp-point:hover{background:var(--soft)}
+.tp-flow .tp-point.on{border-color:var(--gold); background:color-mix(in srgb,var(--gold) 10%,var(--bg-alt)); box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 35%,transparent)}
+.tp-flow .tp-point > i{color:var(--gold)} .tp-flow .tp-point small{color:var(--ink-soft)} .tp-flow .tp-point b{font-size:.95rem} .tp-flow .tp-point > span:not(.wx-chip){color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%}
+.tp-flow .tp-point.soft b{color:var(--ink-soft); font-weight:600}
+.tp-conn{position:relative; align-self:center; width:30px; flex:none; border-top:2px dotted color-mix(in srgb,var(--ink-soft) 70%,transparent); margin:0 2px}
+.tp-conn::after{content:''; position:absolute; right:-3px; top:-6px; border:5px solid transparent; border-left:7px solid color-mix(in srgb,var(--ink-soft) 80%,transparent)}
+@media (max-width: 700px){ .tp-conn{width:14px} .tp-flow .tp-point{min-width:96px} }
+.tp-panel{border-color:color-mix(in srgb,var(--gold) 45%,var(--line))}
+.tp-panel .trip-steps{font-size:.86rem}
+.tp-next{padding:3px 10px; font-size:.78rem; margin-left:6px}

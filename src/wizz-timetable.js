@@ -57,6 +57,9 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
   let running = 0;
   let last = { at: null, ok: null, error: null, stored: 0 };
 
+  // Progress of the current checks: requests planned and done (shown as a progress bar while prices load).
+  let planned = 0, done = 0;
+  const plan = (n) => { if (running === 0 && done >= planned) { planned = 0; done = 0; } planned += n; };
   async function send(v, legs) {
     const wait = lastCall + gapMs - now();
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
@@ -66,7 +69,7 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
       headers: { "Content-Type": "application/json", Accept: "application/json", "User-Agent": USER_AGENT },
       body: JSON.stringify(timetableBody(legs)),
       signal: AbortSignal.timeout(30000),
-    });
+    }).finally(() => { done += 1; });
   }
 
   // The remembered version is read once; searching for a working one happens only at start or after a 404.
@@ -118,6 +121,7 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
 
   // One request at a time; each answer is priced in PLN and stored (fares and the price history).
   function run(legs, merge, source = "wizz.api.timetable") {
+    plan(1);
     const job = queue.then(async () => {
       running += 1;
       try {
@@ -129,9 +133,9 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
           const pricePln = await toPln(row.price, row.currency);
           if (pricePln) priced.push({ ...row, pricePln, collectedAt });
         }
-        const result = await merge(priced);
+        const result = await merge(priced, rows);
         last = { at: collectedAt, ok: true, error: null, stored: result.stored };
-        return { stored: result.stored, found: rows.length };
+        return { ...result, stored: result.stored, found: rows.length };
       } catch (error) {
         last = { at: new Date(now()).toISOString(), ok: false, error: error.message, detail: error.detail || null, stored: 0 };
         throw error;
@@ -178,13 +182,44 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
     }
     if (!legs.length) return "fresh";
     for (const pairLegs of legs) {
-      run(pairLegs, (rows) => flights.mergeRows(rows)).catch((error) => {
+      // Days of the asked range without any flight in the answer have none (or none on sale): stored prices for them go.
+      const clear = (rows) => pairLegs.flatMap((leg) => {
+        const out = [];
+        for (let day = leg.start; day <= leg.end; day = addDays(day, 1)) if (!rows.some((r) => r.from === leg.from && r.to === leg.to && r.day === day)) out.push({ airline: "WIZZ", from: leg.from, to: leg.to, day });
+        return out;
+      });
+      run(pairLegs, (priced, rows) => flights.mergeRows(priced, { clear: clear(rows) })).catch((error) => {
         const route = pairLegs.map((leg) => `${leg.from}-${leg.to}`).join(", ");
         if (/InvalidMarket/.test(error.detail || "")) { for (const leg of pairLegs) noMarket.set(`${leg.from}|${leg.to}`, now()); console.warn(`Wizz timetable: Wizz Air nie lata na trasie ${route}; nie pytamy o nią przez dobę.`); return; }
         console.error("Wizz timetable:", route, error.message, error.detail || "");
       });
     }
     return "started";
+  }
+
+  // Days of a scrolled date strip that have no stored price: one timetable request per route covers them.
+  function fillRange(legs, hasDay = () => false) {
+    if (!enabled) return "unavailable";
+    const today = new Date(now()).toISOString().slice(0, 10);
+    let started = false;
+    for (const leg of legs.filter((l) => IATA.test(l.from) && IATA.test(l.to) && flown(l.from, l.to)).slice(0, MAX_ROUTES * 2)) {
+      const missing = [];
+      for (let day = leg.start < today ? today : leg.start; day <= leg.end; day = addDays(day, 1)) if (!isFresh(leg.from, leg.to, day) && !hasDay("WIZZ", leg.from, leg.to, day)) missing.push(day);
+      if (!missing.length) continue;
+      const one = { from: leg.from, to: leg.to, start: missing[0], end: missing.at(-1) };
+      cover(one);
+      started = true;
+      const clear = (rows) => {
+        const out = [];
+        for (let day = one.start; day <= one.end; day = addDays(day, 1)) if (!rows.some((r) => r.from === one.from && r.to === one.to && r.day === day)) out.push({ airline: "WIZZ", from: one.from, to: one.to, day });
+        return out;
+      };
+      run([one], (priced, rows) => flights.mergeRows(priced, { clear: clear(rows) })).catch((error) => {
+        if (/InvalidMarket/.test(error.detail || "")) { noMarket.set(`${one.from}|${one.to}`, now()); return; }
+        console.error("Wizz timetable:", `${one.from}-${one.to}`, error.message, error.detail || "");
+      });
+    }
+    return started ? "started" : "fresh";
   }
 
   // The price of one departure: a narrow time window around it, as the website does for a chosen flight.
@@ -196,18 +231,20 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
       const sameDay = rows.filter((row) => row.from === from && row.to === to && row.departure && row.day === time.slice(0, 10));
       const hit = sameDay.find((row) => row.departure === time);
       const own = hit && (hit.priceType === "exact" || sameDay.length === 1);
+      // The departure is gone from the answer: not on sale any more, so its stored price goes.
+      if (!hit) return flights.mergeRows([], { drop: [{ airline: "WIZZ", from, to, day: time.slice(0, 10), departure: time }] }).then((r) => ({ ...r, unsold: true }));
       return flights.mergeRows(own ? [{ ...hit, priceType: "exact" }] : [], { departures: true });
     }, "wizz.api.time");
   }
 
   function status() {
-    return { version, available: enabled, running: running > 0, pausedUntil: pausedUntil > now() ? new Date(pausedUntil).toISOString() : null, ...last };
+    return { version, available: enabled, running: running > 0, pausedUntil: pausedUntil > now() ? new Date(pausedUntil).toISOString() : null, ...last, progress: { done: Math.min(done, planned), total: Math.max(planned, done) } };
   }
 
   // Called at server start, so the first trip search already knows the version.
   function start() { if (enabled) discover().catch((error) => console.error("Wizz Air:", error.message)); }
 
-  return { priceForTime, searchRoutes, start, status };
+  return { fillRange, priceForTime, searchRoutes, start, status };
 }
 
 module.exports = { createWizzTimetable, nextVersions, shiftTime, timetableBody };

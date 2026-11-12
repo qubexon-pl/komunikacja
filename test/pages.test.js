@@ -549,17 +549,18 @@ test("PKS destinations come from the towns in line names, without Rzeszów", () 
   assert.deepEqual(towns, [["Boguchwała", ["108", "253"]], ["Gwoźnica Górna", ["108"]], ["Niebylec", ["108"]], ["Racławówka", ["253"]]]);
 });
 
-test("the day strip covers two weeks either side and marks the cheapest day", () => {
+test("the day strip covers eight weeks either side, marks the cheapest day and days without a price", () => {
   const context = { ymdOf: () => "2026-11-09", lastPlanDay: () => "2027-02-07", esc: (s) => s, document: { documentElement: { lang: "pl" } } };
   const part = (from, to) => source.slice(source.indexOf(from), source.indexOf(to));
   vm.runInNewContext(`${part("function addDays(", "// Grupy filtrów")}${part("const STRIP_DAYS=", "function centerStrip(")}function fmtDay(day){ return day.slice(8,10)+'.'+day.slice(5,7); }; this.dateStrip = dateStrip;`, context);
   const strip = context.dateStrip("plan", "2026-11-20", new Map([["2026-11-15", 452], ["2026-11-20", 722]]));
   const days = [...strip.matchAll(/data-day="([\d-]+)"/g)].map((m) => m[1]);
   assert.equal(days[0], "2026-11-09"); // nothing before today
-  assert.equal(days.at(-1), "2026-12-04");
-  assert.equal(days.length, 26);
-  assert.match(strip, /class="ds-day  cheap" data-day="2026-11-15"><em>Najtaniej<\/em>/);
-  assert.match(strip, /class="ds-day on " data-day="2026-11-20">/);
+  assert.equal(days.at(-1), "2027-01-15"); // 8 weeks after
+  assert.equal(days.length, 68);
+  assert.match(strip, /class="ds-day  cheap" data-day="2026-11-15" data-priced="1"><em>Najtaniej<\/em>/);
+  assert.match(strip, /class="ds-day on " data-day="2026-11-20" data-priced="1">/);
+  assert.match(strip, /data-day="2026-11-16" data-priced="0"/); // asked for when scrolled to
 });
 
 test("each category has its own page and weather refreshes every 45 minutes", () => {
