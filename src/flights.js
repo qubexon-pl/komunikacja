@@ -472,11 +472,15 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
     // The first flight from the preferred airport (or the nearest one that flies there) to the destination.
     const destCodes = new Set(destAirports.map((airport) => airport.code));
     const toDest = all.filter((fare) => destCodes.has(fare.to)).sort((a, b) => a.day.localeCompare(b.day) || (a.departure || "").localeCompare(b.departure || "") || a.pricePln - b.pricePln);
-    const firstFromCode = prefer && IATA.test(prefer) ? prefer : airportsNear(origin, ANY_RADIUS_KM).find((airport) => toDest.some((fare) => fare.from === airport.code))?.code;
-    const firstFare = firstFromCode ? toDest.find((fare) => fare.from === firstFromCode) : null;
+    // "First available flight": the earliest known flight from ANY airport within the radius (not only the preferred or
+    // nearest one), so a flight in May from Kraków is not hidden behind a June one from Lublin. Without any flight
+    // within the radius, the earliest from the preferred airport or the nearest airport that flies there.
+    const originCodes = new Set(originAirports.map((airport) => airport.code));
+    const earliest = toDest.find((fare) => originCodes.has(fare.from) && fare.day >= today() && !fare.priceUnknown);
+    const firstFromCode = earliest ? earliest.from : prefer && IATA.test(prefer) ? prefer : airportsNear(origin, ANY_RADIUS_KM).find((airport) => toDest.some((fare) => fare.from === airport.code))?.code;
+    const firstFare = earliest || (firstFromCode ? toDest.find((fare) => fare.from === firstFromCode && fare.day >= today()) : null);
     const first = firstFromCode ? { from: firstFromCode, fromLabel: airportLabel(firstFromCode), preferred: firstFromCode === prefer, fare: firstFare ? presentFare(timed(firstFare)) : null } : null;
     // The next flight after the chosen day from any airport within the radius, for "nothing that day, try …".
-    const originCodes = new Set(originAirports.map((airport) => airport.code));
     const nextFare = toDest.find((fare) => originCodes.has(fare.from) && fare.day > (date || "") && !fare.priceUnknown);
     return {
       suggested: suggested?.from && suggested?.to ? suggested : null,

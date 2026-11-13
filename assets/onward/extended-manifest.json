@@ -1,0 +1,41 @@
+{
+  "pageBanners": [
+    "page-banners/flight-destinations.svg",
+    "page-banners/city-buses.svg",
+    "page-banners/timetable.svg",
+    "page-banners/suburban-buses.svg",
+    "page-banners/my-trips.svg",
+    "page-banners/favourites.svg",
+    "page-banners/trip-details.svg",
+    "page-banners/search-results.svg"
+  ],
+  "newIcons": [
+    "icons/suburban-bus.svg",
+    "icons/clock.svg",
+    "icons/swap.svg",
+    "icons/filter.svg",
+    "icons/map.svg",
+    "icons/bell.svg",
+    "icons/bed.svg",
+    "icons/ferry.svg",
+    "icons/transfer.svg",
+    "icons/camera.svg",
+    "icons/price.svg",
+    "icons/walking.svg",
+    "icons/home.svg"
+  ],
+  "newIllustrations": [
+    "illustrations/no-favourites.svg",
+    "illustrations/no-trips.svg",
+    "illustrations/no-departures.svg",
+    "illustrations/journey-planned.svg",
+    "illustrations/airport-transfer.svg",
+    "illustrations/flight-connection.svg",
+    "illustrations/empty-timetable.svg",
+    "illustrations/compare-routes.svg"
+  ],
+  "decorations": [
+    "decorations/route-dotted.svg",
+    "decorations/soft-waves.svg"
+  ]
+}

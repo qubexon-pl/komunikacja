@@ -535,3 +535,66 @@ GO
 IF COL_LENGTH(N'dbo.AirportFare', N'minutes') IS NULL
     ALTER TABLE dbo.AirportFare ADD minutes INT NULL;
 GO
+
+-- Photos taken on a trip (mobile camera or gallery). The files live in a private ADLS Gen2 file system; this table
+-- keeps who owns them, which saved trip (the favourite's tid) they belong to and how far a resumable upload got.
+IF OBJECT_ID(N'dbo.TripPhoto', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TripPhoto (
+        photo_id UNIQUEIDENTIFIER NOT NULL,
+        user_id UNIQUEIDENTIFIER NOT NULL,
+        trip_id VARCHAR(24) NOT NULL,
+        storage_path NVARCHAR(400) NOT NULL,
+        content_type VARCHAR(40) NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        received_bytes BIGINT NOT NULL CONSTRAINT DF_TripPhoto_Received DEFAULT (0),
+        sha256 CHAR(64) NULL,
+        status VARCHAR(12) NOT NULL CONSTRAINT DF_TripPhoto_Status DEFAULT ('uploading'),
+        caption NVARCHAR(200) NULL,
+        taken_at DATETIME2(0) NULL,
+        created_at DATETIME2(0) NOT NULL CONSTRAINT DF_TripPhoto_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        completed_at DATETIME2(0) NULL,
+        CONSTRAINT PK_TripPhoto PRIMARY KEY (photo_id),
+        CONSTRAINT FK_TripPhoto_AppUser FOREIGN KEY (user_id) REFERENCES dbo.AppUser (user_id) ON DELETE CASCADE,
+        CONSTRAINT CK_TripPhoto_Status CHECK (status IN ('uploading', 'ready')),
+        CONSTRAINT CK_TripPhoto_Size CHECK (size_bytes > 0 AND received_bytes >= 0 AND received_bytes <= size_bytes)
+    );
+    CREATE INDEX IX_TripPhoto_UserTrip ON dbo.TripPhoto (user_id, trip_id);
+END;
+GO
+
+-- A saved trip (the owner's favourite with this tid) shared with other registered users. Members see it read-only.
+-- No foreign key on member_user_id: deleting a member's account must not be blocked; queries join AppUser instead.
+IF OBJECT_ID(N'dbo.TripShare', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TripShare (
+        owner_user_id UNIQUEIDENTIFIER NOT NULL,
+        trip_id VARCHAR(24) NOT NULL,
+        member_user_id UNIQUEIDENTIFIER NOT NULL,
+        created_at DATETIME2(0) NOT NULL CONSTRAINT DF_TripShare_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_TripShare PRIMARY KEY (owner_user_id, trip_id, member_user_id),
+        CONSTRAINT FK_TripShare_Owner FOREIGN KEY (owner_user_id) REFERENCES dbo.AppUser (user_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IX_TripShare_Member ON dbo.TripShare (member_user_id);
+END;
+GO
+
+-- Live location of a trip participant: only while that participant has switched sharing on for this trip, and only
+-- until `until` (the day after the trip at the latest). One row per person and trip; the last position replaces the old one.
+IF OBJECT_ID(N'dbo.TripLocation', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TripLocation (
+        owner_user_id UNIQUEIDENTIFIER NOT NULL,
+        trip_id VARCHAR(24) NOT NULL,
+        user_id UNIQUEIDENTIFIER NOT NULL,
+        sharing BIT NOT NULL CONSTRAINT DF_TripLocation_Sharing DEFAULT (0),
+        until DATETIME2(0) NULL,
+        lat DECIMAL(9, 6) NULL,
+        lon DECIMAL(9, 6) NULL,
+        accuracy_m INT NULL,
+        recorded_at DATETIME2(0) NULL,
+        CONSTRAINT PK_TripLocation PRIMARY KEY (owner_user_id, trip_id, user_id),
+        CONSTRAINT FK_TripLocation_Owner FOREIGN KEY (owner_user_id) REFERENCES dbo.AppUser (user_id) ON DELETE CASCADE
+    );
+END;
+GO

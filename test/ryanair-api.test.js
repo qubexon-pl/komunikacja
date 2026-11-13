@@ -88,3 +88,28 @@ test("scrolling to days without stored prices asks only for those days, and not 
   assert.equal(asked.length, 2); // December fares + timetable, once
   assert.equal(r.fillRange([{ from: "RZE", to: "EDI", start: "2026-12-04", end: "2026-12-10" }], hasDay), "fresh"); // just asked
 });
+
+test("with no flight on the chosen days, the fare calendar is read month by month up to the first flight, and that month is stored", async () => {
+  const clock = Date.parse("2026-11-12T10:00:00Z");
+  const asked = [];
+  const merged = [];
+  const fetchSource = async (url) => {
+    const u = String(url);
+    asked.push(u);
+    if (u.includes("cheapestPerDay")) {
+      const month = new URL(u).searchParams.get("outboundMonthOfDate").slice(0, 7);
+      // nothing until March 2027, then a flight on the 9th (and an unsellable day before it)
+      return json({ outbound: { fares: month === "2027-03" ? [fare("2027-03-02", "00:00", null), fare("2027-03-09", "06:10", 149)] : [fare(`${month}-15`, "00:00", null)] } });
+    }
+    if (u.includes("timtbl")) return json({ days: [{ day: 9, flights: [{ number: "3036", departureTime: "06:10", arrivalTime: "08:55" }] }] });
+    return json({}, 404);
+  };
+  const r = createRyanairApi({ flights: { mergeRows: async (rows) => { merged.push(rows); return { stored: rows.length }; } }, toPln: async (v) => v, fetchSource, now: () => clock, gapMs: 0 });
+  assert.equal(r.findFirst([{ from: "RZE", to: "FCO" }], "2026-11-20"), "started");
+  while (!merged.length) await new Promise((s) => setTimeout(s, 5));
+  const months = asked.filter((u) => u.includes("cheapestPerDay")).map((u) => new URL(u).searchParams.get("outboundMonthOfDate").slice(0, 7));
+  assert.deepEqual(months.slice(0, 5), ["2026-11", "2026-12", "2027-01", "2027-02", "2027-03"]); // stops at the first month with a flight
+  assert.ok(!months.includes("2027-04"));
+  assert.deepEqual(merged[0].map((row) => [row.day, row.departure, row.flightNumber]), [["2027-03-09", "2027-03-09T06:10", "FR 3036"]]);
+  assert.equal(r.findFirst([{ from: "RZE", to: "FCO" }], "2026-11-20"), "fresh"); // the same route is scanned once a day
+});

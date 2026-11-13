@@ -118,3 +118,19 @@ test("a route Wizz Air does not fly (InvalidMarket) is not asked again for a day
   assert.equal(wizz.searchRoutes(pair, day(10)), "fresh");
   assert.equal(calls, 1);
 });
+
+test("with no flight on the chosen days, the timetable is read in 30-day steps up to the first flight, which is stored", async () => {
+  const sent = [];
+  const { store, stored } = memoryStore();
+  const wizz = createWizzTimetable({ flights: store, toPln: async (a) => a, now: () => NOW, gapMs: 0, fetchSource: async (url, init) => {
+    const leg = JSON.parse(init.body).flightList[0];
+    sent.push([leg.from, leg.to]);
+    const hit = leg.from <= day(75) && day(75) <= leg.to;
+    return answer(hit ? [{ departureStation: "KTW", arrivalStation: "FCO", departureDate: `${day(75)}T19:35:00`, price: { amount: 259, currencyCode: "PLN" }, priceType: "price",
+      departureDates: [{ date: `${day(75)}T19:35:00`, isCheapestOfTheDay: true }] }] : []);
+  } });
+  assert.equal(wizz.findFirst([{ from: "KTW", to: "FCO", airlines: ["WIZZ"] }], day(10)), "started");
+  while (wizz.status().running || !sent.length) await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(sent, [[day(10), day(39)], [day(40), day(69)], [day(70), day(99)]]); // stops at the step with a flight
+  assert.deepEqual(stored().map((f) => [f.departure, f.pricePln]), [[`${day(75)}T19:35`, 259]]);
+});

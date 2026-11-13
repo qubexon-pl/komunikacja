@@ -2,20 +2,45 @@
 /* English translation layer. The interface is written in Polish; in English mode this watches the page and
    replaces whole pieces of text. Stop, street and station names stay as they are. */
 (function(){
-  const KEY='rzbus.lang';
+  const KEY='rzbus.lang', KEEP='onward.formKeep';
   function saved(){ try{ return localStorage.getItem(KEY); }catch(e){ return null; } }
-  const english=saved()==='en';
+  // Ręczny wybór ma pierwszeństwo; bez niego polski dla przeglądarek po polsku, angielski dla pozostałych.
+  const choice=saved();
+  const english = choice ? choice==='en' : !String(navigator.language||'pl').toLowerCase().startsWith('pl');
+  document.documentElement.lang = english ? 'en' : 'pl';
+  // Wpisane w wyszukiwarce dane przechodzą przez zmianę języka (strona przeładowuje się w nowym języku).
+  const FIELDS='.search-box input[id]:not([type=hidden]):not([type=checkbox]), .search-box select[id]';
+  function keepForm(){
+    try{
+      const vals={}; document.querySelectorAll(FIELDS).forEach(el=>{ if(el.value) vals[el.id]=el.value; });
+      const round=document.getElementById('plRound'); if(round) vals['#round']=round.checked;
+      sessionStorage.setItem(KEEP, JSON.stringify({path:location.pathname, vals}));
+    }catch(e){}
+  }
+  function restoreForm(){
+    let kept=null; try{ kept=JSON.parse(sessionStorage.getItem(KEEP)||'null'); sessionStorage.removeItem(KEEP); }catch(e){}
+    if(!kept || kept.path!==location.pathname) return;
+    const {vals}=kept;
+    if(vals['#round']){ const tab=document.querySelector('.trip-tab[data-round="1"]'); if(tab && !tab.classList.contains('on')) tab.click(); }
+    for(const [id,v] of Object.entries(vals)){ if(id[0]==='#') continue; const el=document.getElementById(id); if(el && el.value!==v){ el.value=v; el.dispatchEvent(new Event('change',{bubbles:true})); } }
+  }
   document.addEventListener('click', e=>{
-    if(!e.target.closest('#langBtn')) return;
-    try{ localStorage.setItem(KEY, english?'pl':'en'); }catch(err){}
+    const btn=e.target.closest('[data-lang], #langBtn'); if(!btn) return;
+    const want=btn.dataset.lang || (english?'pl':'en');
+    if((want==='en')===english) return;
+    keepForm();
+    try{ localStorage.setItem(KEY, want); }catch(err){}
     location.reload();
   });
+  const markSwitch=()=>document.querySelectorAll('[data-lang]').forEach(b=>b.setAttribute('aria-pressed', String((b.dataset.lang==='en')===english)));
+  const ready=fn=>document.readyState==='loading'?document.addEventListener('DOMContentLoaded', fn):fn();
+  ready(markSwitch);
+  window.addEventListener('load', ()=>setTimeout(restoreForm, 0));
   if(!english) return;
-  document.documentElement.lang='en';
 
   const EXACT={
     // Navigation and menus
-    'English':'Polski','Autobusy':'Buses','Pociągi':'Trains','Zaplanuj podróż':'Plan your trip','Rozkład':'Timetable','Linie':'Lines','Komunikaty':'Alerts',
+    'English':'Polski','Autobusy':'Buses','Pociągi':'Trains','Zaplanuj podróż':'Plan your trip','Rozkład':'Timetable','Linie':'Lines','Komunikaty':'Alerts','Utrudnienia i stan danych':'Disruptions and data status',
     'Odśwież':'Refresh','Odśwież teraz':'Refresh now','Ustawienia':'Settings','Motyw':'Theme','Konto':'Account','Zaloguj się':'Sign in','Usuń konto':'Delete account','Wyloguj':'Sign out','Kategorie':'Categories',
     'Autobusy w Rzeszowie':'Buses in Rzeszów','PKS — linie podmiejskie':'PKS — suburban lines','Pociągi w okolicy Rzeszowa':'Trains around Rzeszów','Rzeszów · Autobusy na żywo':'Rzeszów · Live buses',
     'Autobusy miejskie ZTM, podmiejskie PKS i pociągi w okolicy Rzeszowa — na żywo. Te, które spóźniają się względem rozkładu, są oznaczone na':'ZTM city buses, PKS suburban buses and trains around Rzeszów — live. Vehicles running behind schedule are marked in','czerwono':'red','.':'.',
@@ -151,6 +176,45 @@
     'Darmowy klucz po rejestracji na pdp-api.plk-sa.pl. Pakiet Basic: 100 zapytań/h i 1000 dziennie. Serwer odświeża dane co 20 min, ok. 350 zapytań dziennie, niezależnie od liczby użytkowników.':'Free key after registering at pdp-api.plk-sa.pl. Basic plan: 100 requests/h and 1000 a day. The server refreshes data every 20 min, about 350 requests a day, however many users there are.'
   };
 
+  // Teksty dodane z pakietem grafik ON/WARD.
+  Object.assign(EXACT,{
+    'Zmień język':'Change language',
+    'Utrudnienia i stan danych':'Disruptions and data status',
+    'Udostępniona':'Shared','wspólne podróże':'shared trips before',
+    'Wybierz dzień wylotu':'Pick the departure day','Teraz wybierz dzień powrotu':'Now pick the return day','Zamknij':'Close',
+    'Dodaj osobę':'Add person','Dodaj':'Add','Anuluj':'Cancel',
+    'Schowaj mapę podróży':'Hide trip map',
+    'Alerty, utrudnienia i stan danych':'Alerts, disruptions and data status',
+    'Planuj':'Plan',
+    'Tryb edycji':'Edit mode',
+    'Zakończ edycję':'End editing',
+    'Szukam najbliższego lotu w ciągu roku…':'Looking for the nearest flight within a year…',
+    'Pierwszy lot na tej trasie:':'First flight on this route:',
+    'W ciągu roku nie ma lotów do tego celu z lotnisk w pobliżu. Spróbuj większego promienia lotnisk.':'No flights to this destination from nearby airports within a year. Try a larger airport radius.',
+    'Nawigacja':'Navigation',
+    'Udostępnij':'Share',
+    'Skopiowano opis podróży.':'Trip description copied.',
+    'Jesteś offline — pokazujemy zapisane podróże, a zmiany wyślemy po powrocie połączenia.':'You are offline — showing saved trips; changes will be sent when you are back online.', 'Planuj · porównuj · podróżuj':'Plan · compare · travel',
+    // strona kierunków
+    'Szukaj miasta, lotniska lub kraju…':'Search for a city, airport or country…',
+    'Szukaj miasta, lotniska lub kraju':'Search for a city, airport or country',
+    'Styl mapy:':'Map style:', 'Styl mapy':'Map style', 'Ciemna':'Dark', 'Jasna':'Light', 'Satelita':'Satellite',
+    'Podsumowanie mapy':'Map summary', 'Cała Polska':'All Poland', 'Dodaj lotnisko':'Add an airport',
+    'Dodaj lotnisko wylotu':'Add a departure airport', 'Resetuj filtry':'Reset filters',
+    // nagłówki stron jak w arkuszu ON/WARD
+    'Znajdź połączenia autobusami miejskimi i sprawdź rozkłady jazdy.':'Find city bus connections and timetables.',
+    'Autobusy podmiejskie':'Suburban buses',
+    'Połączenia do pobliskich miejscowości i okolic.':'Connections to nearby towns and surrounding areas.',
+    'Sprawdź rozkład według przystanku i linii.':'Check schedules by stop and line.',
+    'Zapisane trasy, przystanki, stacje i podróże.':'Saved routes, stops, stations and trips.',
+    'Sprawdź, dokąd polecisz z polskich lotnisk.':'Discover where you can fly from Polish airports.',
+    'Twoje zaplanowane podróże w jednym miejscu.':'Your planned journeys in one place.',
+    'Szczegóły podróży':'Trip details',
+    'Wyniki wyszukiwania':'Search results',
+    'Porównaj możliwości i wybierz najlepszą podróż.':'Compare options and choose the best trip.',
+    'Przygotuj się do wyjazdu: sprawdź poniżej dojazd na lotnisko, lot i drogę do centrum. Bilety i rezerwacje potwierdzisz u przewoźników.':'Get ready to go: check the trip to the airport, the flight and the way into town below. Confirm tickets and bookings with the carriers.',
+    'To plan zapisany w ulubionych. Sprawdź ceny i dojazdy, a gdy podróż będzie pewna, zapisz ją jako swoją.':'This is a plan saved in favourites. Check prices and journeys, and save it as your trip once it is certain.',
+  });
   const PATTERNS=[
     [/^Brak lotów (\S+)( z powrotem (\S+))?$/,(m,d,x,b)=>'No flights on '+d+(b?' returning '+b:'')],[/^(\d+) km · pokaż lotniska do (\d+) km$/,'$1 km · show airports up to $2 km'],[/^od (\d+) zł w obie strony$/,'from $1 zł return'],
     [/^Nie znaleziono miejsca „(.+)” \(pole „(.+)”\)\. Sprawdź pisownię albo wpisz samo miasto\.$/,(m,q,f)=>'Place “'+q+'” not found (field “'+({'Skąd':'From','Dokąd':'To'}[f]||f)+'”). Check the spelling or type just the city.'],
@@ -176,6 +240,8 @@
     [/^Z lotniska (.+) do celu: (.+)$/,'From the airport $1 to: $2'],[/^Z celu na lotnisko (.+)$/,'From the destination to the airport $1'],[/^Loty z lotnisk w promieniu (\d+) km: (.+)\.$/,'Flights from airports within $1 km: $2.'],
     [/^Najbliżej jest lotnisko (.+) z lotami do celu, więc plan domyślnie startuje stamtąd\. (.*)$/,(m,a,r)=>`The nearest airport with flights there is ${a}, so the plan starts there by default. ${r.replace(/^Loty z preferowanego lotniska (.+) są na liście\.$/,'Flights from your preferred airport $1 are listed.').replace(/^Z preferowanego lotniska (\S+) nie ma w tym dniu lotów do celu( albo leży dalej niż wybrany promień)?\.$/,(x,c,f)=>`Your preferred airport ${c} has no flights there that day${f?' or is further than the chosen radius':''}.`)}`],
     [/^Wczytano loty Wizz Air: (\d+) cen, (\d+) dni, (\d+) godzin odlotu, (\d+) lotów z dokładną ceną\.$/,'Loaded Wizz Air flights: $1 prices, $2 days, $3 departure times, $4 flights with an exact price.'],
+    [/^(Najtaniej łącznie z dojazdem na lotnisko: .+?) W dniach ±2 tańszy lot: (\S+), od (\d+) zł\.$/,(m,a,d,p)=>`${translate(a)} Cheaper flight within ±2 days: ${d}, from ${p} zł.`],
+    [/^Najtaniej łącznie z dojazdem na lotnisko: (.+) z (.+), (\S+): lot (\d+) zł \+ dojazd ok\. (\d+) zł = ok\. (\d+) zł( w obie strony)?\.$/,(m,a,from,d,fl,g,tot,rt)=>`Cheapest including the trip to the airport: ${a} from ${from}, ${d}: flight ${fl} zł + getting there about ${g} zł = about ${tot} zł${rt?' round trip':''}.`],
     [/^(Najtaniej z dojazdem: .+?) W dniach ±2 taniej: (\S+), od (\d+) zł\.$/,(m,a,d,p)=>`${translate(a)} Cheaper within ±2 days: ${d}, from ${p} zł.`],
     [/^od (\d+) zł( w obie strony)?(?:, (\d+) zł mniej)?\.$/,(m,p,b,l)=>`from ${p} zł${b?' round trip':''}${l?`, ${l} zł less`:''}.`],
     [/^wyjście (.+)$/,'leave $1'],[/^wylot (\S+) (\S+)$/,'departs $1 $2'],[/^wylot (\S+)$/,'departs $1'],[/^przylot (\S+)$/,'arrives $1'],[/^pobyt do (\S+)$/,'stay until $1'],
@@ -251,6 +317,19 @@
     }
   }).observe(document,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['placeholder','title','aria-label']});
   walk(document.documentElement);
+  // Tłumaczenia z pakietu ON/WARD (assets/onward/i18n): dopisujemy tylko teksty, których słownik jeszcze nie zna,
+  // bez szablonów z {zmiennymi} — istniejące tłumaczenia mają pierwszeństwo.
+  const flat=(o,p='')=>Object.entries(o||{}).flatMap(([k,v])=>v&&typeof v==='object'?flat(v,p+k+'.'):[[p+k,v]]);
+  const pack=l=>fetch('/assets/onward/i18n/'+l+'.json').then(r=>r.ok?r.json():{}).catch(()=>({}));
+  Promise.all([pack('pl-PL'),pack('en-GB')]).then(([pl,en])=>{
+    const enBy=new Map(flat(en)); let added=0;
+    for(const [k,v] of flat(pl)){
+      const t=enBy.get(k);
+      if(typeof v!=='string' || typeof t!=='string' || v.includes('{') || Object.prototype.hasOwnProperty.call(EXACT,v)) continue;
+      EXACT[v]=t; added++;
+    }
+    if(added) walk(document.documentElement);
+  });
   const brand=()=>document.querySelectorAll('[data-brand]').forEach(el=>{ const tag=el.querySelector('b,span')?.tagName.toLowerCase()||'b'; el.innerHTML='ON<'+tag+'>/</'+tag+'>WARD'; });
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', brand); else brand();
   window.rzTranslate=translateText;

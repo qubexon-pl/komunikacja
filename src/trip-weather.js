@@ -19,13 +19,25 @@ function createTripWeather({ fetchSource = fetch, now = Date.now } = {}) {
       latitude: lat.toFixed(2),
       longitude: lon.toFixed(2),
       daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max",
+      // Hourly values in the same request, so a card for a 00:49 landing shows the night, not the day's maximum.
+      hourly: "temperature_2m,precipitation_probability,weather_code",
       forecast_days: String(FORECAST_DAYS),
       timezone: "auto",
     });
     const response = await fetchSource(url, { headers: { "User-Agent": "komunikacja-rzeszow/1.0" }, signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw Object.assign(new Error(`Open-Meteo zwrócił HTTP ${response.status}.`), { status: 502 });
-    const d = (await response.json()).daily || {};
+    const body = await response.json();
+    const d = body.daily || {};
     const pick = (name, i) => (Array.isArray(d[name]) && Number.isFinite(d[name][i]) ? d[name][i] : null);
+    // Local hours of each day as [hour, temperature, rain chance, weather code] (times are the place's own, timezone=auto).
+    const h = body.hourly || {}, hours = new Map();
+    (h.time || []).forEach((time, i) => {
+      const temp = h.temperature_2m?.[i];
+      if (typeof time !== "string" || !Number.isFinite(temp)) return;
+      const day = time.slice(0, 10), list = hours.get(day) || hours.set(day, []).get(day);
+      const num = (v) => (Number.isFinite(v) ? v : null);
+      list.push([Number(time.slice(11, 13)), temp, num(h.precipitation_probability?.[i]), num(h.weather_code?.[i])]);
+    });
     const days = (d.time || []).map((day, i) => ({
       day,
       code: pick("weather_code", i),
@@ -34,6 +46,7 @@ function createTripWeather({ fetchSource = fetch, now = Date.now } = {}) {
       rainChance: pick("precipitation_probability_max", i),
       rainMm: pick("precipitation_sum", i),
       windKmh: pick("wind_speed_10m_max", i),
+      ...(hours.has(day) ? { hours: hours.get(day) } : {}),
     })).filter((x) => DAY.test(x.day) && x.max != null && x.min != null); // the last day can come back empty
     cache.set(key, { at: now(), days });
     if (cache.size > 500) cache.clear();

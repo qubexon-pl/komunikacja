@@ -22,6 +22,12 @@ let googleEnabled = false;
 let verificationPending = false;
 let resetCodeRequested = false;
 
+// In the Android/iOS app the pages are local files and Google sign-in is native (assets/app.native.js).
+const nativeApp = Boolean(window.ONWARD && window.ONWARD.native);
+function afterSignIn() {
+  location.assign(nativeApp ? window.ONWARD.homeUrl() : safeReturnTo(returnTo));
+}
+
 function safeReturnTo(value) {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/";
   return value;
@@ -116,7 +122,7 @@ loginForm.addEventListener("submit", (event) => {
   const submit = loginForm.querySelector('button[type="submit"]');
   withBusyButton(submit, async () => {
     await postJson("/api/auth/login", Object.fromEntries(new FormData(loginForm)));
-    location.assign(safeReturnTo(returnTo));
+    afterSignIn();
   });
 });
 
@@ -131,7 +137,7 @@ registerForm.addEventListener("submit", (event) => {
         code: document.getElementById("verificationCode").value.trim(),
       });
       if (!user) throw new Error("Nie udało się potwierdzić adresu e-mail.");
-      location.assign(safeReturnTo(returnTo));
+      afterSignIn();
     });
     return;
   }
@@ -200,14 +206,22 @@ forgotPasswordForm.addEventListener("submit", (event) => {
 });
 
 googleButton.addEventListener("click", () => {
-  if (!googleButton.disabled) location.assign(googleButton.dataset.href);
+  if (googleButton.disabled) return;
+  if (!nativeApp) {
+    location.assign(googleButton.dataset.href);
+    return;
+  }
+  withBusyButton(googleButton, async () => {
+    await window.ONWARD.googleSignIn();
+    afterSignIn();
+  });
 });
 
 fetch("/api/auth/config")
   .then(async (response) => {
     if (!response.ok) throw new Error("Nie udało się pobrać konfiguracji logowania.");
     const config = await response.json();
-    googleEnabled = Boolean(config.googleEnabled);
+    googleEnabled = Boolean(nativeApp ? config.googleNativeEnabled : config.googleEnabled);
     googleButton.disabled = !googleEnabled;
     googleNote.hidden = googleEnabled;
     if (googleEnabled) {
@@ -236,6 +250,6 @@ if (params.get("error") === "google_account_exists") {
 fetch("/api/auth/me")
   .then((response) => response.ok ? response.json() : null)
   .then((result) => {
-    if (result?.user) location.replace(safeReturnTo(returnTo));
+    if (result?.user) location.replace(nativeApp ? window.ONWARD.homeUrl() : safeReturnTo(returnTo));
   })
   .catch(() => {});

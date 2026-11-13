@@ -557,3 +557,16 @@ test("dropping one departure removes only that flight's stored price", async () 
   assert.equal(result.removed, 1);
   assert.deepEqual(stored.map((f) => f.departure), ["2026-11-20T17:10"]);
 });
+
+test("the first available flight is the earliest from any airport within the radius, not only from the nearest one", async () => {
+  const { store } = memoryStore();
+  // Lublin flies there only in June; Kraków already in May (both within 300 km of Rzeszów); a past flight does not count.
+  await store.importRows([
+    fare({ airline: "WIZZ", from: "LUZ", to: "BOJ", day: "2027-06-06", departure: "2027-06-06T12:15", arrival: "2027-06-06T15:07", flightNumber: "W6 1", price: 369, pricePln: 369 }),
+    fare({ airline: "RYANAIR", from: "KRK", to: "BOJ", day: "2027-05-01", departure: "2027-05-01T09:00", arrival: "2027-05-01T11:50", flightNumber: "FR 2", price: 286, pricePln: 286 }),
+    fare({ airline: "RYANAIR", from: "KRK", to: "BOJ", day: "2026-10-01", departure: "2026-10-01T09:00", arrival: "2026-10-01T11:50", flightNumber: "FR 3", price: 99, pricePln: 99 }),
+  ]);
+  const result = store.options({ origin: { lat: 50.04, lon: 22.0 }, dest: { lat: 42.5, lon: 27.47 }, date: "2027-06-08", radius: 300 });
+  assert.equal(result.first.fare.day, "2027-05-01");
+  assert.equal(result.first.from, "KRK");
+});

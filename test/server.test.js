@@ -80,7 +80,7 @@ test("static server exposes the frontend but not project files", async (t) => {
   assert.equal(protectedPage.status, 200);
   assert.match(protectedPage.headers.get("content-type"), /text\/html/);
 
-  for (const page of ["/autobusy", "/pks", "/pociagi", "/podroz"]) {
+  for (const page of ["/buses", "/suburban", "/trains", "/plan", "/destinations", "/favourites", "/my-trips", "/trip"]) {
     const guest = await fetch(`${baseUrl}${page}`, { redirect: "manual" });
     assert.equal(guest.status, 200);
     assert.match(guest.headers.get("content-type"), /text\/html/);
@@ -414,6 +414,42 @@ test("unauthenticated auth API endpoints remain available without exposing proje
   assert.equal(loginScript.status, 200);
 });
 
+test("ON/WARD brand assets are served to everyone, but not the pack's notes", async (t) => {
+  const baseUrl = await startServer(t, {});
+  for (const [file, type] of [
+    ["/assets/onward/logos/wordmark-light.svg", "image/svg+xml"],
+    ["/assets/onward/icons/plane.svg", "image/svg+xml"],
+    ["/assets/onward/illustrations/no-results.svg", "image/svg+xml"],
+    ["/assets/onward/banners/city.svg", "image/svg+xml"],
+    ["/assets/onward/css/tokens.css", "text/css"],
+    ["/assets/onward/png/icon-192.png", "image/png"],
+    ["/assets/onward/page-banners/city-buses.svg", "image/svg+xml"],
+    ["/assets/onward/banners/flight-destinations.svg", "image/svg+xml"],
+    ["/assets/onward/weather/partly-cloudy.svg", "image/svg+xml"],
+    ["/assets/onward/map/pin-a.svg", "image/svg+xml"],
+    ["/assets/onward/illustrations/plan-a-trip.svg", "image/svg+xml"],
+    ["/assets/onward/decorations/soft-waves.svg", "image/svg+xml"],
+    ["/assets/onward/illustrations/no-favourites.svg", "image/svg+xml"],
+    ["/assets/onward/icons/suburban-bus.svg", "image/svg+xml"],
+    ["/assets/onward/logos/wordmark-on-dark.svg", "image/svg+xml"],
+    ["/assets/onward/i18n/pl-PL.json", "application/json"],
+    ["/assets/onward/i18n/en-GB.json", "application/json"],
+    ["/assets/hero.svg", "image/svg+xml"],
+    ["/sw.js", "javascript"],
+    ["/assets/app.native.js", "javascript"],
+    ["/assets/app.photos.js", "javascript"],
+    ["/assets/manifest.webmanifest", "application/manifest+json"],
+  ]) {
+    const res = await fetch(`${baseUrl}${file}`);
+    assert.equal(res.status, 200, file);
+    assert.match(res.headers.get("content-type"), new RegExp(type.replace("+", "\\+")), file);
+  }
+  for (const file of ["/assets/onward/AGENT_IMPLEMENTATION_GUIDE.md", "/assets/onward/AGENT_I18N_PL.md", "/assets/onward/extended-manifest.json",
+    "/assets/onward/manifest.json", "/assets/onward/icons/../README.md", "/assets/onward/i18n/other.json"]) {
+    assert.equal((await fetch(`${baseUrl}${file}`)).status, 404, file);
+  }
+});
+
 test("unsupported agencies and missing source keys are rejected", async (t) => {
   const baseUrl = await startServer(t, {});
   const unsupported = await fetch(`${baseUrl}/api/gtfs/other?sourceKey=test`, { headers: { Cookie: "rzbus_session=test-session" } });
@@ -448,7 +484,12 @@ test("flights and driving routes are public, validated, and old end-stop links m
   assert.equal((await fetch(`${base}/api/driving?from=50.04`)).status, 400);
   const old = await fetch(`${base}/koncowe`, { redirect: "manual" });
   assert.equal(old.status, 301);
-  assert.equal(old.headers.get("location"), "/podroz");
+  assert.equal(old.headers.get("location"), "/plan");
+  // the Polish page addresses lead to the English ones, with their query
+  const polish = await fetch(`${base}/podroz-szczegoly?id=abc123`, { redirect: "manual" });
+  assert.equal(polish.status, 301);
+  assert.equal(polish.headers.get("location"), "/trip?id=abc123");
+  assert.equal((await fetch(`${base}/ulubione`, { redirect: "manual" })).headers.get("location"), "/favourites");
 });
 
 
@@ -597,4 +638,26 @@ test("a signed-in trip search asks the airlines only about its own routes and da
   // a busy run does not count as asked
   reply = "started";
   assert.equal((await post({ ...trip, back: "", date: day(9) })).status, 202);
+});
+
+test("trip sharing requests are passed on to the FastAPI server with the session cookie, and a stopped API is reported plainly", async (t) => {
+  const seen = [];
+  let apiUp = true;
+  const fetchSource = async (url, init) => {
+    if (!apiUp) throw new TypeError("fetch failed");
+    seen.push({ url: String(url), method: init.method, cookie: init.headers.cookie, origin: init.headers.origin, body: init.body ? init.body.toString() : null });
+    return new Response(JSON.stringify({ member: { name: "Ania" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+  };
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, fetchSource });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const added = await fetch(`${base}/api/trips/trip0001/members?x=1`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: "rzbus_session=abc", Origin: "http://localhost:3000" }, body: JSON.stringify({ email: "ania@example.com" }) });
+  assert.equal(added.status, 201);
+  assert.deepEqual(await added.json(), { member: { name: "Ania" } });
+  assert.deepEqual(seen, [{ url: "http://127.0.0.1:8000/api/trips/trip0001/members?x=1", method: "POST", cookie: "rzbus_session=abc", origin: "http://localhost:3000", body: '{"email":"ania@example.com"}' }]);
+  apiUp = false;
+  const down = await fetch(`${base}/api/trips/shared`);
+  assert.equal(down.status, 503);
+  assert.equal((await down.json()).code, "api-offline");
 });

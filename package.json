@@ -9,17 +9,48 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
+    "dev:all": "node scripts/dev-all.mjs",
     "db:migrate": "node src/migrate.js",
     "flights:import": "node src/flights-import.js",
     "rail:build": "node --use-system-ca src/rail-map.js",
-    "test": "node --test"
+    "test": "node --test",
+    "api:dev": "cd api && .venv\\Scripts\\python -m uvicorn app.main:app --reload --port 8000",
+    "api:test": "cd api && .venv\\Scripts\\python -m pytest -q",
+    "web:build": "node scripts/build-web.mjs",
+    "cap:sync": "node scripts/build-web.mjs && npx cap sync",
+    "android:open": "npx cap open android",
+    "ios:open": "npx cap open ios",
+    "android:release": "node scripts/build-web.mjs && npx cap sync android && cd android && gradlew bundleRelease",
+    "test:all": "node --test && cd api && .venv\\Scripts\\python -m pytest -q"
   },
   "dependencies": {
     "@azure/identity": "^4.5.0",
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/app-launcher": "^8.0.1",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/camera": "^8.2.6",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/geolocation": "^8.2.4",
+    "@capacitor/ios": "^8.6.2",
+    "@capacitor/keyboard": "^8.0.6",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/share": "^8.0.3",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4",
+    "@capgo/capacitor-social-login": "^8.7.10",
     "@sendgrid/mail": "^8.1.6",
+    "capacitor-secure-storage-plugin": "^0.14.0",
     "dotenv": "^16.4.7",
     "jszip": "^3.10.2",
     "mssql": "^11.0.1",
     "nodemailer": "^10.3.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "@fortawesome/fontawesome-free": "^6.7.2",
+    "bootstrap": "^5.3.3",
+    "leaflet": "^1.9.4",
+    "protobufjs": "^7.4.0"
   }
 }

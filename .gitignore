@@ -3,3 +3,12 @@ node_modules/
 .env
 *.log
 npm-debug.log*
+www/
+api/.venv/
+__pycache__/
+.pytest_cache/
+android/app/release/
+android/keystore.properties
+*.keystore
+*.jks
+ios/App/App/GoogleService-Info.plist

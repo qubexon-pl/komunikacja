@@ -50,6 +50,17 @@ test("a timetable is cut down to what the app shows, including trains running pa
   assert.deepEqual(compact.carriers, [["IC", "PKP Intercity"]]);
 });
 
+test("a timetable without PKP's station dictionary still gets station names from the national list", () => {
+  const compact = compactSchedule({
+    rt: [{ sid: 2026, oid: 8, ccs: "IC", nn: "3814", nm: "MATEJKO", cc: "IC", st: [{ id: 84400, dtm: "10:00:00" }, { id: 273, atm: "18:00:00" }, { id: 999999999, atm: "19:00:00" }] }],
+    dc: {},
+  });
+  const names = Object.fromEntries(compact.stations.map(([id, name]) => [id, name]));
+  assert.equal(names[84400], "Przemyśl Główny");
+  assert.equal(names[273], "Szczecin Główny");
+  assert.equal(names[999999999], undefined);
+});
+
 test("live data keeps only stops with something to report", () => {
   assert.deepEqual(compactOperation(running(9)), [2026, 9, DAY, "P", [[1, 2, null, `${DAY}T10:00:00`, null, 1, 0]]]);
 });

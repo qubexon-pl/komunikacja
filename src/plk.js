@@ -31,6 +31,20 @@ function seconds(time, dayOffset = 0) {
   return dayOffset * 86400 + hours * 3600 + minutes * 60 + (secs || 0);
 }
 
+// Every Polish station: id → [name, lat, lon], read once from the list the map also uses.
+let NATIONAL = null;
+function nationalStations() {
+  if (!NATIONAL) {
+    NATIONAL = new Map();
+    try {
+      for (const [id, name, lat, lon] of require("../assets/app.rail-stations.json")) NATIONAL.set(id, [name, lat ?? null, lon ?? null]);
+    } catch (error) {
+      console.warn("Rail station list unavailable", error.message);
+    }
+  }
+  return NATIONAL;
+}
+
 // The whole country in about 1 MB compressed, so a browser can search it without asking again.
 function compactSchedule({ rt = [], dc = {} }) {
   const trains = rt.map((route) => [route.sid, route.oid, route.ccs || "", route.nn || "", route.nm || "", route.cc || "", route.st.map((stop) => [
@@ -40,7 +54,19 @@ function compactSchedule({ rt = [], dc = {} }) {
     stop.dpl || stop.apl || "",
     stop.dtr || stop.atr || "",
   ])]);
-  const stations = Object.values(dc.st || {}).map((station) => [station.id, station.nm, station.lat ?? null, station.lon ?? null]);
+  const stations = Object.values(dc.st || {}).filter((station) => station?.id != null && station.nm)
+    .map((station) => [station.id, station.nm, station.lat ?? null, station.lon ?? null]);
+  // PKP PLK sometimes sends the timetable without its station dictionary; names then come from the national station list.
+  const known = new Set(stations.map((station) => station[0]));
+  const national = nationalStations();
+  for (const route of trains) {
+    for (const [id] of route[6]) {
+      if (known.has(id)) continue;
+      known.add(id);
+      const station = national.get(id);
+      if (station) stations.push([id, station[0], station[1], station[2]]);
+    }
+  }
   return { stations, carriers: Object.entries(dc.cr || {}), trains };
 }
 

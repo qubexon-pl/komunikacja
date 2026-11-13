@@ -2,71 +2,78 @@
 <html lang="pl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Zaplanuj podróż · W drogę</title>
+<script src="/assets/app.config.js"></script>
+<script src="/assets/app.native.js"></script>
 <script src="/assets/i18n.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Plus+Jakarta+Sans:wght@300..800&display=swap" rel="stylesheet">
-<meta name="theme-color" content="#0B1A33">
-<link rel="icon" type="image/png" sizes="64x64" href="/assets/logo-64.png">
-<link rel="apple-touch-icon" href="/assets/logo-180.png">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300..800&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#173B70">
+<link rel="icon" type="image/svg+xml" href="/assets/onward/logos/mark-transparent.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/onward/png/favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/assets/onward/png/favicon-64.png">
+<link rel="apple-touch-icon" href="/assets/onward/png/apple-touch-180.png">
+<link rel="manifest" href="/assets/manifest.webmanifest">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+<link rel="stylesheet" href="/assets/onward/css/tokens.css">
 <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
 
 <nav class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="/podroz"><img class="brand-logo" src="/assets/logo-64.png" alt="" width="34" height="34"><span data-brand>W<b>/</b>DROGĘ</span></a>
+    <a class="brand" href="/plan"><img class="brand-wordmark" src="/assets/onward/logos/wordmark-on-dark.svg" alt="ON/WARD" width="168" height="44"></a>
     <div class="view-tabs" aria-label="Kategorie">
-      <a class="view-tab" data-view="podroz" href="/podroz"><i class="fa-solid fa-route" aria-hidden="true"></i> Zaplanuj podróż</a>
-      <a class="view-tab" data-view="kierunki" data-go="podroz" data-sub="kierunki" href="/kierunki"><i class="fa-solid fa-earth-europe" aria-hidden="true"></i> Kierunki</a>
+      <a class="view-tab" data-view="podroz" href="/plan" title="Zaplanuj podróż"><i class="oi oi-plane" aria-hidden="true"></i> Planuj</a>
+      <a class="view-tab" data-view="kierunki" data-go="podroz" data-sub="kierunki" href="/destinations"><i class="oi oi-pin" aria-hidden="true"></i> Kierunki</a>
       <div class="dropdown view-drop">
-        <a class="view-tab dropdown-toggle" data-view="ztm" href="/autobusy" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-bus" aria-hidden="true"></i> Autobusy</a>
+        <a class="view-tab dropdown-toggle" data-view="ztm" href="/buses" data-bs-toggle="dropdown" aria-expanded="false"><i class="oi oi-bus" aria-hidden="true"></i> Autobusy</a>
         <ul class="dropdown-menu">
-          <li><a class="dropdown-item" data-go="ztm" data-sub="" href="/autobusy"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj połączenia</a></li>
-          <li><a class="dropdown-item" data-go="ztm" data-sub="rozklad" href="/autobusy#rozklad"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
-          <li><a class="dropdown-item" data-go="ztm" data-sub="ulubione" href="/ulubione#autobusy"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione autobusy</a></li>
+          <li><a class="dropdown-item" data-go="ztm" data-sub="" href="/buses"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj połączenia</a></li>
+          <li><a class="dropdown-item" data-go="ztm" data-sub="rozklad" href="/buses#timetable"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
+          <li><a class="dropdown-item" data-go="ztm" data-sub="ulubione" href="/favourites#buses"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione autobusy</a></li>
         </ul>
       </div>
       <div class="dropdown view-drop">
-        <a class="view-tab dropdown-toggle" data-view="pks" href="/pks" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-bus-simple" aria-hidden="true"></i> Podmiejskie</a>
+        <a class="view-tab dropdown-toggle" data-view="pks" href="/suburban" data-bs-toggle="dropdown" aria-expanded="false"><i class="oi oi-suburban-bus" aria-hidden="true"></i> Podmiejskie</a>
         <ul class="dropdown-menu">
-          <li><a class="dropdown-item" data-go="pks" data-sub="" href="/pks"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Dokąd dojedziesz</a></li>
-          <li><a class="dropdown-item" data-go="pks" data-sub="rozklad" href="/pks#rozklad"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
-          <li><a class="dropdown-item" data-go="pks" data-sub="ulubione" href="/ulubione#pks"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione podmiejskie</a></li>
+          <li><a class="dropdown-item" data-go="pks" data-sub="" href="/suburban"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Dokąd dojedziesz</a></li>
+          <li><a class="dropdown-item" data-go="pks" data-sub="rozklad" href="/suburban#timetable"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
+          <li><a class="dropdown-item" data-go="pks" data-sub="ulubione" href="/favourites#suburban"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione podmiejskie</a></li>
         </ul>
       </div>
       <div class="dropdown view-drop">
-        <a class="view-tab dropdown-toggle" data-view="kolej" href="/pociagi" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-train" aria-hidden="true"></i> Pociągi</a>
+        <a class="view-tab dropdown-toggle" data-view="kolej" href="/trains" data-bs-toggle="dropdown" aria-expanded="false"><i class="oi oi-train" aria-hidden="true"></i> Pociągi</a>
         <ul class="dropdown-menu">
-          <li><a class="dropdown-item" data-go="kolej" data-sub="" href="/pociagi"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj połączenia</a></li>
-          <li><a class="dropdown-item" data-go="kolej" data-sub="rozklad" href="/pociagi#rozklad"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
-          <li><a class="dropdown-item" data-go="kolej" data-sub="ulubione" href="/ulubione#pociagi"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione pociągi</a></li>
+          <li><a class="dropdown-item" data-go="kolej" data-sub="" href="/trains"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj połączenia</a></li>
+          <li><a class="dropdown-item" data-go="kolej" data-sub="rozklad" href="/trains#timetable"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
+          <li><a class="dropdown-item" data-go="kolej" data-sub="ulubione" href="/favourites#trains"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione pociągi</a></li>
         </ul>
       </div>
     </div>
     <div class="nav-links">
-      <a class="nav-fav nav-trips" id="myTripsLink" href="/moje-podroze"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> <span>Moje podróże</span><b class="nav-count" id="myTripsCount" hidden></b></a>
-      <a class="nav-fav" id="favLink" href="/ulubione"><i class="fa-solid fa-star" aria-hidden="true"></i> <span>Ulubione</span><b class="nav-count" id="favCount" hidden></b></a>
-      <button class="nav-link-btn" id="alertsBtn" style="display:none"><span class="txt">Komunikaty</span> <span class="badge-num" id="alertsCount">0</span></button>
+      <span class="nav-sep" aria-hidden="true"></span>
+      <a class="nav-fav nav-trips" id="myTripsLink" href="/my-trips" title="Moje podróże"><i class="oi oi-suitcase" aria-hidden="true"></i> <span>Podróże</span><b class="nav-count" id="myTripsCount" hidden></b></a>
+      <a class="nav-fav" id="favLink" href="/favourites"><i class="oi oi-star" aria-hidden="true"></i> <span>Ulubione</span><b class="nav-count" id="favCount" hidden></b></a>
+      <div class="lang-switch" role="group" aria-label="Zmień język"><button type="button" data-lang="pl" lang="pl" aria-pressed="true">PL</button><button type="button" data-lang="en" lang="en" aria-pressed="false">EN</button></div>
+      <button class="nav-link-btn" id="alertsBtn" type="button"><i class="oi oi-bell" aria-hidden="true"></i> <span class="txt">Komunikaty</span> <span class="badge-num" id="alertsCount" hidden>0</span></button>
       <div class="dropdown">
-        <button class="nav-link-btn dropdown-toggle" id="adminMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false">Admin</button>
+        <button class="nav-link-btn dropdown-toggle" id="adminMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="oi oi-settings" aria-hidden="true"></i> <span class="txt">Admin</span></button>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminMenu">
           <li><button class="dropdown-item" id="refreshBtn" type="button" title="Odśwież teraz"><span class="ico">↻</span> Odśwież</button></li>
-          <li><button class="dropdown-item" id="settingsBtn" type="button">Ustawienia</button></li>
+          <li><button class="dropdown-item" id="settingsBtn" type="button"><i class="oi oi-settings" aria-hidden="true"></i> Ustawienia</button></li>
         </ul>
       </div>
       <div class="dropdown">
-        <button class="nav-link-btn dropdown-toggle" id="userMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false"><span id="currentUser">Konto</span></button>
+        <button class="nav-link-btn dropdown-toggle" id="userMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-regular fa-user" aria-hidden="true"></i> <span id="currentUser">Konto</span></button>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
           <li class="guest-only"><a class="dropdown-item" id="loginLink" href="/login">Zaloguj się</a></li>
           <li><button class="dropdown-item" id="aboutBtn" type="button" data-bs-toggle="modal" data-bs-target="#aboutModal"><i class="fa-solid fa-circle-info ico" aria-hidden="true"></i> O aplikacji</button></li>
           <li><button class="dropdown-item" id="themeBtn" type="button" title="Motyw">Motyw</button></li>
-          <li><button class="dropdown-item" id="langBtn" type="button">English</button></li>
           <li class="account-only"><button class="dropdown-item" id="deleteAccountBtn" type="button">Usuń konto</button></li>
           <li class="account-only"><hr class="dropdown-divider"></li>
           <li class="account-only"><button class="dropdown-item" id="logoutBtn" type="button">Wyloguj</button></li>
@@ -122,47 +129,58 @@
     </div>
     <form id="planForm" class="planner" autocomplete="off">
       <div class="pl-pair">
-        <div class="pl-field"><label for="plFrom">Skąd?</label><div class="pl-inp"><input id="plFrom" placeholder="Adres, przystanek, stacja lub miasto"><button type="button" id="plGeo" title="Najbliższy przystanek">◎</button></div></div>
-        <button type="button" class="pl-swap" id="plSwap" title="Zamień kierunek" aria-label="Zamień kierunek"><i class="fa-solid fa-right-left" aria-hidden="true"></i></button>
-        <div class="pl-field"><label for="plTo">Dokąd?</label><div class="pl-inp"><input id="plTo" placeholder="Adres, przystanek, stacja lub miasto"></div></div>
+        <div class="pl-field"><label for="plFrom"><i class="oi oi-pin" aria-hidden="true"></i> Skąd?</label><div class="pl-inp"><input id="plFrom" placeholder="Adres, przystanek, stacja lub miasto"><button type="button" id="plGeo" title="Najbliższy przystanek">◎</button></div></div>
+        <button type="button" class="pl-swap" id="plSwap" title="Zamień kierunek" aria-label="Zamień kierunek"><i class="oi oi-swap" aria-hidden="true"></i></button>
+        <div class="pl-field"><label for="plTo"><i class="oi oi-pin" aria-hidden="true"></i> Dokąd?</label><div class="pl-inp"><input id="plTo" placeholder="Adres, przystanek, stacja lub miasto"></div></div>
       </div>
-      <div class="pl-field pl-time one-way-date"><label for="plDate">Data wyjazdu</label><div class="pl-inp"><input id="plDate" type="date"></div></div>
-      <div class="pl-field pl-time pl-range trip-return-fields" hidden><label for="plRange">Termin podróży</label><div class="pl-inp"><button type="button" id="plRange" class="pl-range-btn" aria-haspopup="dialog" aria-expanded="false"></button></div><div class="rng-pop" id="rngPop" hidden role="dialog" aria-label="Wybierz termin podróży"></div></div>
-      <div class="pl-field pl-time" hidden><label for="plBack">Data powrotu</label><div class="pl-inp"><input id="plBack" type="date"></div></div>
+      <div class="pl-field pl-time one-way-date"><label for="plDate"><i class="oi oi-calendar" aria-hidden="true"></i> Data wyjazdu</label><div class="pl-inp"><input id="plDate" type="date"></div></div>
+      <div class="pl-field pl-time pl-range trip-return-fields" hidden><label for="plRange"><i class="oi oi-calendar" aria-hidden="true"></i> Termin podróży</label><div class="pl-inp"><button type="button" id="plRange" class="pl-range-btn" aria-haspopup="dialog" aria-expanded="false"></button></div><div class="rng-pop" id="rngPop" hidden role="dialog" aria-label="Wybierz termin podróży"></div></div>
+      <div class="pl-field pl-time" hidden><label for="plBack"><i class="oi oi-calendar" aria-hidden="true"></i> Data powrotu</label><div class="pl-inp"><input id="plBack" type="date"></div></div>
       <div class="pl-field pl-time"><select id="plWhen" class="pl-when" aria-label="Znaczenie godziny"><option value="dep">Odjazd</option><option value="arr">Na miejscu o</option></select><div class="pl-inp"><input id="plTime" type="time" title="Puste = teraz" aria-label="Godzina"></div></div>
-      <button class="btn-grad pl-go" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj</button>
+      <button class="btn-grad pl-go" type="submit"><i class="oi oi-search" aria-hidden="true"></i> Szukaj</button>
     </form>
     <div id="plStops"></div>
     <div class="trip-options only-podroz">
       <button type="button" class="btn-ghost" id="plAddStop"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj przystanek</button>
     <div class="trip-modes" id="plModes" role="group" aria-label="Środki transportu">
-      <label class="mode-check"><input type="checkbox" value="bus" checked> <i class="fa-solid fa-bus" aria-hidden="true"></i> Autobus</label>
-      <label class="mode-check"><input type="checkbox" value="pks" checked> <i class="fa-solid fa-bus-simple" aria-hidden="true"></i> Podmiejskie</label>
-      <label class="mode-check"><input type="checkbox" value="train" checked> <i class="fa-solid fa-train" aria-hidden="true"></i> Pociąg</label>
-      <label class="mode-check"><input type="checkbox" value="plane" checked> <i class="fa-solid fa-plane" aria-hidden="true"></i> Samolot</label>
-      <label class="mode-check"><input type="checkbox" value="car" checked> <i class="fa-solid fa-car" aria-hidden="true"></i> Samochód</label>
+      <label class="mode-check"><input type="checkbox" value="bus" checked> <i class="oi oi-bus" aria-hidden="true"></i> Autobus</label>
+      <label class="mode-check"><input type="checkbox" value="pks" checked> <i class="oi oi-suburban-bus" aria-hidden="true"></i> Podmiejskie</label>
+      <label class="mode-check"><input type="checkbox" value="train" checked> <i class="oi oi-train" aria-hidden="true"></i> Pociąg</label>
+      <label class="mode-check"><input type="checkbox" value="plane" checked> <i class="oi oi-plane" aria-hidden="true"></i> Samolot</label>
+      <label class="mode-check"><input type="checkbox" value="car" checked> <i class="oi oi-car" aria-hidden="true"></i> Samochód</label>
     </div>
-    <label class="pl-people only-podroz" title="Koszty podróży liczymy dla tylu osób"><i class="fa-solid fa-user-group" aria-hidden="true"></i> <span>Osoby</span> <select id="plPeople" aria-label="Liczba osób"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option></select></label>
-    <label class="pref-airport" id="plPreferBox" hidden><i class="fa-solid fa-plane-departure" aria-hidden="true"></i> <span>Preferowane lotnisko</span> <select id="plPrefer" aria-label="Preferowane lotnisko"><option value="">Dowolne</option></select><span class="pref-sep" aria-hidden="true"></span><span>Lotniska w promieniu</span> <select id="plRadius" aria-label="Lotniska w promieniu"><option value="100">100 km</option><option value="150">150 km</option><option value="200">200 km</option><option value="300" selected>300 km</option><option value="400">400 km</option><option value="600">600 km</option><option value="any">Dowolna</option></select></label>
+    <label class="pl-people only-podroz" title="Koszty podróży liczymy dla tylu osób"><i class="oi oi-users" aria-hidden="true"></i> <span>Osoby</span> <select id="plPeople" aria-label="Liczba osób"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option></select></label>
+    <label class="pref-airport" id="plPreferBox" hidden><i class="oi oi-plane" aria-hidden="true"></i> <span>Preferowane lotnisko</span> <select id="plPrefer" aria-label="Preferowane lotnisko"><option value="">Dowolne</option></select><span class="pref-sep" aria-hidden="true"></span><span>Lotniska w promieniu</span> <select id="plRadius" aria-label="Lotniska w promieniu"><option value="100">100 km</option><option value="150">150 km</option><option value="200">200 km</option><option value="300" selected>300 km</option><option value="400">400 km</option><option value="600">600 km</option><option value="any">Dowolna</option></select></label>
     </div>
   </div>
   <div class="small text-soft mt-2 only-podroz" id="plLimit"></div>
   <div class="d-flex justify-content-between flex-wrap gap-2 mt-2 only-plan" id="planMsgs"><div class="txt-red small fw-semibold" id="planErr"></div><div class="small text-soft" id="planHint"></div></div>
   <section class="explore only-podroz" id="explore" aria-labelledby="exploreTitle">
     <div class="explore-head">
-      <div class="explore-title"><h3 id="exploreTitle"><i class="fa-solid fa-earth-europe" aria-hidden="true"></i> Sprawdź kierunki</h3><small id="exploreInfo">Wczytuję połączenia…</small></div>
+      <div class="explore-title"><h3 id="exploreTitle"><i class="oi oi-pin" aria-hidden="true"></i> Sprawdź kierunki</h3><small id="exploreInfo">Wczytuję połączenia…</small></div>
       <div class="explore-tools">
-        <form class="explore-search" id="exploreSearchForm" role="search" autocomplete="off"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="exploreSearch" list="exploreDestList" placeholder="Szukaj miasta…" aria-label="Szukaj miasta docelowego"><datalist id="exploreDestList"></datalist></form>
+        <form class="explore-search" id="exploreSearchForm" role="search" autocomplete="off"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="exploreSearch" list="exploreDestList" placeholder="Szukaj miasta, lotniska lub kraju…" aria-label="Szukaj miasta, lotniska lub kraju"><datalist id="exploreDestList"></datalist></form>
         <div class="explore-airlines" role="group" aria-label="Linie lotnicze">
-          <button type="button" class="explore-air on" data-explore-air="RYANAIR" aria-pressed="true"><i class="fa-solid fa-plane" aria-hidden="true"></i> Ryanair</button>
-          <button type="button" class="explore-air on" data-explore-air="WIZZ" aria-pressed="true"><i class="fa-solid fa-plane" aria-hidden="true"></i> Wizz Air</button>
+          <button type="button" class="explore-air on" data-explore-air="RYANAIR" aria-pressed="true"><i class="oi oi-plane" aria-hidden="true"></i> Ryanair</button>
+          <button type="button" class="explore-air on" data-explore-air="WIZZ" aria-pressed="true"><i class="oi oi-plane" aria-hidden="true"></i> Wizz Air</button>
         </div>
-        <button type="button" class="explore-toggle" id="exploreSave"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> <span>Zapisz widok</span></button>
+        <button type="button" class="explore-toggle" id="exploreSave"><i class="oi oi-map" aria-hidden="true"></i> <span>Zapisz widok</span></button>
         <button type="button" class="explore-toggle" id="exploreToggle" aria-expanded="true"><span>Ukryj mapę</span> <i class="fa-solid fa-chevron-up" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="explore-from" id="exploreFrom" role="group" aria-label="Lotniska wylotu"></div>
-    <div class="explore-map-wrap"><div id="exploreMap" aria-label="Mapa kierunków lotów"></div><div class="explore-hint" id="exploreHint">Kliknij kierunek albo lotnisko wylotu: wybierz je lub usuń z mapy.</div></div>
+    <div class="explore-map-wrap">
+      <div id="exploreMap" aria-label="Mapa kierunków lotów"></div>
+      <aside class="explore-stats" id="exploreStats" aria-label="Podsumowanie mapy"></aside>
+      <aside class="explore-card" id="exploreCard" aria-live="polite" hidden></aside>
+      <div class="explore-style" role="group" aria-label="Styl mapy">
+        <i class="oi oi-map" aria-hidden="true"></i><span>Styl mapy:</span>
+        <button type="button" data-explore-style="dark" aria-pressed="true">Ciemna</button>
+        <button type="button" data-explore-style="light" aria-pressed="false">Jasna</button>
+        <button type="button" data-explore-style="satellite" aria-pressed="false">Satelita</button>
+      </div>
+      <div class="explore-hint" id="exploreHint">Kliknij kierunek albo lotnisko wylotu: wybierz je lub usuń z mapy.</div>
+    </div>
   </section>
   <datalist id="stopNames"></datalist>
   <div id="planResults" class="mt-3 only-plan"></div>
@@ -257,7 +275,7 @@
 <div class="modal fade" id="aboutModal" tabindex="-1" aria-hidden="true" aria-labelledby="aboutTitle">
   <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
     <div class="modal-content">
-      <div class="modal-hero about-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><img class="about-logo" src="/assets/logo.png" alt="" width="64" height="64"><div><span class="kicker mb-1">O aplikacji</span><h4 id="aboutTitle">W drogę</h4><div class="sub">Planer podróży: autobusy miejskie i podmiejskie, pociągi, samoloty i samochód w jednym miejscu.</div></div></div>
+      <div class="modal-hero about-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><img class="about-logo" src="/assets/onward/logos/mark-dark.svg" alt="" width="64" height="64"><div><span class="kicker mb-1">O aplikacji</span><h4 id="aboutTitle">W drogę</h4><div class="sub">Planer podróży: autobusy miejskie i podmiejskie, pociągi, samoloty i samochód w jednym miejscu.</div></div></div>
       <div class="modal-body p-3 p-md-4" id="attribution">
         <h5 class="about-h">Źródła danych</h5>
         <ul class="about-list">
@@ -389,7 +407,7 @@
     <div class="modal-content">
       <div class="modal-hero" style="--h1:var(--amber);--h2:#f97316;--h3:var(--rose)">
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
-        <span class="kicker">ZTM Rzeszów</span><h4>Komunikaty i utrudnienia</h4>
+        <span class="kicker">Komunikaty</span><h4>Alerty, utrudnienia i stan danych</h4>
       </div>
       <div class="modal-body p-3 p-md-4" id="alertsBody"></div>
     </div>
@@ -528,6 +546,17 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.4.0/dist/protobuf.min.js"></script>
+<!-- Dolny pasek na telefonach (w aplikacji i w przeglądarce) -->
+<nav class="bottom-nav" aria-label="Nawigacja">
+  <a data-go="podroz" data-sub="" href="/plan"><i class="oi oi-plane" aria-hidden="true"></i><span>Planuj</span></a>
+  <a data-go="podroz" data-sub="kierunki" href="/destinations"><i class="oi oi-pin" aria-hidden="true"></i><span>Kierunki</span></a>
+  <a data-proxy="myTripsLink" href="/my-trips"><i class="oi oi-suitcase" aria-hidden="true"></i><span>Podróże</span><b class="bn-count" data-count-of="myTripsCount" hidden></b></a>
+  <a data-proxy="favLink" href="/favourites"><i class="oi oi-star" aria-hidden="true"></i><span>Ulubione</span><b class="bn-count" data-count-of="favCount" hidden></b></a>
+  <a data-go="ztm" data-sub="" href="/buses"><i class="oi oi-bus" aria-hidden="true"></i><span>Autobusy</span></a>
+</nav>
+<div class="edit-badge" id="editBadge" role="status" hidden><i class="fa-solid fa-pen" aria-hidden="true"></i> <b>Tryb edycji</b> <span id="editBadgeLabel"></span><button type="button" id="editBadgeEnd" title="Zakończ edycję" aria-label="Zakończ edycję">×</button></div>
+<div class="offline-bar" role="status" aria-live="polite">Jesteś offline — pokazujemy zapisane podróże, a zmiany wyślemy po powrocie połączenia.</div>
+<script src="/assets/app.photos.js"></script>
 <script src="/assets/app.js"></script>
 </body>
 </html>

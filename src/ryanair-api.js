@@ -199,11 +199,46 @@ function createRyanairApi({ flights, toPln, fetchSource = fetch, enabled = proce
     });
   }
 
+  // The first flight on each route after a day, up to a year ahead, when the chosen days have none: month by month
+  // through the fare calendar (one request a month), stopping at the first month with a flight. That month is then
+  // stored like any search (fares and timetable), so the planner can offer the day. Each route is scanned once a day.
+  const scanned = new Map();
+  function findFirst(pairs, after) {
+    if (!enabled || now() < pausedUntil) return "unavailable";
+    const list = pairs.filter((p) => IATA.test(p.from) && IATA.test(p.to)).slice(0, MAX_ROUTES)
+      .filter((p) => now() - (scanned.get(`${p.from}|${p.to}|${after}`) || 0) >= 24 * 60 * 60 * 1000);
+    if (!list.length) return "fresh";
+    for (const p of list) scanned.set(`${p.from}|${p.to}|${after}`, now());
+    if (scanned.size > 5000) scanned.clear();
+    plan(list.length);
+    run(async () => {
+      let stored = 0;
+      for (const pair of list) {
+        let month = after.slice(0, 7);
+        for (let i = 0; i < 13; i += 1, month = addDays(`${month}-28`, 7).slice(0, 7)) {
+          if (i) plan(1);
+          const fares = await get(`${FARES_URL}/${pair.from}/${pair.to}/cheapestPerDay?${new URLSearchParams({ outboundMonthOfDate: `${month}-01`, currency: "PLN" })}`);
+          const first = (fares?.outbound?.fares || []).filter((f) => f?.day >= after && !f.soldOut && !f.unavailable && f.price?.value > 0).map((f) => f.day).sort()[0];
+          if (!first) continue;
+          const monthEnd = addDays(`${addDays(`${month}-28`, 7).slice(0, 7)}-01`, -1);
+          const leg = { from: pair.from, to: pair.to, start: first, end: addDays(first, 13) < monthEnd ? addDays(first, 13) : monthEnd };
+          plan(2);
+          cover(leg);
+          const { rows, empty } = await fetchLeg(leg);
+          stored += (await flights.mergeRows(await priced(rows), { clear: empty.map((day) => ({ airline: "RYANAIR", from: leg.from, to: leg.to, day })) })).stored;
+          break;
+        }
+      }
+      return { stored };
+    }).catch((error) => console.error("Ryanair (first flight):", error.message));
+    return "started";
+  }
+
   function status() {
     return { available: enabled, running: running > 0, pausedUntil: pausedUntil > now() ? new Date(pausedUntil).toISOString() : null, ...last, progress: { done: Math.min(done, planned), total: Math.max(planned, done) } };
   }
 
-  return { searchRoutes, fillRange, priceForTime, status };
+  return { searchRoutes, fillRange, findFirst, priceForTime, status };
 }
 
 module.exports = { createRyanairApi, rowsOfLeg, monthsOf };

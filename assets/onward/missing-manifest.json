@@ -1,0 +1,39 @@
+{
+  "banners": [
+    "banners/city-buses.svg",
+    "banners/suburban-buses.svg",
+    "banners/my-trips.svg",
+    "banners/search-results.svg",
+    "banners/trip-details.svg",
+    "banners/flight-destinations.svg",
+    "banners/favourites.svg",
+    "banners/timetable.svg"
+  ],
+  "weather": [
+    "weather/storm.svg",
+    "weather/rain.svg",
+    "weather/snow.svg",
+    "weather/partly-cloudy.svg"
+  ],
+  "icons": [
+    "icons/bookmark.svg",
+    "icons/error.svg",
+    "icons/info.svg"
+  ],
+  "illustrations": [
+    "illustrations/no-results.svg",
+    "illustrations/trip-saved.svg",
+    "illustrations/plan-a-trip.svg",
+    "illustrations/ready-to-travel.svg"
+  ],
+  "logos": [
+    "logos/wordmark-tagline-dark.svg",
+    "logos/wordmark-tagline-light.svg"
+  ],
+  "map": [
+    "map/route-ab.svg",
+    "map/journey-stepper.svg",
+    "map/pin-a.svg",
+    "map/pin-b.svg"
+  ]
+}

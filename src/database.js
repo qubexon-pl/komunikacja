@@ -1,6 +1,7 @@
 "use strict";
 
-require("dotenv").config({ quiet: true });
+// The tests (node --test sets NODE_TEST_CONTEXT) must not pick up the developer's real .env (Google keys, base URL, …).
+if (!process.env.NODE_TEST_CONTEXT) require("dotenv").config({ quiet: true });
 
 const crypto = require("node:crypto");
 const sql = require("mssql");

@@ -1,0 +1,43 @@
+{
+  "brand": "ON/WARD",
+  "license": "Original generated vector assets for use in your application",
+  "assets": {
+    "logos": [
+      "logos/mark-dark.svg",
+      "logos/mark-light.svg",
+      "logos/mark-transparent.svg",
+      "logos/wordmark-dark.svg",
+      "logos/wordmark-light.svg"
+    ],
+    "icons": [
+      "icons/alert.svg",
+      "icons/bus.svg",
+      "icons/calendar.svg",
+      "icons/car.svg",
+      "icons/check.svg",
+      "icons/cloud.svg",
+      "icons/heart.svg",
+      "icons/pin.svg",
+      "icons/plane.svg",
+      "icons/route.svg",
+      "icons/search.svg",
+      "icons/settings.svg",
+      "icons/star.svg",
+      "icons/suitcase.svg",
+      "icons/sun.svg",
+      "icons/ticket.svg",
+      "icons/train.svg",
+      "icons/users.svg"
+    ],
+    "banners": [
+      "banners/city.svg",
+      "banners/coast.svg",
+      "banners/mountains.svg"
+    ],
+    "illustrations": [
+      "illustrations/no-results.svg",
+      "illustrations/ready-to-go.svg",
+      "illustrations/trip-saved.svg"
+    ]
+  }
+}

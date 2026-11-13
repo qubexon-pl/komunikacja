@@ -9,6 +9,41 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.resolve(__dirname, "../assets/app.js"), "utf8");
 const html = fs.readFileSync(path.resolve(__dirname, "../index.html"), "utf8");
 
+// The page switcher, run with stand-ins for everything it calls; any name it uses that is not listed here fails the test.
+function loadSubpage() {
+  const page = { title: "", lead: "", banner: "", url: "" };
+  const el = (id) => ({ set textContent(v) { if (id === "heroLead") page.lead = v; }, innerHTML: "" });
+  const VIEWS = {
+    podroz: { title: "Zaplanuj podróż", lead: "planer" }, ztm: { title: "Autobusy", lead: "ztm" },
+    pks: { title: "Komunikacja podmiejska", lead: "pks" }, kolej: { title: "Pociągi w Polsce", lead: "kolej" },
+  };
+  const context = {
+    S: { agency: "podroz", sub: "kierunki" }, VIEWS, FAVF: { kind: "all" }, TRIPV: { id: "" }, APP_NAME: "W drogę",
+    FAV_TITLES: { all: "Ulubione" }, EXPLORE: { summary: "" },
+    document: { getElementById: el, body: { classList: { toggle() {} } }, title: "" },
+    location: { pathname: "/destinations", search: "", hash: "" }, history: { replaceState: (a, b, url) => { page.url = url; } },
+    setHeroTitle: (t) => { page.title = t; }, updateBanner: () => { page.banner = context.S.sub; },
+    pageUrl: (view, sub) => `${view}/${sub}`, findTrip: () => null, tripLead: () => "",
+    syncNav() {}, renumberSections() {}, renderBoard() {}, renderTimetable() {}, renderFavorites() {}, renderMyTrips() {},
+    renderTripPage() {}, stopVehicles() {}, setTimeout() {}, renderEditBadge() {},
+  };
+  const start = source.indexOf("function setSubpage(");
+  vm.runInNewContext(source.slice(start, source.indexOf("\n}\n", start) + 3), context);
+  return (view, sub) => { context.S.agency = view; context.setSubpage(sub); return { ...page, sub: context.S.sub }; };
+}
+
+test("leaving the destinations page updates the title, banner and address on every page", () => {
+  const go = loadSubpage();
+  assert.equal(go("podroz", "kierunki").title, "Sprawdź kierunki");
+  for (const [view, sub, title] of [["podroz", "", "Zaplanuj podróż"], ["ztm", "", "Autobusy miejskie"], ["pks", "", "Autobusy podmiejskie"],
+    ["kolej", "", "Pociągi w Polsce"], ["ztm", "rozklad", "Rozkład jazdy"], ["podroz", "ulubione", "Ulubione"], ["podroz", "moje", "Moje podróże"]]) {
+    const page = go(view, sub);
+    assert.equal(page.title, title, `${view}/${sub}`);
+    assert.equal(page.sub, sub);
+    assert.equal(page.url, `${view}/${sub}`);
+  }
+});
+
 function loadTrainPlanner(trains) {
   const context = { TR: { trains }, railName: (id) => id, RAIL_SEARCH_HOURS: 14 };
   const start = source.indexOf("function planTrainTrips(");
@@ -564,10 +599,10 @@ test("the day strip covers eight weeks either side, marks the cheapest day and d
 });
 
 test("each category has its own page and weather refreshes every 45 minutes", () => {
-  assert.match(source, /ztm:\{path:'\/autobusy'/);
-  assert.match(source, /pks:\{path:'\/pks'/);
-  assert.match(source, /kolej:\{path:'\/pociagi'/);
-  assert.match(source, /podroz:\{path:'\/podroz'/);
+  assert.match(source, /ztm:\{path:'\/buses'/);
+  assert.match(source, /pks:\{path:'\/suburban'/);
+  assert.match(source, /kolej:\{path:'\/trains'/);
+  assert.match(source, /podroz:\{path:'\/plan'/);
   assert.doesNotMatch(source, /koncowe/);
   assert.match(source, /weatherTick\(\); \}, 45\*60\*1000\)/);
 });
@@ -626,4 +661,35 @@ test("a bus that passes several nearby stops is boarded where you can leave home
     { tid: "58", stop: "near", L: { pred: 45120 } },
   ];
   assert.deepEqual(Array.from(context.bestBoardings(deps, walkFrom), (d) => `${d.tid}@${d.stop}`), ["8@other", "58@near"]);
+});
+
+test("a weather card takes the forecast for its own hour, rounding to the nearest full hour", () => {
+  const start = source.indexOf("function hourAt(");
+  const context = {};
+  vm.runInNewContext(source.slice(start, source.indexOf("\n}\n", start) + 3), context);
+  const hours = [[0, 12.1, 65, 61], [1, 11.8, 70, 61], [14, 16.9, null, 3], [23, 13, 10, 2]];
+  assert.deepEqual(context.hourAt(hours, "~00:49"), [1, 11.8, 70, 61]);
+  assert.deepEqual(context.hourAt(hours, "00:10"), [0, 12.1, 65, 61]);
+  assert.deepEqual(context.hourAt(hours, "13:40"), [14, 16.9, null, 3]);
+  assert.deepEqual(context.hourAt(hours, "23:50"), [23, 13, 10, 2]);
+  assert.equal(context.hourAt(hours, ""), null);
+  assert.equal(context.hourAt(undefined, "10:00"), null);
+});
+
+test("a participant's place on the trip route: distance done, distance left and how far off the route", () => {
+  const start = source.indexOf("function routeProgress(");
+  const context = {};
+  vm.runInNewContext(`${source.slice(source.indexOf("function hav("), source.indexOf("function bearingOf("))}
+    ${source.slice(start, source.indexOf("\n}\n", start) + 3)}; this.routeProgress = routeProgress;`, context);
+  const rze = [50.04, 22.0], krk = [50.06, 19.94], bcn = [41.39, 2.17];
+  const route = [rze, krk, bcn];
+  const atKrk = context.routeProgress(route, krk);
+  assert.ok(Math.abs(atKrk.along - 147) < 5, `along ${atKrk.along}`); // Rzeszów–Kraków is about 147 km
+  assert.ok(atKrk.off < 0.5);
+  assert.ok(Math.abs(atKrk.total - atKrk.along - atKrk.left) < 0.01);
+  const halfway = context.routeProgress(route, [50.05, 20.97]); // between Rzeszów and Kraków, on the road
+  assert.ok(halfway.along > 60 && halfway.along < 90 && halfway.off < 5);
+  const ahead = context.routeProgress(route, [45.7, 11.0]); // somewhere along the flight to Barcelona
+  assert.ok(ahead.along > atKrk.along); // further on the route: "ahead of" someone in Kraków
+  assert.equal(context.routeProgress([rze], krk), null);
 });

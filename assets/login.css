@@ -116,3 +116,24 @@ button, input { font: inherit; }
 
 .brand{display:inline-flex; align-items:center; gap:10px; text-decoration:none}
 .brand-logo{width:34px; height:34px; border-radius:9px; box-shadow:0 2px 10px -2px rgba(201,162,83,.55)}
+
+/* Jaśniejsza paleta: błękit → morski, ciepły bursztyn */
+:root { --ink: #14233D; --soft: #5A6B82; --purple: #2878D0; --border: #E3E9F2; }
+body { background: #F4F7FB; }
+.login-intro { background: linear-gradient(90deg, rgba(19,47,92,.85) 0%, rgba(23,59,112,.5) 45%, rgba(23,59,112,.15) 100%), url("/assets/hero.svg") 70% center / cover no-repeat, #173B70; }
+.brand span, .mobile-brand span { color: #F2B84B; }
+.login-intro .eyebrow { color: #E8F3FF; }
+.eyebrow { color: #2878D0; }
+.intro-copy p { color: #E8F3FF; }
+.intro-bottom { color: #DDEEFF; }
+.ambient-two { background: radial-gradient(circle, #6EE7D640 0%, #6EE7D600 70%); }
+.form-tabs { background: #EEF3FA; }
+.brand-wordmark { display: block; width: 168px; height: auto; aspect-ratio: 460 / 120; }
+.mobile-brand .brand-wordmark { width: 150px; }
+.login-lang { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+.lang-switch { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: #EEF3FA; border: 1px solid var(--border); }
+.lang-switch button { min-width: 40px; min-height: 36px; padding: 0 8px; border: 0; border-radius: 999px; background: transparent; color: var(--ink); font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer; }
+.lang-switch button[aria-pressed="true"] { background: #173B70; color: #fff; }
+.lang-switch button:focus-visible { outline: 2px solid #2878D0; outline-offset: 2px; }
+.brand { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.brand-tag { color: #DDEEFF; font-size: .66rem; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; padding-left: 50px; }

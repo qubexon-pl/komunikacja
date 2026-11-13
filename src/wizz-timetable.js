@@ -237,14 +237,54 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
     }, "wizz.api.time");
   }
 
+  // The first flight on each route after a day, up to a year ahead: the timetable in 30-day steps (one request each),
+  // stopping at the first step with a flight. Every step's answer is stored like a normal search. Once a day per route.
+  const scannedFirst = new Map();
+  let scanning = 0;
+  function findFirst(pairs, after) {
+    if (!enabled || now() < pausedUntil) return "unavailable";
+    const today = new Date(now()).toISOString().slice(0, 10);
+    const list = pairs.filter((p) => IATA.test(p.from) && IATA.test(p.to) && flown(p.from, p.to)).slice(0, MAX_ROUTES)
+      .filter((p) => now() - (scannedFirst.get(`${p.from}|${p.to}|${after}`) || 0) >= 24 * 60 * 60 * 1000);
+    if (!list.length) return "fresh";
+    for (const p of list) scannedFirst.set(`${p.from}|${p.to}|${after}`, now());
+    if (scannedFirst.size > 5000) scannedFirst.clear();
+    scanning += 1;
+    (async () => {
+      try {
+        for (const pair of list) {
+          let start = after < today ? today : after;
+          for (let i = 0; i < 13; i += 1) {
+            const one = { from: pair.from, to: pair.to, start, end: addDays(start, 29) };
+            cover(one);
+            const clear = (rows) => {
+              const out = [];
+              for (let day = one.start; day <= one.end; day = addDays(day, 1)) if (!rows.some((r) => r.from === one.from && r.to === one.to && r.day === day)) out.push({ airline: "WIZZ", from: one.from, to: one.to, day });
+              return out;
+            };
+            const result = await run([one], (priced, rows) => flights.mergeRows(priced, { clear: clear(rows) }), "wizz.api.first");
+            if (result.found > 0) break;
+            start = addDays(one.end, 1);
+          }
+        }
+      } catch (error) {
+        if (/InvalidMarket/.test(error.detail || "")) return;
+        console.error("Wizz timetable (first flight):", error.message, error.detail || "");
+      } finally {
+        scanning -= 1;
+      }
+    })();
+    return "started";
+  }
+
   function status() {
-    return { version, available: enabled, running: running > 0, pausedUntil: pausedUntil > now() ? new Date(pausedUntil).toISOString() : null, ...last, progress: { done: Math.min(done, planned), total: Math.max(planned, done) } };
+    return { version, available: enabled, running: running > 0 || scanning > 0, pausedUntil: pausedUntil > now() ? new Date(pausedUntil).toISOString() : null, ...last, progress: { done: Math.min(done, planned), total: Math.max(planned, done) } };
   }
 
   // Called at server start, so the first trip search already knows the version.
   function start() { if (enabled) discover().catch((error) => console.error("Wizz Air:", error.message)); }
 
-  return { fillRange, priceForTime, searchRoutes, start, status };
+  return { fillRange, findFirst, priceForTime, searchRoutes, start, status };
 }
 
 module.exports = { createWizzTimetable, nextVersions, shiftTime, timetableBody };

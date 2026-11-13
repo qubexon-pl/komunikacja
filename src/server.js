@@ -49,7 +49,9 @@ const MAX_AUTH_BODY_BYTES = 16 * 1024;
 const MAX_FEED_BYTES = 50 * 1024 * 1024;
 const SESSION_COOKIE = "rzbus_session";
 const OAUTH_COOKIE = "rzbus_oauth_state";
-const APP_PAGES = new Set(["/", "/autobusy", "/pks", "/pociagi", "/podroz", "/kierunki", "/ulubione", "/moje-podroze", "/podroz-szczegoly"]);
+const APP_PAGES = new Set(["/", "/buses", "/suburban", "/trains", "/plan", "/destinations", "/favourites", "/my-trips", "/trip"]);
+// Polish addresses used before the pages got English names: saved links and bookmarks still work.
+const OLD_PAGES = { "/podroz": "/plan", "/autobusy": "/buses", "/pks": "/suburban", "/pociagi": "/trains", "/kierunki": "/destinations", "/ulubione": "/favourites", "/moje-podroze": "/my-trips", "/podroz-szczegoly": "/trip", "/koncowe": "/plan" };
 const MAX_FAVORITES_BYTES = 512 * 1024; // saved trips carry what they looked like (up to 12 kB each)
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
@@ -84,6 +86,21 @@ function json(res, status, value) {
   }
   res.writeHead(status, headers);
   res.end(body);
+}
+
+async function readBody(req, maxBytes = MAX_BODY_BYTES) {
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) {
+      const error = new Error("Request body is too large.");
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 async function readJson(req, maxBytes = MAX_BODY_BYTES) {
@@ -166,7 +183,7 @@ function requireSameOrigin(req) {
 }
 
 function takeAuthAttempt(req) {
-  const key = req.socket.remoteAddress || "unknown";
+  const key = clientAddress(req);
   const now = Date.now();
   const previous = authAttempts.get(key);
   if (!previous || now - previous.startedAt >= 15 * 60 * 1000) {
@@ -178,8 +195,17 @@ function takeAuthAttempt(req) {
 }
 
 // Public endpoints call paid or fair-use services, so each visitor gets a share per minute.
+// Behind the FastAPI front (TRUST_PROXY=true) every request arrives from this machine; the caller is then the first
+// address in X-Forwarded-For, which only the local proxy may set.
+function clientAddress(req) {
+  const remote = req.socket.remoteAddress || "unknown";
+  if (process.env.TRUST_PROXY !== "true" || !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remote)) return remote;
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return forwarded && forwarded.length <= 64 ? forwarded : remote;
+}
+
 function takePublicRequest(req, name) {
-  const key = `${name}|${req.socket.remoteAddress || "unknown"}`;
+  const key = `${name}|${clientAddress(req)}`;
   const now = Date.now();
   const entry = publicRequests.get(key);
   if (!entry || now - entry.startedAt >= 60 * 1000) {
@@ -301,6 +327,29 @@ async function fillStripDays(req, res, flights, wizz, ryanair) {
   const hasDay = (airline, a, b, day) => flights.known(airline, a, b, day);
   const results = [wizz ? wizz.fillRange(legsOf("WIZZ"), hasDay) : "unavailable", ryanair ? ryanair.fillRange(legsOf("RYANAIR"), hasDay) : "unavailable"];
   if (results.includes("started")) json(res, 202, { started: true });
+  else json(res, 200, { started: false, reason: results.includes("fresh") ? "fresh" : "unavailable" });
+}
+
+// No flight on the chosen day (nor in the two weeks around it): scan each route up to a year ahead and store the
+// first month that has a flight, so the planner can suggest the very first date.
+async function findFirstFlights(req, res, flights, wizz, ryanair) {
+  const { origin = "", dest = "", date = "", prefer = "", radius = 0 } = await readJson(req);
+  const from = parsePoint(origin), to = parsePoint(dest);
+  const today = new Date().toISOString().slice(0, 10);
+  if (!from || !to || !ISO_DAY.test(date) || (Date.parse(date) - Date.parse(today)) / 86400000 > PLAN_AHEAD_DAYS) {
+    json(res, 400, { error: "Nieprawidłowe miejsca lub data podróży." });
+    return;
+  }
+  if (!flights || (!wizz && !ryanair)) { respondToRun(res, "unavailable"); return; }
+  const preferred = /^[A-Z]{3}$/.test(String(prefer).toUpperCase()) ? String(prefer).toUpperCase() : "";
+  const pairs = flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined });
+  const after = (date < today ? today : date);
+  const results = [
+    wizz && wizz.findFirst ? wizz.findFirst(pairs.filter((p) => p.airlines.includes("WIZZ")), after) : "unavailable",
+    ryanair && ryanair.findFirst ? ryanair.findFirst(pairs.filter((p) => p.airlines.includes("RYANAIR")), after) : "unavailable",
+  ];
+  if (!pairs.length) json(res, 200, { started: false, reason: "no-routes" });
+  else if (results.includes("started")) json(res, 202, { started: true });
   else json(res, 200, { started: false, reason: results.includes("fresh") ? "fresh" : "unavailable" });
 }
 
@@ -491,9 +540,9 @@ async function serveWalk(res, url, walkDistances) {
   }
 }
 
-function serveStatic(res, pathname, root) {
-  if (pathname === "/koncowe") {
-    res.writeHead(301, { Location: "/podroz" });
+function serveStatic(res, pathname, root, search = "") {
+  if (Object.hasOwn(OLD_PAGES, pathname)) {
+    res.writeHead(301, { Location: OLD_PAGES[pathname] + (search || "") });
     res.end();
     return;
   }
@@ -501,15 +550,21 @@ function serveStatic(res, pathname, root) {
   const isAppPage = APP_PAGES.has(pathname);
   const isLoginAsset = pathname === "/assets/login.css" || pathname === "/assets/login.js" || pathname === "/assets/i18n.js";
   const isLogo = /^\/assets\/logo(-\d+)?\.png$/.test(pathname); // the app logo, in the sizes it is used
-  if (!isAppPage && !isLoginPage && !pathname.startsWith("/assets/")) {
+  // ON/WARD brand pack: logos, icons, banners, illustrations, tokens and PWA icons (not its guide or manifest notes)
+  const isBrand = /^\/assets\/onward\/(logos|icons|banners|page-banners|decorations|illustrations|weather|map|png|css)\/[a-z0-9-]+\.(svg|png|css)$/.test(pathname)
+    || /^\/assets\/onward\/i18n\/(pl-PL|en-GB)\.json$/.test(pathname)
+    || pathname === "/assets/hero.svg" || pathname === "/assets/manifest.webmanifest";
+  // The service worker must live at the site root to cover every page.
+  const isServiceWorker = pathname === "/sw.js";
+  if (!isAppPage && !isLoginPage && !isServiceWorker && !pathname.startsWith("/assets/")) {
     json(res, 404, { error: "Not found." });
     return;
   }
-  if (pathname.startsWith("/assets/") && !isLoginAsset && !isLogo && !pathname.startsWith("/assets/app.")) {
+  if (pathname.startsWith("/assets/") && !isLoginAsset && !isLogo && !isBrand && !pathname.startsWith("/assets/app.")) {
     json(res, 404, { error: "Not found." });
     return;
   }
-  const requestedPath = isAppPage ? "/index.html" : isLoginPage ? "/login.html" : pathname;
+  const requestedPath = isAppPage ? "/index.html" : isLoginPage ? "/login.html" : isServiceWorker ? "/assets/app.sw.js" : pathname;
   const filePath = path.resolve(root, `.${requestedPath}`);
   if (!filePath.startsWith(`${root}${path.sep}`)) {
     json(res, 403, { error: "Forbidden." });
@@ -891,6 +946,32 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
+// Przekazuje zapytanie do serwera FastAPI (API_UPSTREAM, domyślnie http://127.0.0.1:8000) razem z ciasteczkiem sesji.
+// Bez działającego FastAPI odpowiada jasnym komunikatem zamiast 404.
+const FORWARD_HEADERS = ["cookie", "content-type", "accept", "accept-language", "origin", "authorization", "user-agent"];
+async function forwardToApi(req, res, url, fetchSource = fetch) {
+  const upstream = (process.env.API_UPSTREAM || "http://127.0.0.1:8000").replace(/\/+$/, "");
+  const headers = {};
+  for (const name of FORWARD_HEADERS) if (req.headers[name]) headers[name] = req.headers[name];
+  headers["x-forwarded-for"] = clientAddress(req);
+  const body = ["GET", "HEAD"].includes(req.method) ? undefined : await readBody(req, 64 * 1024);
+  let answer;
+  try {
+    answer = await fetchSource(upstream + url.pathname + url.search, { method: req.method, headers, body, redirect: "manual", signal: AbortSignal.timeout(15000) });
+  } catch {
+    json(res, 503, { error: "Udostępnianie wymaga serwera API (FastAPI). Uruchom aplikację poleceniem: npm run dev:all", code: "api-offline" });
+    return;
+  }
+  const bytes = Buffer.from(await answer.arrayBuffer());
+  res.writeHead(answer.status, {
+    "Content-Type": answer.headers.get("content-type") || "application/json; charset=utf-8",
+    "Content-Length": bytes.length,
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.end(bytes);
+}
+
 function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, hotels = createHotels({ fetchSource }), staticRoot = ROOT }) {
   const transitClient = createTransitous({ fetchSource });
   const airportTransfers = transfers || createAirportTransfers({ transitous: transitClient, toPln: fareRates, geocode, snapshots, drive });
@@ -905,6 +986,12 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
       if (url.pathname.startsWith("/api/auth/")) {
         if (await handleAuth(req, res, url, auth)) return;
         json(res, 404, { error: "Authentication endpoint not found." });
+        return;
+      }
+
+      // Udostępnianie podróży żyje w FastAPI; gdy aplikację otwiera się przez Node, te zapytania idą dalej do FastAPI.
+      if (segments[0] === "api" && segments[1] === "trips") {
+        await forwardToApi(req, res, url, fetchSource);
         return;
       }
 
@@ -1096,6 +1183,16 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           await fillStripDays(req, res, flights, wizz, ryanair);
           return;
         }
+        if (segments[1] === "flights" && segments[2] === "first" && segments.length === 3) {
+          if (req.method !== "POST") {
+            res.setHeader("Allow", "POST");
+            json(res, 405, { error: "Method not allowed." });
+            return;
+          }
+          requireSameOrigin(req);
+          await findFirstFlights(req, res, flights, wizz, ryanair);
+          return;
+        }
         if (segments[1] === "flights" && segments[2] === "trip" && segments.length === 3) {
           if (req.method !== "POST") {
             res.setHeader("Allow", "POST");
@@ -1223,14 +1320,14 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           authRedirect(res, safeReturnTo(url.searchParams.get("returnTo")));
           return;
         }
-        serveStatic(res, url.pathname, root);
+        serveStatic(res, url.pathname, root, url.search);
         return;
       }
       if (url.pathname === "/assets/login.css" || url.pathname === "/assets/login.js") {
-        serveStatic(res, url.pathname, root);
+        serveStatic(res, url.pathname, root, url.search);
         return;
       }
-      serveStatic(res, url.pathname, root);
+      serveStatic(res, url.pathname, root, url.search);
     } catch (error) {
       if (res.headersSent) {
         res.destroy(error);
@@ -1330,7 +1427,9 @@ async function main() {
     },
   });
   const port = Number(process.env.PORT || 3000);
-  server.listen(port, () => console.log(`Komunikacja is listening on http://localhost:${port}`));
+  // HOST=127.0.0.1 keeps Node reachable only through the FastAPI front on the same machine.
+  const host = process.env.HOST || undefined;
+  server.listen(port, host, () => console.log(`Komunikacja is listening on http://${host || "localhost"}:${port}`));
   const close = () => server.close(async () => {
     timetables.stop();
     schedules.stop();

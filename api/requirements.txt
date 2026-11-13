@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+httpx==0.28.1
+pyodbc==5.2.0
+azure-identity==1.19.0
+azure-storage-file-datalake==12.18.0
+google-auth==2.37.0
+requests==2.32.3
+python-dotenv==1.0.1

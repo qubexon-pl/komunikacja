@@ -24,3 +24,20 @@ test("the destination forecast covers the stay, says when later days get one, an
   assert.equal(calls, 1); // the same place, within the hour
   await assert.rejects(weather.forecast({ lat: 99, lon: 2, from: "2026-11-15", to: "2026-11-16" }), /Podaj/);
 });
+
+test("each day carries its local hours, so a night landing is not shown with the day's maximum", async () => {
+  let url = "";
+  const days = range("2026-11-16", 2);
+  const fetchSource = async (u) => {
+    url = String(u);
+    return new Response(JSON.stringify({
+      daily: { time: days, weather_code: [3, 61], temperature_2m_max: [19.6, 17], temperature_2m_min: [11.2, 10], precipitation_probability_max: [20, 70], precipitation_sum: [0, 3], wind_speed_10m_max: [10, 20] },
+      hourly: { time: ["2026-11-17T00:00", "2026-11-17T01:00", "2026-11-17T14:00"], temperature_2m: [12.1, 11.8, 16.9], precipitation_probability: [65, 70, null], weather_code: [61, 61, 3] },
+    }));
+  };
+  const weather = createTripWeather({ fetchSource, now: () => 0 });
+  const result = await weather.forecast({ lat: 41.8, lon: 12.25, from: "2026-11-17", to: "2026-11-17" });
+  assert.match(url, /hourly=temperature_2m%2Cprecipitation_probability%2Cweather_code/);
+  assert.deepEqual(result.days[0].hours, [[0, 12.1, 65, 61], [1, 11.8, 70, 61], [14, 16.9, null, 3]]);
+  assert.equal(result.days[0].max, 17);
+});
