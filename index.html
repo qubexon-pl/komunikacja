@@ -100,11 +100,19 @@
   <div class="sec-head only-plan" id="plan-sec"><span class="sec-num">01</span><h2 id="planTitle">Dokąd jedziesz?</h2><span class="sec-rule"></span></div>
   <div class="search-box only-plan">
     <div class="plan-scope" id="planScope" hidden></div>
+    <div class="multi-bar" id="multiBar" hidden></div>
     <div class="trip-tabs only-podroz" role="group" aria-label="Rodzaj podróży">
       <button type="button" class="trip-tab on" data-round="0" aria-pressed="true">W jedną stronę</button>
       <button type="button" class="trip-tab" data-round="1" aria-pressed="false">W obie strony</button>
+      <button type="button" class="trip-tab" data-trip-kind="multi" aria-pressed="false"><i class="fa-solid fa-route" aria-hidden="true"></i> Wiele miejsc</button>
       <input type="checkbox" id="plRound" hidden>
       <button type="button" class="btn-ghost pl-reset" id="plReset" title="Wyczyść wyszukiwanie i zacznij od nowa"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Resetuj</button>
+    </div>
+    <div class="multi-form only-podroz" id="multiForm" hidden>
+      <div class="mf-start pl-field"><label for="mfFrom"><i class="oi oi-pin" aria-hidden="true"></i> Start</label><div class="pl-inp"><input id="mfFrom" placeholder="Skąd zaczynasz podróż" autocomplete="off"></div></div>
+      <ol class="mf-steps" id="mfSteps"></ol>
+      <div class="mf-foot"><button type="button" class="btn-ghost" id="mfAdd"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj kolejne miejsce</button>
+        <button type="button" class="btn-grad mf-go" id="mfGo"><i class="oi oi-search" aria-hidden="true"></i> Zaplanuj etapy</button></div>
     </div>
     <form id="planForm" class="planner" autocomplete="off">
       <div class="pl-pair">

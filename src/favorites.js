@@ -21,12 +21,13 @@ function text(value) {
 // What a saved trip looked like when it was saved (flights, the way to the airport, the chosen way into town), so its
 // page can be shown without planning again. It comes from the browser: plain data only — short strings, finite numbers,
 // small lists, a few levels deep — and at most MAX_SNAPSHOT characters.
-const MAX_SNAPSHOT = 24000; // steps to the airport, weather places, costs and a hotel
+const MAX_SNAPSHOT = 60000; // steps to the airport, weather places, costs, a hotel; a trip in several legs holds each leg
+const MAX_DEPTH = 8; // trip → legs → leg → snapshot → access → steps → step → link
 function plain(value, depth = 0) {
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "string") return value.slice(0, 300);
-  if (depth >= 5) return null;
+  if (depth >= MAX_DEPTH) return null;
   if (Array.isArray(value)) return value.slice(0, 20).map((v) => plain(v, depth + 1));
   if (typeof value === "object") {
     const out = {};
@@ -54,6 +55,11 @@ function normalizeFavorites(value) {
     if (item.type === "route" && text(item.from) && text(item.to)) favorite = { type: "route", view: item.view, from: text(item.from), to: text(item.to) };
     if (item.type === "trip" && text(item.id) && text(item.from) && text(item.to) && text(item.name)) {
       favorite = { type: "trip", view: "podroz", id: text(item.id), from: text(item.from), to: text(item.to), name: text(item.name), detail: text(item.detail) };
+      // The traveller's own name for the trip and the places in between (Rzeszów → Szczecin → Gdańsk → Wrocław).
+      const title = text(item.title).slice(0, 80);
+      if (title) favorite.title = title;
+      const stops = Array.isArray(item.stops) ? item.stops.map(text).filter(Boolean).slice(0, 6) : [];
+      if (stops.length) favorite.stops = stops;
       const flight = flightOf(item.flight);
       if (flight) favorite.flight = flight;
       // The choices of the plan: outbound and return flight (their keys) and the way to the airport.

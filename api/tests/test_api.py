@@ -140,3 +140,14 @@ def test_node_sign_in_steps_give_apps_the_session_in_the_body_not_a_cookie(clien
     assert "set-cookie" not in app.headers
     web = client.post("/api/auth/verify-email", json={}, headers=WEB)
     assert "rzbus_session=" in web.headers["set-cookie"] and "token" not in web.json()
+
+
+def test_a_saved_trip_keeps_its_name_places_in_between_and_deep_steps_like_node():
+    from app.favorites import normalize_favorites
+
+    leg = {"kind": "flight", "snap": {"access": {"steps": [{"icon": "car", "text": "Jedź", "link": {"href": "https://maps.example/x", "label": "Mapy"}}]}}}
+    [trip] = normalize_favorites([{"type": "trip", "view": "podroz", "id": "m:1", "from": "Rzeszów", "to": "Wrocław", "name": "Lot + pociąg",
+                                   "title": "  Majówka nad morzem  ", "stops": ["Szczecin", "", "Gdańsk", 5], "trip": {"multi": True, "legs": [leg]}}])
+    assert trip["title"] == "Majówka nad morzem"
+    assert trip["stops"] == ["Szczecin", "Gdańsk"]
+    assert trip["trip"]["legs"][0]["snap"]["access"]["steps"][0]["link"]["href"] == "https://maps.example/x"

@@ -2698,3 +2698,54 @@ body.plan-deep #planResults .res-layout{grid-template-columns:minmax(0,1fr)}
 
 .ground-next b.ok{color:#199B70}
 .ground-next b.ok::before{content:"✓ "}
+
+/* ================================================================
+   Podróż w etapach: pasek etapów nad wyszukiwarką
+   ================================================================ */
+.multi-bar{margin:14px 0 4px}
+.multi-bar[hidden]{display:none}
+.mb-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; color:#173B70}
+.mb-head b{display:inline-flex; align-items:center; gap:8px} .mb-head b i{color:#2878D0}
+.mb-actions{display:inline-flex; gap:6px}
+.mb-legs{display:flex; flex-wrap:wrap; gap:8px; list-style:none; margin:0; padding:0}
+.mb-legs li button{display:flex; align-items:center; gap:10px; text-align:left; border:1px solid #E3EAF3; background:#fff; border-radius:14px; padding:8px 12px; min-width:0; max-width:300px}
+.mb-legs li button:not([disabled]):hover{border-color:#2878D0}
+.mb-legs li button[disabled]{opacity:.55}
+.mb-legs li.on button{border-color:#2878D0; box-shadow:0 0 0 2px rgba(40,120,208,.2); background:#F4F9FF}
+.mb-legs li.done .mb-n{background:#199B70; color:#fff}
+.mb-n{display:inline-grid; place-items:center; flex:none; width:26px; height:26px; border-radius:50%; background:#E5F1FD; color:#173B70; font-weight:800; font-size:.8rem}
+.mb-legs li.on .mb-n{background:#2878D0; color:#fff}
+.mb-text{display:flex; flex-direction:column; min-width:0}
+.mb-text b{font-size:.86rem; color:#172B45; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.mb-text small{font-size:.74rem; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+body.multi-mode .search-box .trip-tabs [data-round], body.multi-mode #plStops, body.multi-mode #plAddStop{display:none !important}
+body.plan-deep .search-box > :not(#planScope):not(#multiBar){display:none !important}
+.multi-next .multi-date{display:flex; flex-direction:column; gap:6px; flex:1 1 100%; font-size:.88rem; color:#173B70}
+.multi-next .multi-date input{max-width:220px; min-height:42px; padding:0 12px; border:1px solid var(--line); border-radius:12px; font:inherit; background:#fff; cursor:pointer}
+.tp-leg-title{display:block; margin:4px 0 2px; color:#173B70}
+.tp-leg-sub{font-size:.82rem; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft); margin:12px 0 4px}
+
+/* ================================================================
+   „Wiele miejsc”: formularz etapów
+   ================================================================ */
+body.multi-form[data-view="podroz"] #planForm, body.multi-form[data-view="podroz"] #plStops, body.multi-form[data-view="podroz"] #plAddStop, body.multi-form[data-view="podroz"] #plModes{display:none !important}
+body.multi-mode #multiForm{display:none !important}
+.multi-form[hidden]{display:none}
+.multi-form{display:flex; flex-direction:column; gap:10px; margin-top:4px}
+.mf-start{max-width:520px; border:1px solid var(--line); border-radius:16px; background:#fff}
+.mf-steps{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; counter-reset:none}
+.mf-step{display:grid; grid-template-columns:34px minmax(200px,1.4fr) minmax(150px,.8fr) minmax(190px,.9fr) auto 34px; gap:10px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:16px; background:#fff}
+.mf-step .pl-field{border:1px solid #E3EAF3; border-radius:12px; padding:8px 12px; background:#fff}
+.mf-step .pl-inp input{width:100%}
+.mf-n{display:inline-grid; place-items:center; width:30px; height:30px; border-radius:50%; background:#173B70; color:#fff; font-weight:800}
+.mf-time-f{display:flex; flex-direction:column; gap:2px}
+.mf-modes{display:flex; flex-wrap:wrap; gap:6px; max-width:360px}
+.mode-check.sm{padding:5px 10px; font-size:.78rem}
+.mode-check.sm .oi{width:1em; height:1em}
+.mf-remove{align-self:center}
+.mf-remove[hidden]{visibility:hidden; display:inline-grid}
+.mf-foot{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap}
+.mf-go{display:inline-flex; align-items:center; gap:8px; padding:12px 22px}
+.trip-tab .fa-route{margin-right:4px}
+@media (max-width:1180px){ .mf-step{grid-template-columns:34px 1fr 1fr 34px} .mf-step .mf-to-f{grid-column:2 / 4} .mf-step .mf-date-f{grid-column:2} .mf-step .mf-time-f{grid-column:3} .mf-step .mf-modes{grid-column:2 / 4; max-width:none} .mf-remove{grid-row:1; grid-column:4} }
+@media (max-width:640px){ .mf-step{grid-template-columns:30px 1fr 30px} .mf-step .mf-to-f,.mf-step .mf-date-f,.mf-step .mf-time-f,.mf-step .mf-modes{grid-column:2} .mf-remove{grid-column:3} }

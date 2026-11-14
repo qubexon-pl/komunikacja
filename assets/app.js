@@ -1378,13 +1378,192 @@ function renderEditBadge(){
   if(on) document.getElementById('editBadgeLabel').textContent=S.editing.label;
 }
 document.getElementById('editBadgeEnd')?.addEventListener('click', ()=>{ S.editing=null; renderEditBadge(); });
+/* ---------- Podróż w etapach: każdy odcinek (start → miejsce 1, miejsce 1 → miejsce 2, …) planujemy osobno,
+   z wyborem środka transportu (samochód, pociąg, autobus, lot), a na końcu zapisujemy całą podróż ---------- */
+/* ---------- Formularz „Wiele miejsc”: start i kolejne miejsca, każde z datą, godziną i środkami transportu ---------- */
+const MF_MODES=[['bus','bus','Autobus'],['pks','suburban-bus','Podmiejskie'],['train','train','Pociąg'],['plane','plane','Samolot'],['car','car','Samochód']], MF_MAX=6;
+const mfFrom=document.getElementById('mfFrom'), mfSteps=document.getElementById('mfSteps');
+function mfStepHtml(i, x={}){
+  const modes=x.modes||MF_MODES.map(m=>m[0]);
+  return `<li class="mf-step">
+    <span class="mf-n" aria-hidden="true">${i+1}</span>
+    <div class="pl-field mf-to-f"><label><i class="oi oi-pin" aria-hidden="true"></i> <span class="mf-label">Miejsce ${i+1}</span></label><div class="pl-inp"><input class="mf-to" placeholder="Dokąd" value="${esc(x.to||'')}" autocomplete="off"></div></div>
+    <div class="pl-field mf-date-f"><label><i class="oi oi-calendar" aria-hidden="true"></i> Data</label><div class="pl-inp"><input class="mf-date dp-input" type="date" readonly value="${esc(x.date||'')}" min="${ymdOf(0)}" max="${lastPlanDay()}" aria-haspopup="dialog"></div></div>
+    <div class="pl-field mf-time-f"><select class="mf-when pl-when" aria-label="Znaczenie godziny"><option value="dep" ${x.when!=='arr'?'selected':''}>Odjazd</option><option value="arr" ${x.when==='arr'?'selected':''}>Na miejscu o</option></select><div class="pl-inp"><input class="mf-time" type="time" value="${esc(x.time||'')}" aria-label="Godzina (puste = dowolna)"></div></div>
+    <div class="mf-modes" role="group" aria-label="Środki transportu na tym etapie">${MF_MODES.map(([v,icon,label])=>`<label class="mode-check sm"><input type="checkbox" value="${v}" ${modes.includes(v)?'checked':''}> <i class="oi oi-${icon}" aria-hidden="true"></i> ${label}</label>`).join('')}</div>
+    <button type="button" class="pl-stop-remove mf-remove" title="Usuń to miejsce" aria-label="Usuń to miejsce"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+  </li>`;
+}
+function mfRenumber(){
+  [...mfSteps.querySelectorAll('.mf-step')].forEach((li,i)=>{ li.querySelector('.mf-n').textContent=i+1; li.querySelector('.mf-label').textContent=`Miejsce ${i+1}`; });
+  const n=mfSteps.querySelectorAll('.mf-step').length;
+  document.getElementById('mfAdd').disabled=n>=MF_MAX;
+  mfSteps.querySelectorAll('.mf-remove').forEach(b=>{ b.hidden=n<=2; });
+}
+function mfAddStep(x={}){
+  const steps=mfSteps.querySelectorAll('.mf-step'); if(steps.length>=MF_MAX) return null;
+  const prev=steps[steps.length-1];
+  if(!x.date && prev) x.date=prev.querySelector('.mf-date').value;
+  if(!x.modes && prev) x.modes=[...prev.querySelectorAll('.mf-modes input:checked')].map(i=>i.value);
+  mfSteps.insertAdjacentHTML('beforeend', mfStepHtml(steps.length, x));
+  const li=mfSteps.lastElementChild; attachSuggest(li.querySelector('.mf-to'), {streets:true});
+  mfRenumber(); return li;
+}
+// Przełączenie na „Wiele miejsc”: start i pierwsze miejsce z wyszukiwarki, zawsze co najmniej dwa miejsca.
+function enterMultiForm({addStep=false, from='', steps=null}={}){
+  if(!mfFrom.dataset.sugg){ mfFrom.dataset.sugg='1'; attachSuggest(mfFrom, {streets:true}); }
+  document.body.classList.add('multi-form'); plRound.checked=false; syncReturn();
+  if(from || !mfFrom.value) mfFrom.value=from||plFrom.value;
+  if(steps){ mfSteps.innerHTML=''; steps.forEach(x=>mfAddStep({...x})); }
+  if(!mfSteps.children.length) mfAddStep({to:plTo.value, date:plDate.value, modes:[...document.querySelectorAll('#plModes input:checked')].map(x=>x.value)});
+  while(mfSteps.children.length<2 || addStep){ addStep=false; const li=mfAddStep(); if(!li) break; }
+  mfRenumber();
+  const empty=[mfFrom, ...mfSteps.querySelectorAll('.mf-to')].find(i=>!i.value.trim());
+  setTimeout(()=>(empty||mfFrom).focus(), 50);
+}
+function setPlanModes(modes){ document.querySelectorAll('#plModes input').forEach(x=>{ x.checked=modes.includes(x.value); }); }
+document.getElementById('mfAdd')?.addEventListener('click', ()=>{ const li=mfAddStep(); li?.querySelector('.mf-to').focus(); });
+document.getElementById('multiForm')?.addEventListener('click', e=>{
+  const rm=e.target.closest('.mf-remove'); if(rm){ rm.closest('.mf-step').remove(); mfRenumber(); return; }
+  const d=e.target.closest('.mf-date'); if(d){ e.preventDefault(); openDatePicker(d); }
+});
+document.getElementById('multiForm')?.addEventListener('keydown', e=>{
+  if(e.target.matches('.mf-date') && ['Enter',' ','ArrowDown'].includes(e.key)){ e.preventDefault(); openDatePicker(e.target); return; }
+  if(e.key==='Enter' && e.target.matches('input:not(.mf-date)') && !document.querySelector('.sugg-list:not([hidden]) .on')){ e.preventDefault(); document.getElementById('mfGo').click(); }
+});
+document.getElementById('mfGo')?.addEventListener('click', ()=>{
+  const err=document.getElementById('planErr'); err.textContent='';
+  const from=mfFrom.value.trim(), rows=[...mfSteps.querySelectorAll('.mf-step')];
+  const steps=rows.map(li=>({to:li.querySelector('.mf-to').value.trim(), date:li.querySelector('.mf-date').value, time:li.querySelector('.mf-time').value, when:li.querySelector('.mf-when').value, modes:[...li.querySelectorAll('.mf-modes input:checked')].map(x=>x.value)}));
+  if(!from){ err.textContent='Podaj, skąd zaczynasz podróż.'; mfFrom.focus(); return; }
+  const noPlace=steps.findIndex(x=>!x.to); if(noPlace>=0){ err.textContent=`Podaj miejsce ${noPlace+1}.`; rows[noPlace].querySelector('.mf-to').focus(); return; }
+  if(steps.length<2){ err.textContent='Dodaj co najmniej dwa miejsca — dla jednego wybierz „W jedną stronę”.'; return; }
+  const noMode=steps.findIndex(x=>!x.modes.length); if(noMode>=0){ err.textContent=`Zaznacz środek transportu dla miejsca ${noMode+1}.`; return; }
+  let last=ymdOf(0);
+  for(let i=0;i<steps.length;i++){
+    if(!steps[i].date) steps[i].date=last;
+    if(steps[i].date<last){ err.textContent=`Data miejsca ${i+1} jest wcześniejsza niż poprzedniego.`; openDatePicker(rows[i].querySelector('.mf-date')); return; }
+    if(steps[i].date>lastPlanDay()){ err.textContent=`Podróż można zaplanować najpóźniej na ${fmtDay(lastPlanDay())}.`; return; }
+    last=steps[i].date; rows[i].querySelector('.mf-date').value=steps[i].date;
+  }
+  if(steps.some((x,i)=>x.to===(i?steps[i-1].to:from))){ err.textContent='Dwa kolejne miejsca są takie same.'; return; }
+  const before=[...document.querySelectorAll('#plModes input:checked')].map(x=>x.value);
+  S.multi={places:[from, ...steps.map(x=>x.to)], stays:[], dates:steps.map(x=>x.date), steps, legs:[], cur:0, to:steps[steps.length-1].to, tripTitle:undefined, saved:null, savedOk:null, modesBefore:before};
+  runLeg(0);
+});
+// S.multi = {places, stays (min), dates (dzień wyjazdu każdego etapu), legs (wybrane), cur (etap albo 'save'), rows (do edycji)}
+function startMulti(from, vias, to, date){
+  S.multi={places:[from, ...vias.map(v=>v.label), to], stays:vias.map(v=>v.stay), dates:[date||ymdOf(0)], legs:[], cur:0, to, tripTitle:undefined, saved:null, savedOk:null};
+  clearVias(); runLeg(0);
+}
+function runLeg(k){
+  const M=S.multi; if(!M) return;
+  M.cur=k; M.saved=null;
+  if(plRound.checked) document.querySelector('[data-round="0"]')?.click();
+  const st=M.steps?.[k];
+  plFrom.value=M.places[k]; plTo.value=M.places[k+1]; plDate.value=M.dates[k]||M.dates[k-1]||ymdOf(0); plTime.value=st?.time||''; plWhen.value=st?.when||'dep';
+  if(st?.modes?.length) setPlanModes(st.modes);
+  S.placeChoice={}; renderMultiBar();
+  S.multiLeg=true; document.getElementById('planForm').requestSubmit();
+  document.querySelector('.search-box')?.scrollIntoView({behavior:'smooth', block:'start'});
+}
+// Wybrany odcinek w postaci zapisywanej w podróży (lot z dojazdami albo połączenie lądowe).
+function multiLegOf(P, kind){
+  const n=Math.max(1,P.people||1);
+  if(kind==='ground'){
+    const g=P.groundPick; if(!g) return null;
+    return {kind:'ground', key:`g:${g.key}@${g.day}`, from:P.from, to:P.to, day:g.day, leave:g.leave, arrive:g.arrive, arrDay:g.arrive!=null?dayOfTs(g.arrive):g.day,
+      title:g.title, icon:g.icon, cost:g.cost==null?null:Math.round((g.kind==='car'?g.cost*Math.ceil(n/CAR_SEATS):g.cost*n)*100)/100, a:g.a, b:g.b, g};
+  }
+  const C=flightChoice(P); if(!C?.out || !P.xferPick) return null;
+  const f={...C.out, ret:null, returns:[]}, o=pickedAccess(P,f), d=airportOptions(P,f), {weather, ...snap}=tripSnapshot(P,f,o,d);
+  const ll=x=>x?.lat!=null?[x.lat,x.lon]:null;
+  return {kind:'flight', key:`f:${fareKey(f)}`, from:P.from, to:P.to, day:f.day, leave:o?.leave||null, arrive:null, arrDay:snap.out?.arrDay||f.day,
+    title:`${snap.out?.airlineName||'Lot'} ${f.from} → ${f.to}`, icon:'plane', cost:snap.costs?.total??null, a:ll(snap.home), b:ll(snap.centre)||ll(snap.dest), snap};
+}
+// Na końcu kroku: zatwierdź ten etap i przejdź do następnego (z jego datą) albo do zapisu całej podróży.
+function multiLegBar(P, kind){
+  const M=S.multi, k=M.cur, n=M.places.length-1, last=k===n-1, leg=multiLegOf(P, kind);
+  if(!leg) return '';
+  const next=addDays(leg.arrDay||leg.day, Math.round((M.stays[k]||0)/1440)), keep=M.dates[k+1]&&M.dates[k+1]>=(leg.arrDay||leg.day)?M.dates[k+1]:next;
+  return `<div class="cs-save multi-next"><div class="cs-choice"><i class="fa-solid fa-route" aria-hidden="true"></i> Etap ${k+1} z ${n}: <b>${esc(P.from)} → ${esc(P.to)}</b> · ${esc(leg.title)}${leg.cost!=null?` · ok. ${zl(leg.cost)}`:''}</div>
+    ${last?'':`<label class="multi-date"><span>Następny etap: <b>${esc(M.places[k+1])} → ${esc(M.places[k+2])}</b> — dzień wyjazdu${M.stays[k]?` <small>(postój ${fmtStay(M.stays[k])})</small>`:''}</span><input type="date" class="dp-input" readonly data-multi-date value="${keep}" min="${leg.arrDay||leg.day}" max="${lastPlanDay()}"></label>`}
+    <div class="cs-save-btns"><button type="button" class="btn-grad" data-multi-next="${kind}">${last?'Dalej: zapisz całą podróż':`Dalej: etap ${k+2} — ${esc(M.places[k+1])} → ${esc(M.places[k+2])}`} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div></div>`;
+}
+function renderMultiBar(){
+  const el=document.getElementById('multiBar'), M=S.multi;
+  document.body.classList.toggle('multi-mode', !!M);
+  if(!el) return;
+  el.hidden=!M; if(!M){ el.innerHTML=''; return; }
+  const n=M.places.length-1, all=M.legs.length===n && M.legs.every(Boolean);
+  el.innerHTML=`<div class="mb-head"><b><i class="fa-solid fa-route" aria-hidden="true"></i> Podróż w etapach</b><span class="mb-actions"><button type="button" class="btn-ghost" data-multi-edit><i class="fa-solid fa-pen" aria-hidden="true"></i> Edytuj miejsca</button><button type="button" class="btn-ghost" data-multi-end title="Zakończ planowanie w etapach">×</button></span></div>
+    <ol class="mb-legs">${M.places.slice(0,-1).map((p,k)=>{ const L=M.legs[k], on=M.cur===k, open=L||on||M.legs[k-1];
+      return `<li class="${on?'on':L?'done':''}"><button type="button" data-multi-leg="${k}" ${open?'':'disabled'} aria-current="${on?'step':'false'}"><span class="mb-n">${L&&!on?'<i class="fa-solid fa-check" aria-hidden="true"></i>':k+1}</span><span class="mb-text"><b>${esc(p)} → ${esc(M.places[k+1])}</b><small>${L?`<i class="fa-solid fa-${esc(L.icon)}" aria-hidden="true"></i> ${esc(L.title)} · ${fmtDay(L.day)}`:on?'wybierz środek transportu':M.dates[k]?fmtDay(M.dates[k]):'—'}</small></span></button></li>`; }).join('')}
+      <li class="${M.cur==='save'?'on':''}"><button type="button" data-multi-save-step ${all?'':'disabled'}><span class="mb-n"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i></span><span class="mb-text"><b>Zapisz podróż</b><small>${all?'wszystkie etapy wybrane':`wybrano ${M.legs.filter(Boolean).length} z ${n}`}</small></span></button></li></ol>`;
+}
+function showMultiSave(){
+  const M=S.multi; if(!M) return;
+  M.cur='save'; planReq++; S.plan=null;
+  document.getElementById('planResults').innerHTML=multiSaveView();
+  renderMultiBar(); updatePlanScope();
+  document.getElementById('planResults').scrollIntoView({behavior:'smooth', block:'start'});
+}
+function multiSaveView(){
+  const M=S.multi, n=M.places.length-1, legs=M.legs;
+  const total=legs.reduce((a,L)=>a+(L.cost||0),0), unknown=legs.some(L=>L.cost==null);
+  const cards=legs.map((L,k)=>`<div class="journey-box ground-leg"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-${esc(L.icon)}" aria-hidden="true"></i> Etap ${k+1}: ${esc(L.from)} → ${esc(L.to)}</h4><button type="button" class="btn-ghost" data-multi-leg="${k}"><i class="fa-solid fa-pen" aria-hidden="true"></i> Zmień</button></div>
+      <small class="text-soft">${esc(L.title)} · ${longDay(L.day,{weekday:'short', day:'numeric', month:'long'})}${L.leave!=null?` · wyjście ${fmtClock(L.leave)}`:''}${L.arrive!=null?` · na miejscu ${fmtClock(L.arrive)}`:''}${L.cost!=null?` · ok. ${zl(L.cost)}`:''}</small>
+      ${L.kind==='ground'?stepsHtml(L.g.steps||[]):stepsHtml([...(L.snap.access?.steps||[]).slice(0,6), {icon:'plane-departure', text:`Lot ${L.snap.out?.fromLabel||''} → ${L.snap.out?.toLabel||''}`, sub:`${L.snap.out?.dep||''} → ${L.snap.out?.arr||''} · ${L.snap.out?.airlineName||''}`}])}</div>`+
+      (k<n-1&&M.stays[k]?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(M.places[k+1])}: postój ${fmtStay(M.stays[k])}</div>`:'')).join('');
+  return `<div class="plan-head"><span>${M.places.map(esc).join(' <span class="txt-red">→</span> ')}</span></div>${cards}
+    <div class="cs-save"><div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz całą podróż w ulubionych albo jako swoją podróż.${legs.length?` <small>Koszt: ${unknown?'od ':'ok. '}${zl(total)}</small>`:''}</div>
+      ${tripTitleField(M)}
+      <div class="cs-save-btns"><button type="button" class="btn-ghost" data-multi-save="planned"><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
+      <button type="button" class="btn-grad" data-multi-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${savedNote(M)}</div>`;
+}
+function saveMultiTrip(status, title){
+  const M=S.multi, legs=M?.legs||[], n=(M?.places.length||1)-1; if(!M || legs.length!==n || legs.some(x=>!x)) return;
+  const id='m:'+legs.map(L=>L.key).join('>').slice(0,180);
+  const before=FAV.items.find(x=>x.type==='trip' && (x.id===id || (S.editing?.tid && x.tid===S.editing.tid)));
+  const at=x=>Array.isArray(x)?{lat:x[0], lon:x[1]}:{lat:null, lon:null};
+  const home={label:M.places[0], ...at(legs[0].a)}, dest={label:M.places[n], ...at(legs[n-1].b)};
+  const stops=M.places.slice(1,-1).map((label,k)=>({label, ...at(legs[k].b), stay:M.stays[k]||0}));
+  const wx=(icon,label,p,day,ts)=>p.lat!=null&&day?[{icon,label,place:label,lat:p.lat,lon:p.lon,day,time:ts!=null?fmtClock(ts):''}]:[];
+  const weather=[...wx('house',M.places[0],home,legs[0].day,legs[0].leave), ...stops.flatMap((x,k)=>wx('location-dot',x.label,x,legs[k].arrDay,legs[k].arrive)), ...wx('location-dot',M.places[n],dest,legs[n-1].arrDay,legs[n-1].arrive)];
+  const people=Math.max(1,+document.getElementById('plPeople')?.value||1);
+  const item={type:'trip', view:'podroz', id, tid:before?.tid||newTid(), status, from:M.places[0], to:M.places[n], stops:stops.map(x=>x.label), title:(title||'').trim().slice(0,80),
+    name:legs.map(L=>L.title).join(' + ').slice(0,190), detail:`${fmtDay(legs[0].day)} – ${fmtDay(legs[n-1].arrDay)} · ${n} ${n<5?'etapy':'etapów'}`,
+    trip:{multi:true, legs, home, dest, stops, people, weather, savedAt:new Date().toISOString(), ...(before?.trip?.hotel?{hotel:before.trip.hotel}:{})}};
+  FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && (x.id===id || (before && x.tid===before.tid)))), item].slice(-50);
+  M.savedOk=null; M.saved=item.tid;
+  saveFavorites().then(ok=>{ if(ok!==false && M.saved===item.tid){ M.savedOk=item.tid; if(M.cur==='save') document.getElementById('planResults').innerHTML=multiSaveView(); } }).catch(e=>console.warn('Nie zapisano podróży', e));
+  renderFavorites(); syncStars(); navCounts(); S.editing=null; renderEditBadge();
+  document.getElementById('planResults').innerHTML=multiSaveView();
+  toast(status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano plan w ulubionych.');
+}
+document.getElementById('multiBar')?.addEventListener('click', e=>{
+  const M=S.multi; if(!M) return;
+  const leg=e.target.closest('[data-multi-leg]'); if(leg){ runLeg(+leg.dataset.multiLeg); return; }
+  if(e.target.closest('[data-multi-save-step]')){ showMultiSave(); return; }
+  if(e.target.closest('[data-multi-edit]')||e.target.closest('[data-multi-end]')){
+    const edit=!!e.target.closest('[data-multi-edit]');
+    if(M.modesBefore) setPlanModes(M.modesBefore);
+    // daty wybrane po drodze wracają do formularza
+    [...mfSteps.querySelectorAll('.mf-step')].forEach((li,i)=>{ if(M.dates[i]) li.querySelector('.mf-date').value=M.dates[i]; });
+    S.multi=null; planReq++; S.plan=null; document.getElementById('planResults').innerHTML=''; renderMultiBar(); updatePlanScope();
+    if(edit) enterMultiForm(); else { document.body.classList.remove('multi-form'); syncReturn(); }
+    document.querySelector('.search-box')?.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+});
+
 /* ---------- Każdy krok ma własny zakres: od kroku 2 wyszukiwarka zwija się do jednej linii ---------- */
-function planDeep(){ return !!S.plan && (S.plan.groundStep===2 || S.plan.stages.some(P=>wantsFlights(P)&&(P.flightStep||1)>=2)); }
+function planDeep(){ return S.multi?.cur==='save' || (!!S.plan && (S.plan.groundStep===2 || S.plan.stages.some(P=>wantsFlights(P)&&(P.flightStep||1)>=2))); }
 function updatePlanScope(){
   const deep=planDeep(), el=document.getElementById('planScope');
   document.body.classList.toggle('plan-deep', deep);
   if(!el) return;
   el.hidden=!deep; if(!deep){ el.innerHTML=''; return; }
+  if(S.multi){ const M=S.multi; el.innerHTML=`<span class="ps-route"><i class="fa-solid fa-route" aria-hidden="true"></i> <b>${M.places.map(esc).join(' → ')}</b></span><span class="ps-meta">${M.cur==='save'?'Podsumowanie podróży':`Etap ${M.cur+1} z ${M.places.length-1}`}</span>${M.cur==='save'?'':`<button type="button" class="btn-ghost" data-scope-edit><i class="fa-solid fa-pen" aria-hidden="true"></i> ${L2('Zmień wyszukiwanie','Change search')}</button>`}`; return; }
   const st=S.plan.stages, first=st[0], last=st[st.length-1];
   const dates=plDate.value?`${fmtDay(plDate.value)}${plRound.checked&&plBack.value?' – '+fmtDay(plBack.value):''}`:L2('od dziś','from today');
   el.innerHTML=`<span class="ps-route"><i class="fa-solid fa-route" aria-hidden="true"></i> <b>${esc(first.from)} → ${esc(last.to)}</b></span><span class="ps-meta">${plRound.checked?L2('W obie strony','Round trip'):L2('W jedną stronę','One way')} · ${esc(dates)}</span><button type="button" class="btn-ghost" data-scope-edit><i class="fa-solid fa-pen" aria-hidden="true"></i> ${L2('Zmień wyszukiwanie','Change search')}</button>`;
@@ -1395,7 +1574,7 @@ document.getElementById('planScope')?.addEventListener('click', e=>{
   runPlan(false); document.querySelector('.search-box')?.scrollIntoView({behavior:'smooth', block:'center'});
 });
 function resetPlanner(){
-  planReq++; S.plan=null; updateBanner(); document.body.classList.remove('plan-deep'); { const sc=document.getElementById('planScope'); if(sc){ sc.hidden=true; sc.innerHTML=''; } } S.editing=null; renderEditBadge(); S.restore=null; S.placeChoice={}; S.planView={picked:{}, sort:S.planView.sort};
+  planReq++; S.plan=null; if(S.multi?.modesBefore) setPlanModes(S.multi.modesBefore); S.multi=null; renderMultiBar(); mfSteps.innerHTML=''; mfFrom.value=''; updateBanner(); document.body.classList.remove('plan-deep'); { const sc=document.getElementById('planScope'); if(sc){ sc.hidden=true; sc.innerHTML=''; } } S.editing=null; renderEditBadge(); S.restore=null; S.placeChoice={}; S.planView={picked:{}, sort:S.planView.sort};
   plFrom.value=''; plTo.value=''; plDate.value=''; plBack.value=''; plTime.value=''; plWhen.value='dep';
   clearVias(); store(planKey(S.agency), {from:'', to:''});
   document.getElementById('planResults').innerHTML=''; document.getElementById('planErr').textContent=''; document.getElementById('planHint').textContent='';
@@ -1971,11 +2150,11 @@ function groundSaveAll(J){
   const st=J.stages, P0=st[0], n=Math.max(1,P0.people||1), multi=st.length>1, legs=st.map(P=>P.groundPick), back=multi?null:P0.groundBack;
   const all=[...legs, back].filter(Boolean), total=all.reduce((a,x)=>a+(x.kind==='car'?(x.cost||0):(x.cost||0)*n),0), unknown=all.some(x=>x.cost==null);
   const cards=legs.map((g,k)=>groundLegCard(g, multi?`Etap ${k+1}`:'Tam')+(multi&&k<st.length-1&&st[k].stay?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(st[k].to)}: postój ${fmtStay(st[k].stay)}</div>`:'')).join('')+(back?groundLegCard(back,'Powrót'):'');
-  return `<div class="plan-head"><span>${[P0.from, ...st.map(P=>P.to)].map(esc).join(' <span class="txt-red">→</span> ')}</span></div>`+groundStepBar(P0)+cards+
+  return `<div class="plan-head"><span>${[P0.from, ...st.map(P=>P.to)].map(esc).join(' <span class="txt-red">→</span> ')}</span></div>`+groundStepBar(P0)+cards+(S.multi&&S.multi.cur!=='save'?multiLegBar(P0,'ground'):
     `<div class="cs-save"><div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz plan w ulubionych albo jako swoją podróż.${all.length?` <small>Koszt: ${unknown?'od ':'ok. '}${zl(total)}${n>1?` za ${peopleText(n)}`:''}</small>`:''}</div>
       ${tripTitleField(P0)}
       <div class="cs-save-btns"><button type="button" class="btn-ghost" data-ground-save="planned"><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
-      <button type="button" class="btn-grad" data-ground-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${savedNote(P0)}</div>`+
+      <button type="button" class="btn-grad" data-ground-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${savedNote(P0)}</div>`)+
     `<div class="fl-nav"><button type="button" class="btn-ghost" data-ground-step="1"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Wstecz</button><span></span></div>`;
 }
 function saveGroundTrip(J, status, title){
@@ -2776,7 +2955,7 @@ function tripFlights(P){
       stepNav(1,options?.length?3:0,destIsAirport(P,offer.to)?'Dalej: z lotniska do centrum':'Dalej: na miejscu');
   }
   if(step===3) return stepBar(P,offer)+chosenFlights(offer)+cityStep(offer,P)+(P.xferPick?stepNav(2,4,'Dalej: plan podróży'):stepNav(2,0,'')+'<div class="empty-note cs-need">'+stateIll(assetPaths.airportTransfer,200,117)+'Wybierz sposób dojazdu albo „Pomiń — ktoś mnie odbierze”, aby zobaczyć cały plan podróży.</div>');
-  return stepBar(P,offer)+planSummaryCard(offer,P)+`<div class="plan-extra">${costCard(tripCosts(P,offer))}${weatherTimeline(planWeatherPoints(P,offer), ()=>{ if(inPlan(P)) runPlan(false); })}</div>`+tripSaveBar(P,offer,airportOptions(P,offer))+stepNav(3,0,'');
+  return stepBar(P,offer)+planSummaryCard(offer,P)+`<div class="plan-extra">${costCard(tripCosts(P,offer))}${weatherTimeline(planWeatherPoints(P,offer), ()=>{ if(inPlan(P)) runPlan(false); })}</div>`+(S.multi&&S.multi.cur!=='save'?multiLegBar(P,'flight'):tripSaveBar(P,offer,airportOptions(P,offer)))+stepNav(3,0,'');
 }
 /* ---------- Dojazd na lotnisko: kroki, trasa na mapie i Mapy Google ---------- */
 function accessLinks(P, f, o){
@@ -4167,7 +4346,8 @@ function favCard(f){
 // Zapisane podróże z datami na osi czasu: miesiące, a w nich podróże od najbliższej; minione na końcu, przygaszone.
 const longDay=(d, opts)=>new Date(d+'T12:00:00Z').toLocaleDateString(document.documentElement.lang==='en'?'en-GB':'pl-PL',{timeZone:'UTC', ...opts});
 // Daty podróży bez samolotu: dzień wyjazdu i (jeśli jest) powrotu.
-function groundDates(f){ const g=f.trip?.ground; if(!g?.out) return null; const last=(g.legs||[g.out]).at(-1)?.day||''; return {day:g.out.day, back:g.back?.day||(last>g.out.day?last:''), ground:true}; }
+function groundDates(f){ const m=f.trip?.multi?f.trip.legs:null; if(m?.length){ const last=m[m.length-1].arrDay||m[m.length-1].day; return {day:m[0].day, back:last>m[0].day?last:'', ground:true}; }
+  const g=f.trip?.ground; if(!g?.out) return null; const last=(g.legs||[g.out]).at(-1)?.day||''; return {day:g.out.day, back:g.back?.day||(last>g.out.day?last:''), ground:true}; }
 function tripTimeline(list, {booked=false}={}){
   const today=ymdOf(0), dated=[], rest=[];
   for(const f of list){ const fl=f.type==='trip'?(savedFlight(f)||groundDates(f)):null; (fl?.day?dated:rest).push({f, fl}); }
@@ -4427,7 +4607,7 @@ function tripRoute(T){
   const P=x=>Array.isArray(x)&&x[0]!=null?x:x?.lat!=null?[x.lat,x.lon]:null;
   const home=P(T.home), dep=P(T.out?.fromPoint), arr=P(T.out?.toPoint)||P(T.airport), board=P(T.xfer?.boardAt), centre=P(T.centre)||P(T.dest);
   const pts=[];
-  if(T.ground) return [home, ...(T.stops||[]).map(P), centre].filter(Boolean);
+  if(T.ground||T.multi) return [home, ...(T.stops||[]).map(P), centre].filter(Boolean);
   for(const p of [home, dep]) if(p) pts.push(p);
   if(dep&&arr) pts.push(...exploreArc(dep,arr,1).slice(1)); else if(arr) pts.push(arr);
   for(const p of [board, centre]) if(p) pts.push(p);
@@ -4478,7 +4658,7 @@ function peopleHtml(f, T){
   const d=PEOPLE.data, owner=d?.role==='owner';
   const head=`<h4 class="visually-hidden">${L2('Uczestnicy podróży','Trip participants')}</h4>`;
   if(!d) return `<section class="tp-people" id="tripPeople">${head}<p class="text-soft"><span class="spin sm" aria-hidden="true"></span> ${L2('Wczytuję…','Loading…')}</p></section>`;
-  const end=T?.ret?.day||T?.ground?.back?.day||T?.out?.day||T?.ground?.out?.day||'', past=!!end && end<ymdOf(-1);
+  const end=T?.ret?.day||T?.ground?.back?.day||T?.out?.day||T?.ground?.out?.day||T?.legs?.at(-1)?.arrDay||'', past=!!end && end<ymdOf(-1);
   const route=T?tripRoute(T):[], meLoc=PEOPLE.locs.find(x=>x.me), seen=d.members.filter(p=>p.seesMyLocation).length;
   const rows=d.members.map(p=>`<li class="tp-person ${PEOPLE.focus===p.id?'focus':''}">
       <button type="button" class="tp-person-open" data-person="${esc(p.id)}" ${PEOPLE.locs.some(x=>x.userId===p.id&&x.lat!=null)?'':'disabled'} title="${L2('Pokaż na mapie','Show on the map')}">
@@ -4589,7 +4769,7 @@ function renderTripPage(){
   if(!f){ page.innerHTML=`<div class="empty-note">Nie znaleźliśmy tej podróży. Zobacz <a href="/my-trips" data-go-mytrips>Moje podróże</a> albo <a href="/favourites#trips" data-fav-goto>ulubione</a>.</div>`; stopVehicles(); return; }
   const booked=f.status==='booked', T=f.trip||null, fl=savedFlight(f);
   setHeroTitle('Szczegóły podróży'); document.getElementById('heroLead').textContent=tripLead(f);
-  const today=ymdOf(0), day=T?.out?.day||T?.ground?.out?.day||fl?.day, back=T?.ret?.day||(T?.ground?groundDates(f)?.back:'')||fl?.back||'';
+  const today=ymdOf(0), day=T?.out?.day||(T?.ground||T?.multi?groundDates(f)?.day:'')||fl?.day, back=T?.ret?.day||(T?.ground||T?.multi?groundDates(f)?.back:'')||fl?.back||'';
   const stay=day&&back?Math.round((Date.parse(back)-Date.parse(day))/86400000)+1:0;
   const when=!day?'':(back||day)<today?'minęła':day<=today?'trwa':`za ${Math.round((Date.parse(day)-Date.parse(today))/86400000)} dni`;
   const photosSlot=f.tid&&!f.shared?'<section class="tp-photos compact" id="tripPhotos" aria-live="polite"></section>':'';
@@ -4604,15 +4784,15 @@ function renderTripPage(){
       ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-remove><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Usuń</button>'}
       <a class="tp-back" href="${booked?'/my-trips':'/favourites#trips'}" ${booked?'data-go-mytrips':'data-fav-goto'}><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${booked?'Moje podróże':'Ulubione'}</a>
     </div></div>`+
-    (booked&&when!=='minęła'?`<div class="tp-ready"><img src="${assetPaths.readyToGo}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>${T?.ground?'Przygotuj się do wyjazdu: sprawdź poniżej przebieg podróży i pogodę po drodze. Bilety kupisz u przewoźników.':'Przygotuj się do wyjazdu: sprawdź poniżej dojazd na lotnisko, lot i drogę do centrum. Bilety i rezerwacje potwierdzisz u przewoźników.'}</p>${photosSlot}</div>`
+    (booked&&when!=='minęła'?`<div class="tp-ready"><img src="${assetPaths.readyToGo}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>${T?.ground||T?.multi?'Przygotuj się do wyjazdu: sprawdź poniżej przebieg podróży i pogodę po drodze. Bilety kupisz u przewoźników.':'Przygotuj się do wyjazdu: sprawdź poniżej dojazd na lotnisko, lot i drogę do centrum. Bilety i rezerwacje potwierdzisz u przewoźników.'}</p>${photosSlot}</div>`
       :!booked?`<div class="tp-ready"><img src="${assetPaths.journeyPlanned}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>To plan zapisany w ulubionych. Sprawdź ceny i dojazdy, a gdy podróż będzie pewna, zapisz ją jako swoją.</p>${photosSlot}</div>`:'');
   if(!T){
     page.innerHTML=`<div class="tp">${head}<div class="tp-card"><h4><i class="fa-solid fa-plane" aria-hidden="true"></i> Lot</h4>${fl?`<div class="tp-flight"><b>${esc(fl.from)} → ${esc(fl.to)}</b><small>${longDay(fl.day,{weekday:'short', day:'numeric', month:'long'})}${fl.back?` – powrót ${longDay(fl.back,{day:'numeric', month:'long'})}`:''}${f.flight?.price?` · zapisano za ${f.flight.price} zł`:''}</small></div>`:''}
       <div class="empty-note">Ta podróż została zapisana, zanim strona podróży powstała. Otwórz ją w planerze i zapisz ponownie na ostatnim kroku, aby zobaczyć tu cały plan.</div></div></div>`;
     stopVehicles(); return;
   }
-  if(T.ground){
-    page.innerHTML=`<div class="tp">${head}${groundTripBody(T)}
+  if(T.ground||T.multi){
+    page.innerHTML=`<div class="tp">${head}${T.multi?multiTripBody(T):groundTripBody(T)}
       <div class="plan-extra tp-extra">${costCard(groundCosts(T))}${tripMapBox()}</div>
       ${T.weather?.length?weatherTimeline(T.weather, tripWeatherRefresh):''}
       ${f.tid && booked && when==='minęła'?'<section class="tp-photos" id="tripPhotos" aria-live="polite"></section>':''}</div>`;
@@ -4650,8 +4830,34 @@ function groundTripBody(T){
   const stop=k=>{ const x=T.stops?.[k]; return x?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(x.label)}${x.stay?`: postój ${fmtStay(x.stay)}`:''}</div>`:''; };
   return legs.map((g,k)=>leg(g, legs.length>1?`Etap ${k+1}`:'Tam', g.a||(k?legs[k-1].b:home), g.b||(k===legs.length-1?dest:null))+(k<legs.length-1?stop(k):'')).join('')+leg(T.ground.back,'Powrót',dest,home);
 }
+// Podróż w etapach na stronie podróży: każdy etap ze swoim środkiem transportu, lot razem z dojazdem na lotnisko i z lotniska.
+function multiTripBody(T){
+  const mode=k=>k==='car'?'driving':k==='walk'?'walking':'transit', n=T.legs.length;
+  return T.legs.map((L,k)=>{
+    const link=L.kind==='flight'?iconLink(gPlace(L.snap?.out?.fromPoint,(L.snap?.out?.fromLabel||'')+' airport'),'diamond-turn-right','Lotnisko w Google Maps'):iconLink(gDir(L.a,L.b,mode(L.g?.kind)),'diamond-turn-right','Wskazówki (Google Maps)');
+    let body='';
+    if(L.kind==='flight'){
+      const o=L.snap?.out||{}, x=L.snap?.xfer, acc=L.snap?.access;
+      body=`<small class="text-soft">${longDay(L.day,{weekday:'short', day:'numeric', month:'long'})} · lot ${esc(o.dep||'')} → ${esc(o.arr||'')} · ${esc(o.airlineName||'')}${o.price!=null?` · ${o.price} zł/os.`:''}${o.booking?` · <a href="${esc(o.booking)}" target="_blank" rel="noopener">u przewoźnika</a>`:''}</small>
+        ${acc?.steps?.length?`<h5 class="tp-leg-sub">Dojazd na lotnisko${acc.title?': '+esc(acc.title):''}</h5>${stepsHtml(acc.steps)}`:''}
+        <h5 class="tp-leg-sub">Lot</h5>${stepsHtml([{icon:'plane-departure', text:`${o.fromLabel||''} → ${o.toLabel||''}`, sub:`${o.dep||''} → ${o.arr||''} · ${o.airlineName||''}`}])}
+        ${x?`<h5 class="tp-leg-sub">Z lotniska</h5>${stepsHtml([{icon:x.skip?'car-side':'bus', text:x.skip?'Ktoś mnie odbierze':(x.name||''), sub:x.skip?'':[x.minutes!=null?`ok. ${fmtDuration(x.minutes)}`:'', x.fare||''].filter(Boolean).join(' · ')}])}`:''}`;
+    } else {
+      const g=L.g||{};
+      body=`<small class="text-soft">${longDay(L.day,{weekday:'short', day:'numeric', month:'long'})}${g.leave!=null?` · wyjście ${fmtClock(g.leave)}`:''}${g.arrive!=null?` · na miejscu ${fmtClock(g.arrive)}`:''}${g.minutes?` · ${fmtDuration(g.minutes)}`:''}${g.km?` · ${fmtKm(g.km)}`:''}</small>${stepsHtml(g.steps||[])}`;
+    }
+    const stop=k<n-1&&T.stops?.[k]?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(T.stops[k].label)}${T.stops[k].stay?`: postój ${fmtStay(T.stops[k].stay)}`:''}</div>`:'';
+    return `<section class="tp-card tp-ground"><div class="tp-ground-head"><h4><i class="fa-solid fa-${esc(L.icon||'route')}" aria-hidden="true"></i> Etap ${k+1}: ${esc(L.from)} → ${esc(L.to)}</h4><span class="tp-icons">${iconMap('ground','Trasa na mapie')}${link}</span></div><b class="tp-leg-title">${esc(L.title)}</b>${body}</section>${stop}`;
+  }).join('');
+}
 function groundCosts(T){
   const n=Math.max(1,T.people||1), rows=[];
+  if(T.multi){
+    T.legs.forEach((L,k)=>rows.push({group:'Etapy', icon:L.icon, label:`Etap ${k+1}: ${L.from} → ${L.to} · ${L.title}`, value:L.cost, note:L.cost==null?'cena nieznana':L.kind==='flight'?'lot z dojazdami':''}));
+    if(T.hotel?.price!=null) rows.push({group:'Nocleg', icon:'hotel', label:T.hotel.name, value:T.hotel.price, note:''});
+    const total=Math.round(rows.reduce((a,r)=>a+(r.value||0),0));
+    return {rows, total, people:n, perPerson:Math.round(total/n), missing:rows.some(r=>r.value==null)};
+  }
   const legs=T.ground.legs||[T.ground.out];
   for(const [g,label] of [...legs.map((g,k)=>[g, legs.length>1?`Etap ${k+1}`:'Tam']), [T.ground.back,'Powrót']]){
     if(!g) continue;
@@ -4748,10 +4954,10 @@ function mountTripMap(f, T){
   if(board) mark('board',board,'location-dot','#1a7f4b',`Odjazd do centrum: ${T.xfer?.board||''}`);
   mark('centre',centre,'city','#F5A524',T.centre?.label||T.dest?.label||'Centrum');
   mark('hotel',hotel,'hotel','#b26b00',T.hotel?.name||'Hotel');
-  if(T.ground){
+  if(T.ground||T.multi){
     (T.stops||[]).forEach((x,k)=>{ if(x.lat!=null) mark('stop'+k,[x.lat,x.lon],'location-dot','#2878D0',x.label); });
     const way=[home, ...(T.stops||[]).map(x=>x.lat!=null?[x.lat,x.lon]:null), centre].filter(Boolean);
-    for(let k=0;k<way.length-1;k++) line(way[k],way[k+1],{color:'#2878D0', weight:4, dash:(T.ground.legs||[T.ground.out])[k]?.kind==='car'?null:'8 8'});
+    for(let k=0;k<way.length-1;k++) line(way[k],way[k+1],{color:'#2878D0', weight:4, dash:(T.multi?T.legs.map(L=>L.kind==='flight'?'flight':L.g?.kind):(T.ground.legs||[T.ground.out]).map(g=>g.kind))[k]==='car'?null:'8 8'});
   }
   line(home,dep,{dash:'6 8'});
   if(dep&&arr) line(dep,arr,{pts:exploreArc(dep,arr,1), color:'#2a5bd7', weight:2.5, dash:'2 6'});
@@ -4915,6 +5121,7 @@ function openInPlanner(f){
   goPage('podroz');
   S.editing={tid:f.tid||'', label:`${f.from} → ${f.to}`}; renderEditBadge();
   S.placeChoice={}; clearVias(); plFrom.value=f.from; plTo.value=f.to;
+  if(f.trip?.multi){ const kinds={flight:['plane','car'], ground:null}; enterMultiForm({from:f.from, steps:f.trip.legs.map(L=>({to:L.to, date:L.day>=ymdOf(0)?L.day:'', modes:L.kind==='flight'?['bus','pks','train','plane','car']:undefined}))}); document.querySelector('.search-box')?.scrollIntoView({behavior:'smooth', block:'center'}); return; }
   (f.trip?.stops||[]).forEach(x=>{ addVia(); const row=viaRows().at(-1); row.querySelector('input').value=x.label; const days=x.stay&&x.stay%1440===0; row.querySelector('.pl-stay input').value=days?x.stay/1440:(x.stay||0); row.querySelector('.pl-stay-unit').value=days?'1440':'1'; });
   const fl=f.type==='trip'?(savedFlight(f)||groundDates(f)):null;
   if(fl?.day){
@@ -5235,6 +5442,15 @@ document.getElementById('planForm').addEventListener('submit', async e=>{
   if(plWhen.value==='arr' && !plTime.value){ err.textContent='Podaj godzinę, o której chcesz być na miejscu.'; return; }
   if(S.agency==='podroz' && !plDate.value){ err.textContent=plRound.checked?'Wybierz termin podróży: datę wylotu i powrotu.':'Wybierz datę wyjazdu.'; if(plRound.checked) openRange(); else openDatePicker(plDate); return; }
   if(plDate.value && plDate.value<ymdOf(0)){ err.textContent='Data wyjazdu nie może być w przeszłości.'; return; }
+  const legRun=S.multiLeg; S.multiLeg=false;
+  if(S.agency==='podroz' && !legRun){
+    const raw=viaRows().map(row=>({label:row.querySelector('input').value.trim(), stay:Math.max(0,+row.querySelector('.pl-stay input').value||0)*(+row.querySelector('.pl-stay-unit')?.value||1)})).filter(v=>v.label);
+    if(raw.length){
+      if(!plFrom.value.trim() || !plTo.value.trim()){ err.textContent='Podaj, skąd zaczynasz i dokąd jedziesz na końcu.'; return; }
+      startMulti(plFrom.value.trim(), raw, plTo.value.trim(), plDate.value); return;
+    }
+    if(S.multi){ S.multi=null; renderMultiBar(); }
+  }
   const req=++planReq, go=e.currentTarget.querySelector('.pl-go'), view=S.agency;
   go.disabled=true; go.classList.add('busy'); hint.textContent='';
   const round=readReturn(); if(round?.error){ err.textContent=round.error; go.disabled=false; go.classList.remove('busy'); return; }
@@ -5266,7 +5482,7 @@ document.getElementById('planForm').addEventListener('submit', async e=>{
 });
 const [plFrom,plTo,plTime,plWhen,plDate,plRound,plBack]=['plFrom','plTo','plTime','plWhen','plDate','plRound','plBack'].map(id=>document.getElementById(id));
 const MAX_VIAS=5; let viaSeq=0;
-document.getElementById('plAddStop').addEventListener('click', addVia);
+document.getElementById('plAddStop').addEventListener('click', ()=>{ if(S.agency==='podroz') enterMultiForm({addStep:true}); else addVia(); });
 document.getElementById('plStops').addEventListener('click', e=>{ const b=e.target.closest('[data-remove-via]'); if(b){ delete S.placeChoice[b.closest('.pl-stop').dataset.field]; b.closest('.pl-stop').remove(); renumberVias(); } });
 { const saved=store('rzbus.plan.modes'); if(Array.isArray(saved)) document.querySelectorAll('#plModes input').forEach(x=>{ x.checked=saved.includes(x.value); }); }
 // Liczba osób: koszty liczą się od nowa w tym samym planie (bez nowego wyszukiwania).
@@ -5297,7 +5513,10 @@ function syncReturn(){
   document.querySelectorAll('.trip-return-fields').forEach(e=>{ e.hidden=!round; });
   document.querySelectorAll('.one-way-date').forEach(e=>{ e.hidden=round; });
   document.getElementById('planForm').classList.toggle('round', round);
-  document.querySelectorAll('[data-round]').forEach(b=>{ const on=(b.dataset.round==='1')===plRound.checked; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); });
+  const multi=document.body.classList.contains('multi-form') && S.agency==='podroz';
+  document.querySelectorAll('[data-round]').forEach(b=>{ const on=!multi&&(b.dataset.round==='1')===plRound.checked; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); });
+  document.querySelectorAll('[data-trip-kind="multi"]').forEach(b=>{ b.classList.toggle('on',multi); b.setAttribute('aria-pressed',String(multi)); });
+  { const mf=document.getElementById('multiForm'); if(mf) mf.hidden=!multi; }
   plDate.min=ymdOf(0); plDate.max=lastPlanDay(); plBack.max=lastPlanDay();
   document.getElementById('trDate').min=ymdOf(0); document.getElementById('trDate').max=lastPlanDay();
   document.getElementById('plLimit').textContent='';
@@ -5483,7 +5702,8 @@ for(const input of [plDate, document.getElementById('trDate')]){
   input.addEventListener('keydown', e=>{ if(['Enter',' ','ArrowDown'].includes(e.key)){ e.preventDefault(); openDatePicker(input); } });
 }
 document.addEventListener('click', e=>{ const pop=document.getElementById('dpPop'); if(pop && !pop.hidden && !e.target.closest('#dpPop') && !e.target.closest('.dp-input')) closeDatePicker(false); });
-document.querySelectorAll('[data-round]').forEach(b=>b.addEventListener('click', ()=>{ plRound.checked=b.dataset.round==='1'; syncReturn(); }));
+document.querySelectorAll('[data-round]').forEach(b=>b.addEventListener('click', ()=>{ document.body.classList.remove('multi-form'); plRound.checked=b.dataset.round==='1'; syncReturn(); }));
+document.querySelectorAll('[data-trip-kind="multi"]').forEach(b=>b.addEventListener('click', ()=>enterMultiForm()));
 attachSuggest(plFrom, {streets:true});
 attachSuggest(plTo, {streets:true});
 attachSuggest(document.getElementById('ttStop'), {streets:false, onPick:it=>setTimetableStop(it.label)});
@@ -5496,7 +5716,7 @@ document.getElementById('plGeo').addEventListener('click', ()=>{
   try{ navigator.geolocation.getCurrentPosition(p=>pick(p.coords.latitude,p.coords.longitude), ()=>{ const c=map.getCenter(); pick(c.lat,c.lng); err.textContent+= ' — brak dostępu do lokalizacji, użyto środka mapy.'; }, {timeout:8000}); }
   catch(e){ const c=map.getCenter(); pick(c.lat,c.lng); }
 });
-document.getElementById('planResults').addEventListener('input', e=>{ if(e.target.matches('[data-trip-title]')){ const P=stageOf(e.target); if(P) P.tripTitle=e.target.value; } });
+document.getElementById('planResults').addEventListener('input', e=>{ if(e.target.matches('[data-trip-title]')){ const P=S.multi&&!S.plan?S.multi:stageOf(e.target); if(P) P.tripTitle=e.target.value; } });
 document.getElementById('planResults').addEventListener('change', e=>{
   if(e.target.matches('[data-filter-group]')){ S.planView.picked=readFilters(document.getElementById('planFilters')); applyPlanView(); }
   else if(e.target.id==='planSort'){ S.planView.sort=e.target.value; applyPlanView(); }
@@ -5528,6 +5748,17 @@ document.getElementById('planResults').addEventListener('click', e=>{
   if(e.target.closest('[data-cs-retry]')){ for(const [k,v] of XOPT) if(v?.error||v?.note==='centre-unknown'||(v&&!v.loading&&!v.options?.length)) XOPT.delete(k); runPlan(false); return; }
   const cp=e.target.closest('[data-cs-pick]'); if(cp){ const P=stageOf(cp); P.xferPick=P.xferPick===cp.dataset.csPick?null:cp.dataset.csPick; P.saved=null; runPlan(false); return; }
   const ts=e.target.closest('[data-trip-save]'); if(ts){ saveMyTrip(stageOf(ts), ts.dataset.tripSave, ts.closest('.cs-save')?.querySelector('[data-trip-title]')?.value); return; }
+  const mn=e.target.closest('[data-multi-next]'); if(mn){
+    const M=S.multi, P=S.plan?.stages[0]; if(!M||!P) return;
+    const leg=multiLegOf(P, mn.dataset.multiNext); if(!leg) return;
+    M.legs[M.cur]=leg;
+    const d=document.querySelector('[data-multi-date]')?.value; if(d) M.dates[M.cur+1]=d;
+    if(M.cur>=M.places.length-2) showMultiSave(); else runLeg(M.cur+1);
+    return;
+  }
+  const md=e.target.closest('[data-multi-date]'); if(md){ e.preventDefault(); openDatePicker(md); return; }
+  const ms=e.target.closest('[data-multi-save]'); if(ms){ saveMultiTrip(ms.dataset.multiSave, ms.closest('.cs-save')?.querySelector('[data-trip-title]')?.value); return; }
+  const ml=e.target.closest('[data-multi-leg]'); if(ml){ runLeg(+ml.dataset.multiLeg); return; }
   const gp=e.target.closest('[data-ground-pick]'); if(gp){
     const P=stageOf(gp), x=S.groundOpts?.[+gp.dataset.groundPick]; if(!P||!x) return;
     const slot=x.dir==='back'?'groundBack':'groundPick';

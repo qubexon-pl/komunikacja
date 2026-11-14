@@ -512,18 +512,18 @@ test("a saved trip keeps the chosen flights and way to the airport, as short tex
 
 test("a trip saved as my own keeps its status, its page id and what it looked like, as plain small data", () => {
   const [trip] = normalizeFavorites([{ type: "trip", view: "podroz", id: "f:x", from: "A", to: "B", name: "n", status: "booked", tid: "abc123xyz",
-    trip: { out: { from: "KRK", dep: "06:30", price: 400 }, xfer: { name: "Arlanda Express", minutes: 18, pln: 132, steps: [{ kind: "rail" }] }, "bad key": 1, fn: () => 1, deep: { a: { b: { c: { d: { e: 1 } } } } } } }]);
+    trip: { out: { from: "KRK", dep: "06:30", price: 400 }, xfer: { name: "Arlanda Express", minutes: 18, pln: 132, steps: [{ kind: "rail" }] }, "bad key": 1, fn: () => 1, deep: { a: { b: { c: { d: { e: { f: { g: { h: 1 } } } } } } } } } }]);
   assert.equal(trip.status, "booked");
   assert.equal(trip.tid, "abc123xyz");
   assert.deepEqual(trip.trip.xfer, { name: "Arlanda Express", minutes: 18, pln: 132, steps: [{ kind: "rail" }] });
   assert.equal(trip.trip["bad key"], undefined);
   assert.equal(trip.trip.fn, null);
-  assert.equal(trip.trip.deep.a.b.c.d, null); // no deeper than five levels
+  assert.equal(trip.trip.deep.a.b.c.d.e.f.g, null); // no deeper than eight levels (a trip in several legs needs them)
   const [odd] = normalizeFavorites([{ type: "trip", view: "podroz", id: "f:y", from: "A", to: "B", name: "n", status: "admin", tid: "<script>", trip: { note: "x".repeat(20000).split("").map(() => "y") } }]);
   assert.equal(odd.status, undefined);
   assert.equal(odd.tid, undefined);
-  const [huge] = normalizeFavorites([{ type: "trip", view: "podroz", id: "f:z", from: "A", to: "B", name: "n", trip: { a: Array(20).fill("x".repeat(300)), b: Array(20).fill("y".repeat(300)), c: Array(20).fill("z".repeat(300)), d: Array(20).fill("w".repeat(300)), e: Array(20).fill("v".repeat(300)) } }]);
-  assert.equal(huge.trip, undefined); // over 24 kB: dropped, the trip itself stays
+  const [huge] = normalizeFavorites([{ type: "trip", view: "podroz", id: "f:z", from: "A", to: "B", name: "n", trip: Object.fromEntries("abcdefghijkl".split("").map((k) => [k, Array(20).fill(k.repeat(300))])) }]);
+  assert.equal(huge.trip, undefined); // over 60 kB: dropped, the trip itself stays
 });
 
 test("today only flights still on sale are offered: leaving at least two hours from now, with a known time", async () => {

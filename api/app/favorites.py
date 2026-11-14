@@ -8,7 +8,8 @@ from typing import Any
 
 MAX_FAVORITES = 50
 MAX_TEXT = 200
-MAX_SNAPSHOT = 24000
+MAX_SNAPSHOT = 60000
+MAX_DEPTH = 8
 VIEWS = {"ztm", "pks", "kolej", "podroz"}
 IATA = re.compile(r"^[A-Z]{3}$")
 DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -52,7 +53,7 @@ def plain(value: Any, depth: int = 0) -> Any:
         return value if math.isfinite(value) else None
     if isinstance(value, str):
         return value[:300]
-    if depth >= 5:
+    if depth >= MAX_DEPTH:
         return None
     if isinstance(value, list):
         return [plain(v, depth + 1) for v in value[:20]]
@@ -86,6 +87,12 @@ def normalize_favorites(value: Any) -> list[dict]:
         if kind == "trip" and text(item.get("id")) and text(item.get("from")) and text(item.get("to")) and text(item.get("name")):
             fav = {"type": "trip", "view": "podroz", "id": text(item["id"]), "from": text(item["from"]), "to": text(item["to"]),
                    "name": text(item["name"]), "detail": text(item.get("detail"))}
+            title = text(item.get("title"))[:80]
+            if title:
+                fav["title"] = title
+            stops = [text(x) for x in item.get("stops") if text(x)][:6] if isinstance(item.get("stops"), list) else []
+            if stops:
+                fav["stops"] = stops
             flight = flight_of(item.get("flight"))
             if flight:
                 fav["flight"] = flight

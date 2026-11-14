@@ -746,3 +746,21 @@ test("a trip with several places is saved as one trip: every leg, the places in 
   assert.deepEqual({ ...context.api.groundDates(f) }, { day: "2027-05-01", back: "2027-05-06", ground: true });
   assert.match(source, /if\(modes\.includes\('car'\)\) sections\.push\(tripSection\(flightsNeeded\?'Samochód \(dla porównania\)'/, "the car estimate stays next to flights");
 });
+
+test("a trip planned leg by leg: each leg keeps its own transport, the trip spans first to last day", () => {
+  const grab = (from, to) => source.slice(source.indexOf(from), source.indexOf(to, source.indexOf(from)));
+  const context = { dayOfTs: (ts) => new Date(ts * 1000).toISOString().slice(0, 10), CAR_SEATS: 5,
+    flightChoice: () => null, pickedAccess: () => null, airportOptions: () => null, tripSnapshot: () => ({}), fareKey: () => "" };
+  vm.createContext(context);
+  vm.runInContext(grab("function multiLegOf(", "// Na końcu kroku:") + grab("function groundDates(", "function tripTimeline(") + ";this.api={multiLegOf,groundDates};", context);
+  const P = { from: "Szczecin", to: "Gdańsk", people: 2, groundPick: { key: "car", kind: "car", day: "2027-05-03", leave: 1809331200, arrive: 1809345600, title: "Samochód", icon: "car", cost: 120, a: [53.4, 14.5], b: [54.35, 18.65], steps: [] } };
+  const leg = context.api.multiLegOf(P, "ground");
+  assert.equal(leg.kind, "ground");
+  assert.equal(leg.cost, 120, "fuel is paid per car, not per person");
+  assert.equal(leg.key, "g:car@2027-05-03");
+  assert.equal(context.api.multiLegOf({ ...P, groundPick: null }, "ground"), null);
+  assert.equal(context.api.multiLegOf(P, "flight"), null, "a flight leg is ready only after the whole flight wizard");
+  const f = { trip: { multi: true, legs: [{ day: "2027-05-01", arrDay: "2027-05-01" }, leg, { day: "2027-05-06", arrDay: "2027-05-07" }] } };
+  assert.deepEqual({ ...context.api.groundDates(f) }, { day: "2027-05-01", back: "2027-05-07", ground: true });
+  assert.match(source, /if\(raw\.length\)\{[\s\S]{0,200}startMulti\(/, "places in between start the leg-by-leg trip");
+});
