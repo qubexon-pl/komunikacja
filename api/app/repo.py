@@ -233,8 +233,31 @@ class SqlRepository:
         with self.db.connection() as c:
             c.cursor().execute(
                 """DELETE FROM dbo.TripShare WHERE owner_user_id = ? AND trip_id = ? AND member_user_id = ?;
-                   DELETE FROM dbo.TripLocation WHERE owner_user_id = ? AND trip_id = ? AND user_id = ?;""",
-                owner_id, trip_id, member_id, owner_id, trip_id, member_id)
+                   DELETE FROM dbo.TripLocation WHERE owner_user_id = ? AND trip_id = ? AND user_id = ?;
+                   DELETE FROM dbo.TripLocationViewer WHERE owner_user_id = ? AND trip_id = ? AND (user_id = ? OR viewer_user_id = ?);""",
+                owner_id, trip_id, member_id, owner_id, trip_id, member_id, owner_id, trip_id, member_id, member_id)
+
+    def location_grants(self, owner_id: str, trip_id: str) -> list[tuple[str, str]]:
+        """(person sharing, person allowed to see) pairs of this trip."""
+        with self.db.connection() as c:
+            rows = c.cursor().execute("SELECT user_id, viewer_user_id FROM dbo.TripLocationViewer WHERE owner_user_id = ? AND trip_id = ?;",
+                                      owner_id, trip_id).fetchall()
+            return [(str(r.user_id).lower(), str(r.viewer_user_id).lower()) for r in rows]
+
+    def set_location_grant(self, owner_id: str, trip_id: str, user_id: str, viewer_id: str, enabled: bool) -> None:
+        with self.db.connection() as c:
+            if enabled:
+                c.cursor().execute(
+                    """IF NOT EXISTS (SELECT 1 FROM dbo.TripLocationViewer WHERE owner_user_id = ? AND trip_id = ? AND user_id = ? AND viewer_user_id = ?)
+                       INSERT INTO dbo.TripLocationViewer (owner_user_id, trip_id, user_id, viewer_user_id) VALUES (?, ?, ?, ?);""",
+                    owner_id, trip_id, user_id, viewer_id, owner_id, trip_id, user_id, viewer_id)
+            else:
+                c.cursor().execute("DELETE FROM dbo.TripLocationViewer WHERE owner_user_id = ? AND trip_id = ? AND user_id = ? AND viewer_user_id = ?;",
+                                   owner_id, trip_id, user_id, viewer_id)
+
+    def clear_location_grants(self, owner_id: str, trip_id: str, user_id: str) -> None:
+        with self.db.connection() as c:
+            c.cursor().execute("DELETE FROM dbo.TripLocationViewer WHERE owner_user_id = ? AND trip_id = ? AND user_id = ?;", owner_id, trip_id, user_id)
 
     def is_member(self, owner_id: str, trip_id: str, user_id: str) -> bool:
         with self.db.connection() as c:

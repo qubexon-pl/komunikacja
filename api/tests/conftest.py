@@ -26,7 +26,7 @@ class MemoryRepo:
         self.users = {U1: {"id": U1, "email": "ania@example.com", "displayName": "Ania", "isAdmin": False}}
         self.passwords = {"ania@example.com": (U1, hash_password("correct horse battery"))}
         self.sessions, self.states, self.google, self.favs, self.prefs, self.photos_ = {}, {}, {}, {}, {}, {}
-        self.shares, self.locs, self.clock = [], {}, None
+        self.shares, self.locs, self.clock, self.grants = [], {}, None, set()
 
     def user_by_session(self, h): return self.users.get(self.sessions.get(h))
     def create_session(self, uid, h, ttl): self.sessions[h] = uid
@@ -89,6 +89,16 @@ class MemoryRepo:
     def remove_member(self, owner, tid, member):
         self.shares = [x for x in self.shares if x != (owner, tid, member)]
         self.locs.pop((owner, tid, member), None)
+        self.grants = {g for g in self.grants if not (g[0] == owner and g[1] == tid and member in (g[2], g[3]))}
+
+    def location_grants(self, owner, tid):
+        return [(u, v) for (o, t, u, v) in sorted(self.grants) if o == owner and t == tid]
+
+    def set_location_grant(self, owner, tid, uid, viewer, enabled):
+        (self.grants.add if enabled else self.grants.discard)((owner, tid, uid, viewer))
+
+    def clear_location_grants(self, owner, tid, uid):
+        self.grants = {g for g in self.grants if not (g[0] == owner and g[1] == tid and g[2] == uid)}
 
     def is_member(self, owner, tid, uid): return (owner, tid, uid) in self.shares
     def shared_with(self, member): return [{"ownerId": o, "tid": t, "ownerName": self.users[o]["displayName"]} for (o, t, m) in self.shares if m == member]

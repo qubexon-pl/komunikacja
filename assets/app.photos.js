@@ -145,7 +145,7 @@
       const take = e.target.closest('[data-photo-take]');
       if(take){ try{ await add(tripId, await window.ONWARD.pickPhoto(take.dataset.photoTake)); }catch(err){ if(!/cancel/i.test(String(err && err.message))) console.warn('photo', err); } return; }
       const del = e.target.closest('[data-photo-delete]');
-      if(del && confirm(t('Usunąć to zdjęcie?', 'Delete this photo?'))){ await api(`/api/photos/${del.dataset.photoDelete}`, { method: 'DELETE' }); render(box, tripId); return; }
+      if(del && await (window.askConfirm ? window.askConfirm(t('Usunąć to zdjęcie?', 'Delete this photo?'), {ok: t('Usuń zdjęcie', 'Delete photo'), danger: true}) : Promise.resolve(confirm(t('Usunąć to zdjęcie?', 'Delete this photo?'))))){ await api(`/api/photos/${del.dataset.photoDelete}`, { method: 'DELETE' }); render(box, tripId); return; }
       const drop = e.target.closest('[data-photo-drop]');
       if(drop){ await remove(drop.dataset.photoDrop); render(box, tripId); }
     });

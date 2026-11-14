@@ -579,6 +579,22 @@ BEGIN
 END;
 GO
 
+-- Who may see a participant's live location: a row per (person sharing, person allowed to see), set only by the person
+-- sharing. Nobody sees a position without such a row, so location is shared with chosen people, never with "everyone".
+IF OBJECT_ID(N'dbo.TripLocationViewer', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TripLocationViewer (
+        owner_user_id UNIQUEIDENTIFIER NOT NULL,
+        trip_id VARCHAR(24) NOT NULL,
+        user_id UNIQUEIDENTIFIER NOT NULL,
+        viewer_user_id UNIQUEIDENTIFIER NOT NULL,
+        created_at DATETIME2(0) NOT NULL CONSTRAINT DF_TripLocationViewer_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_TripLocationViewer PRIMARY KEY (owner_user_id, trip_id, user_id, viewer_user_id),
+        CONSTRAINT FK_TripLocationViewer_Owner FOREIGN KEY (owner_user_id) REFERENCES dbo.AppUser (user_id) ON DELETE CASCADE
+    );
+END;
+GO
+
 -- Live location of a trip participant: only while that participant has switched sharing on for this trip, and only
 -- until `until` (the day after the trip at the latest). One row per person and trip; the last position replaces the old one.
 IF OBJECT_ID(N'dbo.TripLocation', N'U') IS NULL

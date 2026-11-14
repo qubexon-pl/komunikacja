@@ -72,6 +72,8 @@ def test_an_old_position_is_not_shown_as_current_and_a_finished_trip_cannot_star
     owner = owner_with_trip(client)
     oid, t = owner["user"]["id"], owner["token"]
     url = f"/api/trips/{oid}/trip0001"
+    login(client)
+    client.post("/api/trips/trip0001/members", json={"email": "ania@example.com"}, headers=bearer(t))  # someone to show it to
     client.put(f"{url}/location-sharing", json={"enabled": True}, headers=bearer(t))
     client.repo.clock = "2020-01-01T10:00:00Z"
     client.put(f"{url}/location", json={"lat": 50.0, "lon": 22.0}, headers=bearer(t))
@@ -105,3 +107,27 @@ def test_suggestions_show_known_people_in_full_and_others_only_by_email_start_ma
     known = client.get("/api/trips/people?q=a", headers=bearer(t)).json()["people"]
     assert [(p["name"], p["email"], p["contact"]) for p in known] == [("Ania", "ania@example.com", True)]
     assert client.post("/api/trips/trip0001/members", json={"userId": "not-a-uuid"}, headers=bearer(t)).status_code in (400, 404)
+
+
+def test_location_is_shown_only_to_the_people_its_owner_chose(client):
+    owner = owner_with_trip(client)
+    t, oid = owner["token"], owner["user"]["id"]
+    ania = login(client)
+    url = f"/api/trips/{oid}/trip0001"
+    # added "with my location": Ania sees the owner's position
+    added = client.post("/api/trips/trip0001/members", json={"email": "ania@example.com", "withLocation": True}, headers=bearer(t)).json()
+    assert added["member"]["seesMyLocation"] is True
+    client.put(f"{url}/location", json={"lat": 50.0, "lon": 22.0}, headers=bearer(t))
+    assert [x["name"] for x in client.get(f"{url}/locations", headers=bearer(ania["token"])).json()["locations"]] == ["Nowy"]
+    people = client.get(f"{url}/members", headers=bearer(ania["token"])).json()["members"]
+    assert [(p["name"], p["sharesWithMe"], p["seesMyLocation"]) for p in people] == [("Nowy", True, False), ("Ania", False, False)]
+    # Ania has not chosen anyone: nobody sees her, and she can show it to the owner only herself
+    assert all(x["userId"] != ania["user"]["id"] for x in client.get(f"{url}/locations", headers=bearer(t)).json()["locations"])
+    r = client.put(f"{url}/location-sharing", json={"viewerId": oid, "enabled": True}, headers=bearer(ania["token"])).json()
+    assert r["sharing"] is True and r["viewers"] == [oid]
+    # the owner hides their location from Ania again; sending stops when nobody is left
+    off = client.put(f"{url}/location-sharing", json={"viewerId": ania["user"]["id"], "enabled": False}, headers=bearer(t)).json()
+    assert off == {"sharing": False, "viewers": [], "until": None}
+    assert [x["name"] for x in client.get(f"{url}/locations", headers=bearer(ania["token"])).json()["locations"]] == ["Ania"]
+    # a person outside the trip cannot be chosen
+    assert client.put(f"{url}/location-sharing", json={"viewerId": "00000000-0000-0000-0000-000000000009", "enabled": True}, headers=bearer(t)).status_code == 404

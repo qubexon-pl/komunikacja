@@ -567,7 +567,9 @@ test("a trip is named after what it uses", () => {
 test("the trip planner is the first tab and the default page", () => {
   assert.match(source, /function viewFromPath\(\)\{ return Object\.keys\(VIEWS\)\.find\(k=>VIEWS\[k\]\.path===location\.pathname\)\|\|'podroz'; \}/);
   const tabs = [...html.matchAll(/data-view="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(tabs, ["podroz", "kierunki", "ztm", "pks", "kolej"]);
+  // buses, suburban buses and trains sit under one "Komunikacja" item, with their own tabs on the page
+  assert.deepEqual(tabs, ["podroz", "kierunki", "transit"]);
+  assert.match(source, /const TRANSIT=\['ztm','pks','kolej'\];/);
   assert.doesNotMatch(html, /id="flightForm"|id="plStay"|Wpisz przystanek, aby zobaczyć/);
   assert.doesNotMatch(source, /Wpisz przystanek, aby zobaczyć|placeSummary/);
 });
@@ -692,4 +694,55 @@ test("a participant's place on the trip route: distance done, distance left and 
   const ahead = context.routeProgress(route, [45.7, 11.0]); // somewhere along the flight to Barcelona
   assert.ok(ahead.along > atKrk.along); // further on the route: "ahead of" someone in Kraków
   assert.equal(context.routeProgress([rze], krk), null);
+});
+
+test("a trip without a plane is picked, saved with its own name and dated on the timeline", () => {
+  const grab = (from, to) => source.slice(source.indexOf(from), source.indexOf(to, source.indexOf(from)));
+  const code = grab("function groundWizard(", "function saveTrip(") + grab("function groundDates(", "function tripTimeline(");
+  const day = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);
+  const context = {
+    S: { groundOpts: [], editing: null }, FAV: { items: [] },
+    wantsFlights: (P) => !!P.flight, esc: (x) => String(x), L2: (pl) => pl, step: (icon, text, sub = "") => ({ icon, text, sub }),
+    withMap: (s) => s, fmtKm: (k) => `${k} km`, fmtDuration: (m) => `${m} min`, fuelCost: (km) => Math.round(km * 0.4), walkMinutes: (km) => km * 15,
+    plainStart: () => 1798794000, dayOfTs: day, fmtDay: (d) => d.slice(8, 10) + "." + d.slice(5, 7), fmtClock: () => "08:00", ymdOf: () => "2027-01-01",
+    ROAD_FACTOR: 1.25, CAR_KMH: 70, WALK_FACTOR: 1.3, CAR_SEATS: 5,
+  };
+  vm.createContext(context);
+  vm.runInContext(code + ";this.api={groundWizard,groundPicked,groundPickBtn,groundSnap,groundDates,tripTitleField};", context);
+  const { api } = context;
+  const P = { single: true, from: "Rzeszów", to: "Kraków", km: 150, origin: { label: "Rzeszów", points: [[50, 22]] }, dest: { label: "Kraków", points: [[50.06, 19.94]] }, driving: { km: 170, minutes: 120 } };
+  assert.equal(api.groundWizard(P), true);
+  assert.equal(api.groundWizard({ ...P, flight: true }), true, "a train or the car can be picked next to flights");
+  assert.equal(api.groundWizard({ ...P, single: false }), true, "every stage of a trip with several places can be picked");
+  assert.equal(api.groundWizard({ ...P, by: 1800000000 }), false, "an 'arrive by' search keeps the plain list");
+  assert.match(api.groundPickBtn(P, "car", null, "car", "out"), /data-ground-pick="0"/);
+  const car = api.groundSnap(P, context.S.groundOpts[0]);
+  assert.equal(car.kind, "car");
+  assert.equal(car.title, "Samochód");
+  assert.equal(car.minutes, 120);
+  assert.equal(car.km, 170);
+  assert.equal(car.cost, 68);
+  assert.equal(car.day, day(1798794000));
+  P.groundPick = car;
+  assert.equal(api.groundPicked(P, "car", "out"), true);
+  assert.deepEqual({ ...api.groundDates({ trip: { ground: { out: { day: "2027-01-02" }, back: { day: "2027-01-05" } } } }) }, { day: "2027-01-02", back: "2027-01-05", ground: true });
+  assert.equal(api.groundDates({ trip: { out: {} } }), null);
+  // the name field remembers what was typed and, when editing, starts from the saved name
+  P.tripTitle = "Majówka";
+  assert.match(api.tripTitleField(P), /value="Majówka"/);
+  delete P.tripTitle;
+  context.S.editing = { tid: "t1" }; context.FAV.items = [{ type: "trip", tid: "t1", title: "Do babci" }];
+  assert.match(api.tripTitleField(P), /value="Do babci"/);
+});
+
+test("a trip with several places is saved as one trip: every leg, the places in between and the last day", () => {
+  const grab = (from, to) => source.slice(source.indexOf(from), source.indexOf(to, source.indexOf(from)));
+  const context = {};
+  vm.createContext(context);
+  vm.runInContext(grab("function groundDates(", "function tripTimeline(") + grab("const routeText=", "\n") + ";this.api={groundDates,routeText};", context);
+  const f = { from: "Rzeszów", to: "Wrocław", stops: ["Szczecin", "Gdańsk"],
+    trip: { ground: { out: { day: "2027-05-01" }, legs: [{ day: "2027-05-01" }, { day: "2027-05-03" }, { day: "2027-05-06" }], back: null } } };
+  assert.equal(context.api.routeText(f), "Rzeszów → Szczecin → Gdańsk → Wrocław");
+  assert.deepEqual({ ...context.api.groundDates(f) }, { day: "2027-05-01", back: "2027-05-06", ground: true });
+  assert.match(source, /if\(modes\.includes\('car'\)\) sections\.push\(tripSection\(flightsNeeded\?'Samochód \(dla porównania\)'/, "the car estimate stays next to flights");
 });

@@ -105,14 +105,18 @@ def members(request: Request, owner_id: str, tid: str, user: dict = Depends(requ
     role = _role(request, user, owner_id, tid)
     owner_id = _uuid(owner_id)
     repo = request.app.state.repo
-    sharing = {x["userId"]: x for x in repo.locations(owner_id, tid)}
+    grants = set(repo.location_grants(owner_id, tid))
     owner = repo.user_by_id(owner_id)
     people = [{"id": owner_id, "name": (owner or {}).get("displayName") or "", "role": "owner"}] + \
              [{"id": m["id"], "name": m["name"], "role": "member", **({"email": m["email"]} if role == "owner" else {})}
               for m in repo.trip_members(owner_id, tid)]
+    me = user["id"]
     for p in people:
-        p["sharingLocation"] = p["id"] in sharing
-        p["me"] = p["id"] == user["id"]
+        p["me"] = p["id"] == me
+        # each person decides who sees their location: I see whether I show mine to them and whether they show theirs to me
+        p["seesMyLocation"] = not p["me"] and (me, p["id"]) in grants
+        p["sharesWithMe"] = not p["me"] and (p["id"], me) in grants
+        p["sharingLocation"] = any(u == me for u, _ in grants) if p["me"] else p["sharesWithMe"]
     return {"role": role, "members": people}
 
 
@@ -140,7 +144,11 @@ async def add_member(request: Request, tid: str, user: dict = Depends(require_us
     if len(repo.trip_members(user["id"], tid)) >= MAX_MEMBERS:
         raise HTTPException(400, f"Podróż można udostępnić najwyżej {MAX_MEMBERS} osobom.")
     repo.add_member(user["id"], tid, friend["id"])
-    return {"member": {"id": friend["id"], "name": friend["displayName"], "email": friend["email"], "role": "member"}}
+    with_location = body.get("withLocation") is True
+    if with_location:
+        # "share with my location": the owner shows THEIR OWN location to this person (nobody else's)
+        _grant(request, user["id"], tid, user["id"], friend["id"], True)
+    return {"member": {"id": friend["id"], "name": friend["displayName"], "email": friend["email"], "role": "member", "seesMyLocation": with_location}}
 
 
 @router.delete("/{owner_id}/{tid}/members/{member_id}")
@@ -153,19 +161,45 @@ def remove_member(request: Request, owner_id: str, tid: str, member_id: str, use
     return {"removed": True}
 
 
-@router.put("/{owner_id}/{tid}/location-sharing")
-async def location_sharing(request: Request, owner_id: str, tid: str, user: dict = Depends(require_user)):
-    """Switch sharing of MY location for this trip on or off (only ever for the caller)."""
-    _role(request, user, owner_id, tid)
-    owner_id = _uuid(owner_id)
-    body = await request.json()
-    enabled = isinstance(body, dict) and body.get("enabled") is True
-    until = _trip_end(_trip(request, owner_id, tid)) if enabled else None
+def _participants(request: Request, owner_id: str, tid: str) -> list[str]:
+    return [owner_id] + [m["id"] for m in request.app.state.repo.trip_members(owner_id, tid)]
+
+
+def _grant(request: Request, owner_id: str, tid: str, user_id: str, viewer_id: str | None, enabled: bool) -> dict:
+    """Change who sees MY (user_id) location: one person (viewer_id) or everyone on the trip (viewer_id=None).
+    Sending positions is on while at least one person may see them; with nobody left the last position is forgotten."""
+    repo = request.app.state.repo
+    until = _trip_end(_trip(request, owner_id, tid))
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     if enabled and until <= now:
         raise HTTPException(400, "Ta podróż już się skończyła.")
-    request.app.state.repo.location_sharing(owner_id, tid, user["id"], min(until, now + timedelta(days=30)) if until else None)
-    return {"sharing": enabled, "until": (until.isoformat() + "Z") if until else None}
+    others = [p for p in _participants(request, owner_id, tid) if p != user_id]
+    if viewer_id is None:
+        if enabled:
+            for p in others:
+                repo.set_location_grant(owner_id, tid, user_id, p, True)
+        else:
+            repo.clear_location_grants(owner_id, tid, user_id)
+    else:
+        if viewer_id not in others:
+            raise HTTPException(404, "Tej osoby nie ma w podróży.")
+        repo.set_location_grant(owner_id, tid, user_id, viewer_id, enabled)
+    viewers = [v for u, v in repo.location_grants(owner_id, tid) if u == user_id]
+    sharing_until = min(until, now + timedelta(days=30)) if viewers else None
+    repo.location_sharing(owner_id, tid, user_id, sharing_until)
+    return {"sharing": bool(viewers), "viewers": viewers, "until": (sharing_until.isoformat() + "Z") if sharing_until else None}
+
+
+@router.put("/{owner_id}/{tid}/location-sharing")
+async def location_sharing(request: Request, owner_id: str, tid: str, user: dict = Depends(require_user)):
+    """Show or hide MY location for this trip (only ever for the caller): to one participant ({viewerId, enabled})
+    or to everyone on the trip ({enabled})."""
+    _role(request, user, owner_id, tid)
+    owner_id = _uuid(owner_id)
+    body = await request.json()
+    body = body if isinstance(body, dict) else {}
+    viewer = _uuid(str(body["viewerId"])) if body.get("viewerId") else None
+    return _grant(request, owner_id, tid, user["id"], viewer, body.get("enabled") is True)
 
 
 @router.put("/{owner_id}/{tid}/location")
@@ -190,9 +224,13 @@ async def save_location(request: Request, owner_id: str, tid: str, user: dict = 
 @router.get("/{owner_id}/{tid}/locations")
 def locations(request: Request, owner_id: str, tid: str, user: dict = Depends(require_user)):
     _role(request, user, owner_id, tid)
+    owner_id = _uuid(owner_id)
     limit = datetime.now(timezone.utc) - timedelta(hours=FRESH_HOURS)
+    allowed = {u for u, v in request.app.state.repo.location_grants(owner_id, tid) if v == user["id"]} | {user["id"]}
     out = []
-    for x in request.app.state.repo.locations(_uuid(owner_id), tid):
+    for x in request.app.state.repo.locations(owner_id, tid):
+        if x["userId"] not in allowed:
+            continue  # this person has not chosen to show their location to me
         fresh = x["at"] and datetime.fromisoformat(x["at"].replace("Z", "+00:00")) >= limit
         out.append({**x, **({} if fresh else {"lat": None, "lon": None, "accuracy": None}), "me": x["userId"] == user["id"]})
     return {"locations": out}

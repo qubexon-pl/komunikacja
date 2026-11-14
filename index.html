@@ -30,30 +30,7 @@
     <div class="view-tabs" aria-label="Kategorie">
       <a class="view-tab" data-view="podroz" href="/plan" title="Zaplanuj podróż"><i class="oi oi-plane" aria-hidden="true"></i> Planuj</a>
       <a class="view-tab" data-view="kierunki" data-go="podroz" data-sub="kierunki" href="/destinations"><i class="oi oi-pin" aria-hidden="true"></i> Kierunki</a>
-      <div class="dropdown view-drop">
-        <a class="view-tab dropdown-toggle" data-view="ztm" href="/buses" data-bs-toggle="dropdown" aria-expanded="false"><i class="oi oi-bus" aria-hidden="true"></i> Autobusy</a>
-        <ul class="dropdown-menu">
-          <li><a class="dropdown-item" data-go="ztm" data-sub="" href="/buses"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj połączenia</a></li>
-          <li><a class="dropdown-item" data-go="ztm" data-sub="rozklad" href="/buses#timetable"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
-          <li><a class="dropdown-item" data-go="ztm" data-sub="ulubione" href="/favourites#buses"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione autobusy</a></li>
-        </ul>
-      </div>
-      <div class="dropdown view-drop">
-        <a class="view-tab dropdown-toggle" data-view="pks" href="/suburban" data-bs-toggle="dropdown" aria-expanded="false"><i class="oi oi-suburban-bus" aria-hidden="true"></i> Podmiejskie</a>
-        <ul class="dropdown-menu">
-          <li><a class="dropdown-item" data-go="pks" data-sub="" href="/suburban"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Dokąd dojedziesz</a></li>
-          <li><a class="dropdown-item" data-go="pks" data-sub="rozklad" href="/suburban#timetable"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
-          <li><a class="dropdown-item" data-go="pks" data-sub="ulubione" href="/favourites#suburban"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione podmiejskie</a></li>
-        </ul>
-      </div>
-      <div class="dropdown view-drop">
-        <a class="view-tab dropdown-toggle" data-view="kolej" href="/trains" data-bs-toggle="dropdown" aria-expanded="false"><i class="oi oi-train" aria-hidden="true"></i> Pociągi</a>
-        <ul class="dropdown-menu">
-          <li><a class="dropdown-item" data-go="kolej" data-sub="" href="/trains"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj połączenia</a></li>
-          <li><a class="dropdown-item" data-go="kolej" data-sub="rozklad" href="/trains#timetable"><i class="fa-regular fa-clock" aria-hidden="true"></i> Rozkład jazdy</a></li>
-          <li><a class="dropdown-item" data-go="kolej" data-sub="ulubione" href="/favourites#trains"><i class="fa-regular fa-star" aria-hidden="true"></i> Ulubione pociągi</a></li>
-        </ul>
-      </div>
+      <a class="view-tab" data-view="transit" data-go="ztm" data-sub="" href="/buses" title="Autobusy miejskie, podmiejskie i pociągi"><i class="oi oi-bus" aria-hidden="true"></i> Komunikacja</a>
     </div>
     <div class="nav-links">
       <span class="nav-sep" aria-hidden="true"></span>
@@ -106,6 +83,7 @@
 
 <div class="toast-note" id="toastNote" role="status" aria-live="polite" hidden></div>
 <main class="shell">
+  <nav class="transit-tabs" id="transitTabs" aria-label="Komunikacja" hidden></nav>
   <div class="stats-band only-live map-part">
     <div class="stat-card" data-filter="all"><div class="lbl">Na trasie</div><div class="num" id="stAll">–</div></div>
     <div class="stat-card" data-filter="ontime"><div class="lbl">Punktualne</div><div class="num" id="stOk">–</div></div>
@@ -121,6 +99,7 @@
   <div id="tripPage" class="trip-part"></div>
   <div class="sec-head only-plan" id="plan-sec"><span class="sec-num">01</span><h2 id="planTitle">Dokąd jedziesz?</h2><span class="sec-rule"></span></div>
   <div class="search-box only-plan">
+    <div class="plan-scope" id="planScope" hidden></div>
     <div class="trip-tabs only-podroz" role="group" aria-label="Rodzaj podróży">
       <button type="button" class="trip-tab on" data-round="0" aria-pressed="true">W jedną stronę</button>
       <button type="button" class="trip-tab" data-round="1" aria-pressed="false">W obie strony</button>
@@ -141,7 +120,7 @@
     </form>
     <div id="plStops"></div>
     <div class="trip-options only-podroz">
-      <button type="button" class="btn-ghost" id="plAddStop"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj przystanek</button>
+      <button type="button" class="btn-ghost" id="plAddStop" title="Dodaj miejsce po drodze, np. Rzeszów → Szczecin → Gdańsk → Wrocław"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj miejsce</button>
     <div class="trip-modes" id="plModes" role="group" aria-label="Środki transportu">
       <label class="mode-check"><input type="checkbox" value="bus" checked> <i class="oi oi-bus" aria-hidden="true"></i> Autobus</label>
       <label class="mode-check"><input type="checkbox" value="pks" checked> <i class="oi oi-suburban-bus" aria-hidden="true"></i> Podmiejskie</label>
@@ -401,6 +380,16 @@
   </div>
 </div>
 
+<!-- Trip participants -->
+<div class="modal fade" id="peopleModal" tabindex="-1" aria-labelledby="peopleModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable people-dialog">
+    <div class="modal-content">
+      <div class="modal-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><span class="kicker mb-1">Udostępnianie</span><h4 id="peopleModalTitle">Uczestnicy podróży</h4><div class="sub" id="peopleModalTrip"></div></div>
+      <div class="modal-body p-3 p-md-4" id="peopleBody"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Alerts modal -->
 <div class="modal fade" id="alertsModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
@@ -552,7 +541,7 @@
   <a data-go="podroz" data-sub="kierunki" href="/destinations"><i class="oi oi-pin" aria-hidden="true"></i><span>Kierunki</span></a>
   <a data-proxy="myTripsLink" href="/my-trips"><i class="oi oi-suitcase" aria-hidden="true"></i><span>Podróże</span><b class="bn-count" data-count-of="myTripsCount" hidden></b></a>
   <a data-proxy="favLink" href="/favourites"><i class="oi oi-star" aria-hidden="true"></i><span>Ulubione</span><b class="bn-count" data-count-of="favCount" hidden></b></a>
-  <a data-go="ztm" data-sub="" href="/buses"><i class="oi oi-bus" aria-hidden="true"></i><span>Autobusy</span></a>
+  <a data-go="ztm" data-sub="" data-transit href="/buses"><i class="oi oi-bus" aria-hidden="true"></i><span>Komunikacja</span></a>
 </nav>
 <div class="edit-badge" id="editBadge" role="status" hidden><i class="fa-solid fa-pen" aria-hidden="true"></i> <b>Tryb edycji</b> <span id="editBadgeLabel"></span><button type="button" id="editBadgeEnd" title="Zakończ edycję" aria-label="Zakończ edycję">×</button></div>
 <div class="offline-bar" role="status" aria-live="polite">Jesteś offline — pokazujemy zapisane podróże, a zmiany wyślemy po powrocie połączenia.</div>
