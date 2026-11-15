@@ -22,6 +22,7 @@ const { createHotels } = require("./hotels");
 const { createTripWeather } = require("./trip-weather");
 const { createPksFares } = require("./pks-fares");
 const { createRates } = require("./rates");
+const { createStoredAnswers } = require("./stored");
 const { createGeocoder, createStreetSuggester } = require("./geocode");
 const { normalizeFavorites } = require("./favorites");
 const { LIVE_SOURCES, createLiveCollector } = require("./live-data");
@@ -56,7 +57,7 @@ const MAX_FAVORITES_BYTES = 512 * 1024; // saved trips carry what they looked li
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, hotels: 30 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, hotels: 30, rates: 30 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -973,6 +974,18 @@ async function forwardToApi(req, res, url, fetchSource = fetch) {
 }
 
 function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, hotels = createHotels({ fetchSource }), staticRoot = ROOT }) {
+  // Database first: geocoding, driving routes, paths, walking times, weather, hotel and PKS prices are read from the
+  // stored answers and only asked from the outside service when nothing fresh is stored.
+  const keep = createStoredAnswers(snapshots);
+  const DAY_MS = 86400000;
+  geocode = keep.wrap("geo", 30 * DAY_MS, geocode, (q, o) => [String(q || "").trim().toLowerCase(), !!o?.world], (v) => !!v?.places?.length);
+  drive = keep.wrap("drive", 30 * DAY_MS, drive, (a, b) => [a, b]);
+  findPath = keep.wrap("path", 30 * DAY_MS, findPath, (m, a, b) => [m, a, b], (v) => Array.isArray(v) && v.length > 1);
+  walkDistances = keep.wrap("walk", 30 * DAY_MS, walkDistances, (a, t) => [a, t], (v) => Array.isArray(v) && v.length > 0);
+  if (tripWeather?.forecast) tripWeather = { ...tripWeather, forecast: keep.wrap("wx", 3 * 3600000, tripWeather.forecast.bind(tripWeather), (q) => [Number(q?.lat).toFixed(2), Number(q?.lon).toFixed(2), q?.from, q?.to], (v) => !!v?.days?.length) };
+  if (hotels?.search) hotels = { ...hotels, search: keep.wrap("hotel", 6 * 3600000, hotels.search.bind(hotels), (q) => [q], (v) => v?.configured !== false && Array.isArray(v?.hotels) && v.hotels.length > 0) };
+  if (pksFares?.price) pksFares = { ...pksFares, price: keep.wrap("pksp", 30 * DAY_MS, pksFares.price.bind(pksFares), (q) => [q], (v) => v?.price != null) };
+  const eurRate = keep.wrap("fx", 12 * 3600000, async (code) => { const v = await fareRates(10000, code); return v ? v / 10000 : null; }, (code) => [code]);
   const transitClient = createTransitous({ fetchSource });
   const airportTransfers = transfers || createAirportTransfers({ transitous: transitClient, toPln: fareRates, geocode, snapshots, drive });
   const city = cityTransit || createCityTransit({ transitous: transitClient });
@@ -1019,6 +1032,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "airport-transfers" && (segments.length === 2 || (segments.length === 3 && ["connections", "options"].includes(segments[2]))))
           || (segments[1] === "transit" && segments.length === 3 && ["plan", "vehicles"].includes(segments[2]))
           || (segments[1] === "hotels" && segments.length === 2)
+          || (segments[1] === "rates" && segments.length === 2)
         ) ? (segments[1] === "feeds" ? "feeds"
           : segments[1] === "airport-transfers" ? (segments[2] === "options" ? "transfer-options" : segments[2] ? "transfer-trips" : "transfers")
           : segments[1] === "transit" ? (segments[2] === "plan" ? "city-plan" : "vehicles")
@@ -1084,6 +1098,14 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           } catch (error) {
             json(res, [400, 404].includes(error.status) ? error.status : 502, { error: error.message, options: [] });
           }
+          return;
+        }
+        if (publicRoute === "rates") {
+          // How many złoty one unit of a currency costs (NBP table A), so prices can also be shown in EUR.
+          const code = String(url.searchParams.get("currency") || "EUR").toUpperCase();
+          if (!/^[A-Z]{3}$/.test(code)) { json(res, 400, { error: "Nieprawidłowa waluta." }); return; }
+          try { json(res, 200, { currency: code, pln: await eurRate(code) }); }
+          catch (error) { json(res, 502, { error: "Kurs walut jest chwilowo niedostępny.", currency: code, pln: null }); }
           return;
         }
         if (publicRoute === "hotels") {

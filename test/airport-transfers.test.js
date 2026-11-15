@@ -95,3 +95,12 @@ test("unknown airports and bad input are refused without asking Transitous", asy
   await assert.rejects(transfers.connections({ code: "ARN", lat: 1, lon: 1, time: "tomorrow" }), { status: 400 });
   assert.equal(asked, 0);
 });
+
+test("without a city centre the stored ways into town are still offered (Vienna: S7, CAT, Railjet)", async () => {
+  const transfers = createAirportTransfers({ fetchSource: async () => transitous([]), geocode: async () => ({ places: [] }), toPln: async (eur) => eur * 4.3, minGapMs: 0 });
+  const vie = await transfers.options({ code: "VIE", lat: 48.1208, lon: 16.5630, time: "2027-05-01T14:15", label: "Flughafen Wien" });
+  assert.equal(vie.note, "centre-unknown");
+  assert.equal(vie.source, "database");
+  assert.ok(vie.options.length > 0, "the database copy of the routes is used instead of an empty list");
+  assert.ok(vie.options.every((o) => o.kind && o.name));
+});

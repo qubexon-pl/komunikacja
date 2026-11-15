@@ -579,6 +579,19 @@ BEGIN
 END;
 GO
 
+-- Invitations: a shared trip waits for the invited person's answer. Rows from before invitations count as accepted.
+IF COL_LENGTH(N'dbo.TripShare', N'status') IS NULL
+    ALTER TABLE dbo.TripShare ADD status VARCHAR(10) NOT NULL CONSTRAINT DF_TripShare_Status DEFAULT ('accepted') WITH VALUES;
+GO
+IF COL_LENGTH(N'dbo.TripShare', N'owner_location') IS NULL
+    ALTER TABLE dbo.TripShare ADD owner_location BIT NOT NULL CONSTRAINT DF_TripShare_OwnerLocation DEFAULT (0) WITH VALUES,
+        member_location BIT NOT NULL CONSTRAINT DF_TripShare_MemberLocation DEFAULT (0) WITH VALUES,
+        responded_at DATETIME2(0) NULL;
+GO
+IF OBJECT_ID(N'dbo.CK_TripShare_Status', N'C') IS NULL
+    ALTER TABLE dbo.TripShare ADD CONSTRAINT CK_TripShare_Status CHECK (status IN ('pending', 'accepted', 'declined'));
+GO
+
 -- Who may see a participant's live location: a row per (person sharing, person allowed to see), set only by the person
 -- sharing. Nobody sees a position without such a row, so location is shared with chosen people, never with "everyone".
 IF OBJECT_ID(N'dbo.TripLocationViewer', N'U') IS NULL

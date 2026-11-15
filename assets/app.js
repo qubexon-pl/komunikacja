@@ -1003,14 +1003,16 @@ function tripLead(t){
 { const res=document.getElementById('planResults'); if(res) res.dataset.intro=L2('Porównaj połączenia: autobusy, pociągi, loty i samochód w jednym planie.','Compare connections: buses, trains, flights and the car in one plan.'); }
 // ALERTS powstaje dalej w pliku; przed jego utworzeniem nie ma osiągniętych alertów.
 function reachedAlerts(){ try{ return ALERTS.list.filter(a=>a.reached).length; }catch(e){ return 0; } }
+// INBOX powstaje dalej w pliku: zaproszenia do podróży i nieprzeczytane odpowiedzi na moje zaproszenia.
+function inboxCount(){ try{ return INBOX.invites.length+INBOX.responses.filter(r=>!inboxSeen().includes(responseKey(r))).length; }catch(e){ return 0; } }
 function renderAlertsBtn(){
-  const b=document.getElementById('alertsBtn'), issues=dataIssues(), reached=reachedAlerts(), n=S.alerts.length+issues.length+reached;
+  const b=document.getElementById('alertsBtn'), issues=dataIssues(), reached=reachedAlerts(), invites=inboxCount(), n=S.alerts.length+issues.length+reached+invites;
   // Dzwonek jest zawsze widoczny; liczba pojawia się tylko, gdy jest coś do przeczytania.
   b.style.display = '';
   document.getElementById('alertsCount').hidden = !n;
   b.classList.toggle('has-data-issue', issues.some(i=>i.level!=='info'));
-  b.classList.toggle('has-price-hit', reached>0);
-  b.title = reached ? L2('Cena osiągnięta w Twoim alercie cenowym','A price alert reached its price') : issues.length ? L2('Niektóre dane nie zostały wczytane — zobacz szczegóły','Some data did not load — see details') : n ? L2('Komunikaty i utrudnienia','Alerts and disruptions') : L2('Komunikaty — brak nowych','Alerts — nothing new');
+  b.classList.toggle('has-price-hit', reached>0||invites>0);
+  b.title = invites ? L2('Ktoś udostępnił Ci podróż albo odpowiedział na zaproszenie','Someone shared a trip with you or answered an invitation') : reached ? L2('Cena osiągnięta w Twoim alercie cenowym','A price alert reached its price') : issues.length ? L2('Niektóre dane nie zostały wczytane — zobacz szczegóły','Some data did not load — see details') : n ? L2('Komunikaty i utrudnienia','Alerts and disruptions') : L2('Komunikaty — brak nowych','Alerts — nothing new');
   document.getElementById('alertsCount').textContent = n;
   if(document.getElementById('alertsModal')?.classList.contains('show')) fillAlerts();
 }
@@ -1135,7 +1137,7 @@ function fillAlerts(){
   const ztm = S.alerts.length ? S.alerts.map(a=>`<div class="alert-card"><b>${esc(a.header||'Komunikat')}</b>
     ${a.routes.length?`<div class="small mt-1">Linie: ${a.routes.map(r=>`<span class="chip unknown me-1" style="padding:3px 8px">${esc((GT.routes.get(r)||{}).short||r)}</span>`).join('')}</div>`:''}
     ${a.desc?`<div class="mt-1" style="white-space:pre-line">${esc(a.desc)}</div>`:''}${a.url?`<div class="mt-1"><a href="${esc(a.url)}" target="_blank" rel="noopener">Więcej</a></div>`:''}</div>`).join('') : '<div class="empty-note">Brak aktywnych komunikatów.</div>';
-  document.getElementById('alertsBody').innerHTML = myAlertsHtml() + health + (issues.length||S.alerts.length?`<h5 class="section-title mt-3 mb-2">${L2('Komunikaty ZTM Rzeszów','ZTM Rzeszów notices')}</h5>`:'') + ztm;
+  document.getElementById('alertsBody').innerHTML = inboxHtml() + myAlertsHtml() + health + (issues.length||S.alerts.length?`<h5 class="section-title mt-3 mb-2">${L2('Komunikaty ZTM Rzeszów','ZTM Rzeszów notices')}</h5>`:'') + ztm;
 }
 // Moje alerty cenowe w panelu komunikatów: najpierw te, w których cena została osiągnięta.
 function myAlertsHtml(){
@@ -1148,11 +1150,14 @@ function myAlertsHtml(){
     <button type="button" class="btn-ghost my-alerts-all" data-alerts-fav><i class="fa-solid fa-star" aria-hidden="true"></i> ${L2('Zobacz w Ulubionych','See in Favourites')}</button></section>`;
 }
 document.getElementById('alertsBody').addEventListener('click', e=>{
+  const inv=e.target.closest('[data-invite-answer]'); if(inv){ answerInvite(inv); return; }
+  const op=e.target.closest('[data-inbox-open]'); if(op){ alertsModal.hide(); openTrip(op.dataset.inboxOpen); return; }
   const rm=e.target.closest('[data-alert-remove]'); if(rm){ rm.disabled=true; removeAlert(rm.dataset.alertRemove); return; }
   if(e.target.closest('[data-alerts-fav]')){ alertsModal.hide(); goPage(S.agency, 'ulubione', 'alerts'); }
 });
 document.getElementById('alertsBtn').addEventListener('click', ()=>{
   fillAlerts();
+  if(!document.body.classList.contains('guest')) loadInbox().then(()=>{ markResponsesSeen(); fillAlerts(); renderAlertsBtn(); });
   if(!document.body.classList.contains('guest')) loadAlerts();
   loadDataStatus();
   alertsModal.show();
@@ -1280,6 +1285,77 @@ function setView(view, push, sub='', kind=FAVF.kind){
 // Rozkład jazdy i ulubione otwierają się z menu kategorii w miejscu wyszukiwarki.
 const FAV_TITLES={all:'Ulubione', podroz:'Ulubione podróże', ztm:'Ulubione autobusy', pks:'Ulubione podmiejskie', kolej:'Ulubione pociągi'};
 /* ---------- Komunikacja: autobusy miejskie, podmiejskie i pociągi pod jedną pozycją menu, z zakładkami na stronie ---------- */
+/* Wybór miasta: miasta to miejscowości ze stacjami z rozkładu PKP PLK (z bazy) i z krajowej listy stacji.
+   Autobusy miejskie i podmiejskie mamy na razie dla Rzeszowa; pociągi dla każdego miasta. */
+const LOCAL_TRANSIT=new Set(['Rzeszów']);
+const TCITY={name:store('onward.city')||'Rzeszów', list:null, size:0, open:false, q:'', applied:false};
+// Miasta ze stacjami: ta sama zasada co w wyszukiwarce pociągów (railCities: co najmniej dwie stacje i własna stacja główna),
+// a stacja miasta to jego stacja główna (routeStations), np. Kraków → Kraków Główny.
+function cityList(){
+  const names=railStationNames(), cities=railCities();
+  if(TCITY.list && TCITY.size===names.length) return TCITY.list;
+  TCITY.list=cities.map(city=>{ const st=names.filter(n=>n===city||n.startsWith(city+' ')); return {city, main:routeStations(st).sort((a,b)=>a.length-b.length)[0]||city, stations:st.length}; }).sort((a,b)=>a.city.localeCompare(b.city,'pl'));
+  TCITY.size=names.length; return TCITY.list;
+}
+function stationIdOf(name){
+  for(const [id,n] of TR.names) if(n===name) return +id;
+  for(const [id,n] of RAIL_NAMES) if(n===name) return +id;
+  const e=Object.entries(RAIL_ST).find(([,s])=>s[0]===name); return e?+e[0]:null;
+}
+function cityPickerHtml(){
+  const fold=s=>s.toLocaleLowerCase('pl').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ł/g,'l');
+  let list='';
+  if(TCITY.open){
+    const all=cityList(), q=fold(TCITY.q.trim());
+    const hits=(q?all.filter(c=>fold(c.city).startsWith(q)).concat(all.filter(c=>!fold(c.city).startsWith(q)&&fold(c.city).includes(q))):all.filter(c=>c.stations>=3)).slice(0,60);
+    const top=!q||fold('Rzeszów').includes(q)?[...LOCAL_TRANSIT].map(n=>all.find(c=>c.city===n)||{city:n, main:'Rzeszów Główny', stations:1}):[];
+    const row=c=>`<li><button type="button" role="option" data-city-pick="${esc(c.city)}" aria-selected="${c.city===TCITY.name}" class="${c.city===TCITY.name?'on':''}"><b>${esc(c.city)}</b><small>${LOCAL_TRANSIT.has(c.city)?L2('autobusy · podmiejskie · pociągi','buses · suburban · trains'):L2(`pociągi · ${c.stations} ${c.stations===1?'stacja':c.stations<5?'stacje':'stacji'}`,`trains · ${c.stations} ${c.stations===1?'station':'stations'}`)}</small></button></li>`;
+    list=`<div class="tx-city-pop" role="dialog" aria-label="${L2('Wybierz miasto','Choose a city')}"><input type="search" id="cityQuery" value="${esc(TCITY.q)}" placeholder="${L2('Szukaj miasta ze stacją…','Search a city with a station…')}" autocomplete="off">
+      <ul role="listbox">${top.map(row).join('')}${hits.filter(c=>!LOCAL_TRANSIT.has(c.city)).map(row).join('')||(top.length?'':`<li class="tx-city-none">${L2('Brak miasta ze stacją o tej nazwie.','No city with a station of that name.')}</li>`)}</ul>
+      <small class="tx-city-note">${L2(`${all.length} miast i miejscowości ze stacjami kolejowymi. Autobusy miejskie na razie w Rzeszowie.`,`${all.length} towns with railway stations. City buses in Rzeszów for now.`)}</small></div>`;
+  }
+  return `<div class="tx-city"><button type="button" class="tx-city-btn" data-city-open aria-haspopup="dialog" aria-expanded="${TCITY.open}"><i class="fa-solid fa-city" aria-hidden="true"></i> <span>${L2('Miasto','City')}:</span> <b>${esc(TCITY.name)}</b> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button>${list}</div>`;
+}
+function toggleCityPicker(open=!TCITY.open){
+  TCITY.open=open; if(open) TCITY.q='';
+  // pełna lista stacji w Polsce przychodzi przy pierwszym otwarciu (na stronie autobusów nie jest jeszcze potrzebna)
+  if(open && !RAIL_NAMES.size){ if(!railStationsLoading) railStationsLoading=loadRailStations(); railStationsLoading.then(()=>{ TCITY.list=null; if(TCITY.open) renderTransitTabs(TRANSIT.includes(S.agency)?S.agency:'ztm'); }); }
+  renderTransitTabs(TRANSIT.includes(S.agency)?S.agency:'ztm');
+  if(open) setTimeout(()=>document.getElementById('cityQuery')?.focus(),20);
+}
+// Pociągi wybranego miasta: rozkład jego głównej stacji i wyszukiwanie połączeń od niej.
+function applyCity(name){
+  const c=cityList().find(x=>x.city===name), id=c?stationIdOf(c.main):null;
+  if(id==null) return false;
+  const sel=document.getElementById('trStation');
+  if(sel && ![...sel.options].some(o=>o.value===String(id))) sel.insertAdjacentHTML('beforeend', `<option value="${id}">${esc(c.main)}</option>`);
+  TR.station=id; TR.page=null; if(sel) sel.value=String(id);
+  const prev=TCITY.station; TCITY.station=c.main;
+  if(S.agency==='kolej' && (!plFrom.value.trim() || plFrom.value===prev)) plFrom.value=c.main;
+  if(typeof renderBoard==='function' && TR.trains.length) renderBoard();
+  return true;
+}
+function applySavedCity(){ if(!TCITY.applied && TCITY.name!=='Rzeszów') TCITY.applied=applyCity(TCITY.name); }
+function selectCity(name){
+  TCITY.name=name; TCITY.open=false; store('onward.city', name);
+  const ok=applyCity(name); TCITY.applied=ok;
+  const local=LOCAL_TRANSIT.has(name);
+  if(!local && TRANSIT.includes(S.agency) && S.agency!=='kolej'){ goPage('kolej', S.sub==='ulubione'?'ulubione':S.sub, S.sub==='ulubione'?'kolej':'all'); }
+  else renderTransitTabs(TRANSIT.includes(S.agency)?(S.sub==='ulubione'?FAVF.kind:S.agency):'ztm');
+  toast(local?L2(`${name}: autobusy miejskie, podmiejskie i pociągi.`,`${name}: city buses, suburban buses and trains.`):L2(`${name}: pociągi${ok?' ze stacji '+cityList().find(x=>x.city===name)?.main:''}. Autobusy miejskie dodamy wkrótce.`,`${name}: trains${ok?' from '+cityList().find(x=>x.city===name)?.main:''}. City buses are coming soon.`));
+}
+document.getElementById('transitTabs')?.addEventListener('input', e=>{
+  if(e.target.id!=='cityQuery') return;
+  TCITY.q=e.target.value; const pos=e.target.selectionStart;
+  renderTransitTabs(TRANSIT.includes(S.agency)?S.agency:'ztm');
+  const q=document.getElementById('cityQuery'); q?.focus(); q?.setSelectionRange(pos,pos);
+});
+document.getElementById('transitTabs')?.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && TCITY.open){ toggleCityPicker(false); document.querySelector('[data-city-open]')?.focus(); }
+  if(e.key==='Enter' && e.target.id==='cityQuery'){ e.preventDefault(); const first=document.querySelector('[data-city-pick]'); if(first) selectCity(first.dataset.cityPick); }
+  if(e.key==='ArrowDown' && e.target.id==='cityQuery'){ e.preventDefault(); document.querySelector('[data-city-pick]')?.focus(); }
+});
+document.addEventListener('click', e=>{ if(TCITY.open && !e.target.closest('.tx-city')) toggleCityPicker(false); });
 const TRANSIT=['ztm','pks','kolej'];
 const TRANSIT_MODES=[['ztm','bus','Autobusy miejskie','City buses'],['pks','suburban-bus','Podmiejskie','Suburban'],['kolej','train','Pociągi','Trains']];
 function renderTransitTabs(current){
@@ -1287,13 +1363,16 @@ function renderTransitTabs(current){
   const fav=S.sub==='ulubione', show=TRANSIT.includes(current) && ['', 'rozklad', 'ulubione'].includes(S.sub);
   el.hidden=!show; if(!show){ el.innerHTML=''; return; }
   const subs=[['', current==='pks'?L2('Dokąd dojedziesz','Where you can go'):L2('Szukaj połączenia','Find a connection'), 'magnifying-glass'], ['rozklad', L2('Rozkład jazdy','Timetable'), 'clock'], ['ulubione', L2('Ulubione','Favourites'), 'star']];
-  el.innerHTML=`<div class="tt-modes" role="group" aria-label="${L2('Rodzaj komunikacji','Kind of transport')}">${TRANSIT_MODES.map(([v,icon,pl,en])=>`<button type="button" class="tt-mode ${v===current?'on':''}" data-transit-go="${v}" aria-pressed="${v===current}"><i class="oi oi-${icon}" aria-hidden="true"></i> ${L2(pl,en)}</button>`).join('')}</div>
-    <div class="tt-subs" role="group" aria-label="${L2('Widok','View')}">${subs.map(([v,label,icon])=>`<button type="button" class="tt-sub ${(fav?'ulubione':S.sub)===v?'on':''}" data-transit-sub="${v}" aria-pressed="${(fav?'ulubione':S.sub)===v}"><i class="fa-regular fa-${icon}" aria-hidden="true"></i> ${label}</button>`).join('')}</div>`;
+  const local=LOCAL_TRANSIT.has(TCITY.name);
+  el.innerHTML=`${cityPickerHtml()}<div class="tx-modes" role="group" aria-label="${L2('Rodzaj komunikacji','Kind of transport')}">${TRANSIT_MODES.map(([v,icon,pl,en])=>{ const soon=!local&&v!=='kolej'; return `<button type="button" class="tx-mode ${v===current?'on':''} ${soon?'soon':''}" data-transit-go="${v}" aria-pressed="${v===current}" ${soon?`title="${esc(L2(`${TCITY.name}: wkrótce — na razie pociągi`,`${TCITY.name}: coming soon — trains for now`))}" aria-disabled="true"`:''}><i class="oi oi-${icon}" aria-hidden="true"></i> ${L2(pl,en)}${soon?` <small>${L2('wkrótce','soon')}</small>`:''}</button>`; }).join('')}</div>
+    <div class="tx-subs" role="group" aria-label="${L2('Widok','View')}">${subs.map(([v,label,icon])=>`<button type="button" class="tx-sub ${(fav?'ulubione':S.sub)===v?'on':''}" data-transit-sub="${v}" aria-pressed="${(fav?'ulubione':S.sub)===v}"><i class="fa-regular fa-${icon}" aria-hidden="true"></i> ${label}</button>`).join('')}</div>`;
 }
 document.getElementById('transitTabs')?.addEventListener('click', e=>{
   const m=e.target.closest('[data-transit-go]'), sub=e.target.closest('[data-transit-sub]');
   const cur=S.sub==='ulubione'?FAVF.kind:S.agency;
-  if(m){ const next=S.sub==='ulubione'?'ulubione':S.sub; goPage(m.dataset.transitGo, next, next==='ulubione'?m.dataset.transitGo:'all'); return; }
+  if(e.target.closest('[data-city-open]')){ toggleCityPicker(); return; }
+  const pick=e.target.closest('[data-city-pick]'); if(pick){ selectCity(pick.dataset.cityPick); return; }
+  if(m){ if(m.getAttribute('aria-disabled')==='true'){ toast(L2(`${TCITY.name}: autobusy miejskie i podmiejskie dodamy wkrótce. Na razie pociągi.`,`${TCITY.name}: city and suburban buses are coming soon. Trains for now.`)); return; } const next=S.sub==='ulubione'?'ulubione':S.sub; goPage(m.dataset.transitGo, next, next==='ulubione'?m.dataset.transitGo:'all'); return; }
   if(sub){ const v=sub.dataset.transitSub; goPage(TRANSIT.includes(cur)?cur:'ztm', v, v==='ulubione'?(TRANSIT.includes(cur)?cur:'ztm'):'all'); }
 });
 function syncNav(){
@@ -1386,6 +1465,7 @@ const mfFrom=document.getElementById('mfFrom'), mfSteps=document.getElementById(
 function mfStepHtml(i, x={}){
   const modes=x.modes||MF_MODES.map(m=>m[0]);
   return `<li class="mf-step">
+    <div class="mf-route" aria-live="polite"><span class="mf-route-from"></span><i class="fa-solid fa-arrow-right-long" aria-hidden="true"></i><span class="mf-route-to"></span></div>
     <span class="mf-n" aria-hidden="true">${i+1}</span>
     <div class="pl-field mf-to-f"><label><i class="oi oi-pin" aria-hidden="true"></i> <span class="mf-label">Miejsce ${i+1}</span></label><div class="pl-inp"><input class="mf-to" placeholder="Dokąd" value="${esc(x.to||'')}" autocomplete="off"></div></div>
     <div class="pl-field mf-date-f"><label><i class="oi oi-calendar" aria-hidden="true"></i> Data</label><div class="pl-inp"><input class="mf-date dp-input" type="date" readonly value="${esc(x.date||'')}" min="${ymdOf(0)}" max="${lastPlanDay()}" aria-haspopup="dialog"></div></div>
@@ -1398,8 +1478,27 @@ function mfRenumber(){
   [...mfSteps.querySelectorAll('.mf-step')].forEach((li,i)=>{ li.querySelector('.mf-n').textContent=i+1; li.querySelector('.mf-label').textContent=`Miejsce ${i+1}`; });
   const n=mfSteps.querySelectorAll('.mf-step').length;
   document.getElementById('mfAdd').disabled=n>=MF_MAX;
-  mfSteps.querySelectorAll('.mf-remove').forEach(b=>{ b.hidden=n<=2; });
+  mfSteps.querySelectorAll('.mf-remove').forEach(b=>{ b.hidden=n<=1; });
+  mfRoutes();
 }
+// Łańcuch etapów: każdy wiersz pokazuje „skąd → dokąd”, a przycisk „Następne miejsce” — skąd ruszy kolejny etap.
+const placeName=v=>String(v||'').split(',')[0].trim();
+function mfRoutes(){
+  let prev=placeName(mfFrom.value)||L2('Start','Start');
+  [...mfSteps.querySelectorAll('.mf-step')].forEach((li,i)=>{
+    const to=placeName(li.querySelector('.mf-to').value);
+    li.querySelector('.mf-route-from').textContent=prev;
+    li.querySelector('.mf-route-to').textContent=to||L2(`Miejsce ${i+1}`,`Place ${i+1}`);
+    li.querySelector('.mf-route').classList.toggle('empty', !to);
+    prev=to||L2(`Miejsce ${i+1}`,`Place ${i+1}`);
+  });
+  const n=mfSteps.querySelectorAll('.mf-step').length, nx=document.getElementById('mfNextFrom');
+  if(nx) nx.textContent=n>=MF_MAX?L2(`Najwyżej ${MF_MAX} miejsc`,`At most ${MF_MAX} places`):L2(`Kolejny etap z: ${prev}`,`Next stage from: ${prev}`);
+}
+mfFrom?.addEventListener('input', mfRoutes);
+mfSteps?.addEventListener('input', e=>{ if(e.target.matches('.mf-to')) mfRoutes(); });
+mfSteps?.addEventListener('change', e=>{ if(e.target.matches('.mf-to')) mfRoutes(); });
+mfFrom?.addEventListener('change', mfRoutes);
 function mfAddStep(x={}){
   const steps=mfSteps.querySelectorAll('.mf-step'); if(steps.length>=MF_MAX) return null;
   const prev=steps[steps.length-1];
@@ -1409,14 +1508,14 @@ function mfAddStep(x={}){
   const li=mfSteps.lastElementChild; attachSuggest(li.querySelector('.mf-to'), {streets:true});
   mfRenumber(); return li;
 }
-// Przełączenie na „Wiele miejsc”: start i pierwsze miejsce z wyszukiwarki, zawsze co najmniej dwa miejsca.
+// Przełączenie na „Wiele miejsc”: start i pierwsze miejsce z wyszukiwarki; kolejne dodaje się przyciskiem „Następne miejsce”.
 function enterMultiForm({addStep=false, from='', steps=null}={}){
   if(!mfFrom.dataset.sugg){ mfFrom.dataset.sugg='1'; attachSuggest(mfFrom, {streets:true}); }
   document.body.classList.add('multi-form'); plRound.checked=false; syncReturn();
   if(from || !mfFrom.value) mfFrom.value=from||plFrom.value;
   if(steps){ mfSteps.innerHTML=''; steps.forEach(x=>mfAddStep({...x})); }
   if(!mfSteps.children.length) mfAddStep({to:plTo.value, date:plDate.value, modes:[...document.querySelectorAll('#plModes input:checked')].map(x=>x.value)});
-  while(mfSteps.children.length<2 || addStep){ addStep=false; const li=mfAddStep(); if(!li) break; }
+  if(addStep) mfAddStep();
   mfRenumber();
   const empty=[mfFrom, ...mfSteps.querySelectorAll('.mf-to')].find(i=>!i.value.trim());
   setTimeout(()=>(empty||mfFrom).focus(), 50);
@@ -1437,7 +1536,7 @@ document.getElementById('mfGo')?.addEventListener('click', ()=>{
   const steps=rows.map(li=>({to:li.querySelector('.mf-to').value.trim(), date:li.querySelector('.mf-date').value, time:li.querySelector('.mf-time').value, when:li.querySelector('.mf-when').value, modes:[...li.querySelectorAll('.mf-modes input:checked')].map(x=>x.value)}));
   if(!from){ err.textContent='Podaj, skąd zaczynasz podróż.'; mfFrom.focus(); return; }
   const noPlace=steps.findIndex(x=>!x.to); if(noPlace>=0){ err.textContent=`Podaj miejsce ${noPlace+1}.`; rows[noPlace].querySelector('.mf-to').focus(); return; }
-  if(steps.length<2){ err.textContent='Dodaj co najmniej dwa miejsca — dla jednego wybierz „W jedną stronę”.'; return; }
+  if(steps.length<2){ err.textContent='Dodaj co najmniej dwa miejsca — dla jednego wybierz „W jedną stronę”.'; const li=mfAddStep(); li?.querySelector('.mf-to').focus(); return; }
   const noMode=steps.findIndex(x=>!x.modes.length); if(noMode>=0){ err.textContent=`Zaznacz środek transportu dla miejsca ${noMode+1}.`; return; }
   let last=ymdOf(0);
   for(let i=0;i<steps.length;i++){
@@ -1513,7 +1612,7 @@ function multiSaveView(){
   const total=legs.reduce((a,L)=>a+(L.cost||0),0), unknown=legs.some(L=>L.cost==null);
   const cards=legs.map((L,k)=>`<div class="journey-box ground-leg"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-${esc(L.icon)}" aria-hidden="true"></i> Etap ${k+1}: ${esc(L.from)} → ${esc(L.to)}</h4><button type="button" class="btn-ghost" data-multi-leg="${k}"><i class="fa-solid fa-pen" aria-hidden="true"></i> Zmień</button></div>
       <small class="text-soft">${esc(L.title)} · ${longDay(L.day,{weekday:'short', day:'numeric', month:'long'})}${L.leave!=null?` · wyjście ${fmtClock(L.leave)}`:''}${L.arrive!=null?` · na miejscu ${fmtClock(L.arrive)}`:''}${L.cost!=null?` · ok. ${zl(L.cost)}`:''}</small>
-      ${L.kind==='ground'?stepsHtml(L.g.steps||[]):stepsHtml([...(L.snap.access?.steps||[]).slice(0,6), {icon:'plane-departure', text:`Lot ${L.snap.out?.fromLabel||''} → ${L.snap.out?.toLabel||''}`, sub:`${L.snap.out?.dep||''} → ${L.snap.out?.arr||''} · ${L.snap.out?.airlineName||''}`}])}</div>`+
+      ${L.kind==='ground'?stepsHtml(L.g.steps||[]):stepsHtml([...(L.snap.access?.steps||[]).slice(0,6), {icon:'plane-departure', text:`Lot ${L.snap.out?.fromLabel||''} → ${L.snap.out?.toLabel||''}`, sub:`${L.snap.out?.dep||''} → ${L.snap.out?.arr||''} · ${L.snap.out?.airlineName||''}`}, ...(L.snap.xfer?[{icon:L.snap.xfer.skip?'car-side':'bus', text:L.snap.xfer.skip?'Z lotniska: ktoś mnie odbierze':`Z lotniska do centrum: ${L.snap.xfer.name||''}`, sub:[L.snap.xfer.minutes!=null?`ok. ${fmtDuration(L.snap.xfer.minutes)}`:'', L.snap.xfer.fare||''].filter(Boolean).join(' · ')}]:[])])}</div>`+
       (k<n-1&&M.stays[k]?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(M.places[k+1])}: postój ${fmtStay(M.stays[k])}</div>`:'')).join('');
   return `<div class="plan-head"><span>${M.places.map(esc).join(' <span class="txt-red">→</span> ')}</span></div>${cards}
     <div class="cs-save"><div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz całą podróż w ulubionych albo jako swoją podróż.${legs.length?` <small>Koszt: ${unknown?'od ':'ok. '}${zl(total)}</small>`:''}</div>
@@ -2587,6 +2686,18 @@ function accessHtml(P, f){
   return `<div class="journey-top">${compareHtml(P,f,options,o)}${journeyLine(P,f,o)}</div>`;
 }
 const fareTotal=f=>Math.round(f.pricePln+(f.ret?.pricePln||0));
+/* ---------- Ceny lotów w dwóch walutach: najpierw EUR, potem PLN (kurs średni NBP z serwera) ---------- */
+const FX={eur:null, asked:false};
+async function loadFx(){
+  if(FX.asked) return; FX.asked=true;
+  try{ const r=await fetch('/api/rates?currency=EUR'); const d=r.ok?await r.json():null; if(d?.pln>0){ FX.eur=d.pln; if(S.plan) runPlan(false); } }
+  catch(e){ console.warn('Kurs EUR', e); FX.asked=false; }
+}
+// Cena w euro: z taryfy przewoźnika, gdy sprzedaje w EUR, inaczej przeliczona z PLN.
+const eurOf=f=>!f||f.priceUnknown?null:f.currency==='EUR'&&f.price>0?f.price:FX.eur&&f.pricePln>0?f.pricePln/FX.eur:null;
+const eurSum=f=>{ const a=eurOf(f), b=f?.ret?eurOf(f.ret):0; return a!=null&&b!=null?a+b:null; };
+const fmtEur=v=>v>=100?String(Math.round(v)):v.toFixed(2).replace('.',',');
+function eurPln(pln, eur){ const e=eur!=null?eur:(FX.eur&&pln!=null?pln/FX.eur:null); return `${e!=null?`<span class="fx-eur">${fmtEur(e)} €</span> <span class="fx-sep">·</span> `:''}<span class="fx-pln">${pln} zł</span>`; }
 // Porównanie dojazdów: kiedy wyjść, ile trwa droga na lotnisko i ile kosztuje razem z lotem.
 // Główne miejsca podróży na pionowej, kropkowanej linii. Szczegóły punktu pokazują się dopiero po jego kliknięciu,
 // a otwartych może być kilka naraz.
@@ -2662,7 +2773,7 @@ function priceSplit(P, f){
   const c=tripCosts(P,f);
   return `<ul class="price-split">${c.rows.map(r=>`<li><span><i class="fa-solid fa-${esc(r.icon)}" aria-hidden="true"></i> ${esc(r.label.replace(/ · .*$/,''))}</span><b>${r.value==null?'—':zl(r.value)}</b></li>`).join('')}</ul>`;
   const o=pickedAccess(P,f), p=o?.parts||{}, line=(m,name,value)=>`<li><span><i class="fa-solid fa-${MODE_ICON[m]||'route'}" style="color:${MODE_COLOR[m]||MODE_COLOR.other}" aria-hidden="true"></i> ${name}</span><b>${value}</b></li>`;
-  const lines=[line('plane','Lot',`${fareTotal(f)} zł`)];
+  const lines=[line('plane','Lot',eurPln(fareTotal(f), eurSum(f)))];
   if(p.bus) lines.push(line('bus','Autobus ZTM',zl(p.bus)));
   if(p.pks) lines.push(line('pks','Autobus podmiejski',`${p.pksEstimated?'ok. ':''}${zl(p.pks)}`));
   if(p.train) lines.push(line('train','Pociąg (szacunek)',`ok. ${zl(p.train)}`));
@@ -2850,7 +2961,7 @@ function flightPickRows(P, list, kind, picked, C){
       <span class="fl-route"><b>${esc(f.from)} → ${esc(f.to)}</b><small>${esc(kind==='out'?f.fromLabel:f.toLabel)}${Number.isFinite(km)?` · ${km} km od startu`:''}</small></span>
       <span class="fl-when"><b>${clockOf(f.departure)||'—'}${f.arrival?' – '+arrivalOf(f):''}</b><small>${esc([f.flightNumber, durationOf(f)].filter(Boolean).join(' · '))}${f.times?.length>1?` · ${f.times.length} odloty`:''}${f.stops?' · '+changesText(f.stops):''}</small></span>
       <span class="fl-marks">${marks}</span>
-      <span class="fl-price">${busy?`<b><span class="spin sm" aria-hidden="true"></span></b><small>Sprawdzam cenę u przewoźnika…</small>`:f.priceUnknown?`<b>—</b><small>${note?esc(note):'brak ceny w bazie'}</small>${refresh}`:`<b>${f.priceType==='list'&&f.airline==='WIZZ'?'od ':''}${Math.round(f.pricePln)} zł</b>${f.priceType==='list'?'<small>cena najtańszego lotu dnia</small>':''}<small class="fl-age ${(age||0)>=PRICE_STALE_MIN?'old':''}">${priceAge(f)}</small>${note?`<small class="fl-note">${esc(note)}</small>`:''}${refresh}`}</span></button>`;
+      <span class="fl-price">${busy?`<b><span class="spin sm" aria-hidden="true"></span></b><small>Sprawdzam cenę u przewoźnika…</small>`:f.priceUnknown?`<b>—</b><small>${note?esc(note):'brak ceny w bazie'}</small>${refresh}`:`<b>${f.priceType==='list'&&f.airline==='WIZZ'?'od ':''}${eurPln(Math.round(f.pricePln), eurOf(f))}</b>${f.priceType==='list'?'<small>cena najtańszego lotu dnia</small>':''}<small class="fl-age ${(age||0)>=PRICE_STALE_MIN?'old':''}">${priceAge(f)}</small>${note?`<small class="fl-note">${esc(note)}</small>`:''}${refresh}`}</span></button>`;
   }).join('')}</div>`;
 }
 // Promień lotnisk może wykluczyć wszystkie lotniska z lotami do celu; wtedy proponujemy najbliższe takie lotnisko.
@@ -2912,7 +3023,7 @@ function flightCost(P, C){
   const n=Math.max(1,P.people||1), part=(f,label)=>f&&!f.priceUnknown?{label, value:Math.round(f.pricePln)}:f?{label, value:null}:null;
   const parts=[part(C.out,'wylot'), part(C.ret,'powrót')].filter(Boolean); if(!parts.length) return '';
   const sum=parts.every(p=>p.value!=null)?parts.reduce((s,p)=>s+p.value,0):null;
-  return `<div class="fl-cost"><small>Koszt lotów${n>1?' na osobę':''}</small><span>${parts.map(p=>`${p.label} <b>${p.value!=null?p.value+' zł':'—'}</b>`).join(' + ')}${parts.length>1&&sum!=null?` = <b>${sum} zł</b>`:''}</span>${n>1&&sum!=null?`<small>za ${peopleText(n)}: <b>${sum*n} zł</b></small>`:''}</div>`;
+  return `<div class="fl-cost"><small>Koszt lotów${n>1?' na osobę':''}</small><span>${parts.map(p=>`${p.label} <b>${p.value!=null?eurPln(p.value):'—'}</b>`).join(' + ')}${parts.length>1&&sum!=null?` = <b>${eurPln(sum)}</b>`:''}</span>${n>1&&sum!=null?`<small>za ${peopleText(n)}: <b>${sum*n} zł</b></small>`:''}</div>`;
 }
 function stepNav(back, next, label, middle=''){
   return `<div class="fl-nav">${back?`<button type="button" class="btn-ghost" data-flight-step="${back}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Wstecz</button>`:'<span></span>'}${middle}${next?`<button type="button" class="btn-grad" data-flight-step="${next}">${label} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
@@ -3444,6 +3555,7 @@ function renderStage(P, R, paged){
   if(flightsNeeded) sections.push(tripSection('Samolot', flights.length||P.flights?.outbound?.length?tripFlights(P):flightNote(P), 'plane'));
   if(modes.includes('car')) sections.push(tripSection(flightsNeeded?'Samochód (dla porównania)':'Samochód', carCard(P), 'car'));
   if(!sections.length) sections.push(`<div class="empty-note">${stateIll(assetPaths.noResults)}${P.by?`Wybranymi środkami nie dojedziesz na ${fmtClock(P.by)}. Zmień godzinę albo zaznacz więcej środków transportu.`:'Brak połączeń wybranymi środkami transportu. Zaznacz więcej opcji.'}</div>`);
+  if(flightsNeeded && (P.flightStep||1)>=2 && !(groundWizard(P)&&P.groundPick)){ const only=sections.filter(x=>x.includes('data-sec="plane"')); sections.length=0; sections.push(...only); }
   if(P.round && !flightsNeeded) sections.push(tripSection(`Powrót ${fmtDay(P.round.back)} od ${fmtClock(backAt)}`, back.length||railBack.length?back.map(o=>transitCard(o,P,P.dest,home)).join('')+railBack.map(r=>trainCard(r,P,P.dest,home)).join(''):'<div class="empty-note">Brak połączeń komunikacją w dniu powrotu. Wróć tą samą trasą.</div>', 'rotate-left'));
   return `<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span>${favButton({type:'route',view:'podroz',from:P.from,to:P.to},'Zapisz trasę')}<span class="text-soft">${P.km==null?'':'<span>w linii prostej '+fmtKm(P.km)+'</span> · '}<span>${stageTime(P)}</span>${P.round?` · powrót od ${fmtDay(P.round.back)}`:''}</span></div>`+(groundWizard(P)&&P.single?groundStepBar(P):'')+`<div class="stage-top">${tripWeather(P)}${best?`<div class="trip-best">${esc(bestText(best,P,R))}</div>`:''}${stageEstimate(P,R)}</div>`+sections.join('')+(groundWizard(P)&&P.single?groundNext(P):'');
 }
@@ -3778,6 +3890,7 @@ function syncPrefer(){
   const rad=document.getElementById('plRadius'); if(rad && !rad.dataset.ready){ rad.dataset.ready='1'; rad.value=String(store('rzbus.plan.radius')||'300'); }
 }
 async function loadTripFlights(P){
+  loadFx(); // kurs EUR do cen w dwóch walutach
   const a=P.origin.points[0], b=P.dest.points[0];
   try{
     const r=await fetch(`/api/flights/options?origin=${pointParam(a)}&dest=${pointParam(b)}&date=${P.date||ymdOf(0)}${P.round?`&back=${P.round.back}`:''}&radius=${flightRadius()}&prefer=${preferredAirport()}`);
@@ -4665,7 +4778,8 @@ function peopleHtml(f, T){
         <span class="tp-avatar" style="background:${personColor(p.id)}">${esc(initials(p.name))}</span>
         <span class="tp-person-text"><b>${esc(p.name||'—')}${p.me?` <small>(${L2('Ty','you')})</small>`:''}${p.role==='owner'?` <small class="tp-owner">${L2('organizator','organiser')}</small>`:''}</b>
           <small>${p.me?esc(seen?L2(`Twoją lokalizację widzi: ${seen} ${seen===1?'osoba':'osoby'}`,`${seen} ${seen===1?'person sees':'people see'} your location`):L2('Nikt nie widzi Twojej lokalizacji','Nobody sees your location')):esc(personLine(p, meLoc, route))}${p.email?` · ${esc(p.email)}`:''}</small></span></button>
-      ${p.me?'':`<label class="tp-loc-to ${past?'disabled':''}" title="${L2('Czy ta osoba widzi Twoją lokalizację','Whether this person sees your location')}"><input type="checkbox" role="switch" data-loc-viewer="${esc(p.id)}" ${p.seesMyLocation?'checked':''} ${past?'disabled':''}><span>${L2('Widzi moją lokalizację','Sees my location')}</span></label>`}
+      ${owner&&p.role==='member'?inviteStatusChip(p):''}
+      ${p.me||p.status&&p.status!=='accepted'?'':`<label class="tp-loc-to ${past?'disabled':''}" title="${L2('Czy ta osoba widzi Twoją lokalizację','Whether this person sees your location')}"><input type="checkbox" role="switch" data-loc-viewer="${esc(p.id)}" ${p.seesMyLocation?'checked':''} ${past?'disabled':''}><span>${L2('Widzi moją lokalizację','Sees my location')}</span></label>`}
       ${owner&&p.role!=='owner'?`<button type="button" class="tp-person-x" data-person-remove="${esc(p.id)}" data-person-name="${esc(p.name||'')}" title="${L2('Usuń z podróży','Remove from the trip')}" aria-label="${L2('Usuń z podróży','Remove from the trip')}: ${esc(p.name)}">×</button>`:''}
     </li>`).join('');
   return `<section class="tp-people" id="tripPeople">${head}
@@ -4678,6 +4792,86 @@ function peopleHtml(f, T){
     <p class="tp-loc-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> ${past?L2('Podróż się skończyła — lokalizacji nie można już udostępniać.','The trip has ended — location can no longer be shared.'):L2('Każdy sam wybiera, komu pokazuje swoją lokalizację. Działa tylko w tej podróży, do dnia po jej końcu; wysyłamy ją co minutę, gdy aplikacja jest otwarta.','Everyone chooses who sees their own location. Only for this trip, until the day after it ends; sent every minute while the app is open.')}</p>
     ${!owner?`<div class="tp-people-foot"><button type="button" class="btn-ghost" data-trip-leave><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i> ${L2('Opuść podróż','Leave the trip')}</button></div>`:''}
   </section>`;
+}
+// Stan zaproszenia widziany przez organizatora: czeka, odrzucone, przyjęte (z lokalizacją albo bez).
+function inviteStatusChip(p){
+  if(p.status==='pending') return `<span class="tp-status-chip pending" title="${p.offersLocation?L2('Zaproszona z Twoją lokalizacją','Invited with your location'):L2('Zaproszona bez Twojej lokalizacji','Invited without your location')}"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${L2('Czeka na odpowiedź','Waiting for reply')}</span>`;
+  if(p.status==='declined') return `<span class="tp-status-chip declined"><i class="fa-solid fa-xmark" aria-hidden="true"></i> ${L2('Odrzucone','Declined')}</span>`;
+  return `<span class="tp-status-chip accepted"><i class="fa-solid fa-check" aria-hidden="true"></i> ${p.acceptedWithLocation?L2('Przyjęte · z lokalizacją','Accepted · with location'):L2('Przyjęte · bez lokalizacji','Accepted · without location')}</span>`;
+}
+/* ---------- Zaproszenia do podróży (dzwonek): przyjmij z lokalizacją, bez lokalizacji albo odrzuć;
+   organizator dostaje odpowiedź z informacją, czy przyjęto z lokalizacją ---------- */
+const INBOX={invites:[], responses:[], loaded:false, known:null};
+const responseKey=r=>`${r.tid}|${r.memberId}|${r.at}`;
+const inboxSeen=()=>store('onward.inboxSeen')||[];
+function markResponsesSeen(){ store('onward.inboxSeen', [...new Set([...inboxSeen(), ...INBOX.responses.map(responseKey)])].slice(-200)); }
+async function loadInbox(){
+  if(!FAV.user) return;
+  try{
+    const r=await fetch('/api/trips/inbox'); if(!r.ok) return;
+    const d=await r.json(), before=INBOX.known;
+    INBOX.invites=d.invites||[]; INBOX.responses=d.responses||[]; INBOX.loaded=true;
+    INBOX.known=new Set(INBOX.invites.map(i=>i.ownerId+'|'+i.tid));
+    const fresh=before?INBOX.invites.filter(i=>!before.has(i.ownerId+'|'+i.tid)):[];
+    if(fresh.length) toast(L2(`${fresh[0].ownerName} udostępnił(a) Ci podróż — zobacz w dzwonku.`,`${fresh[0].ownerName} shared a trip with you — see the bell.`));
+    for(const a of INBOX.responses) startOfferedSending(a);
+    renderAlertsBtn();
+  }catch(e){ console.warn('Zaproszenia', e); }
+}
+// Organizator zaprosił „z moją lokalizacją”: po akceptacji to urządzenie zaczyna ją wysyłać (raz na odpowiedź).
+async function startOfferedSending(a){
+  if(a.status!=='accepted' || !a.offersLocation) return;
+  const done=store('onward.offerSent')||[], key=responseKey(a); if(done.includes(key)) return;
+  store('onward.offerSent', [...done, key].slice(-200));
+  const f=FAV.items.find(x=>x.type==='trip' && x.tid===a.tid); if(!f) return;
+  const s=await fetch(tripApi(f)+'/location-sharing',{method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({viewerId:a.memberId, enabled:true})}).then(x=>x.ok?x.json():null).catch(()=>null);
+  if(s) rememberSending(f, s);
+}
+function inboxHtml(){
+  if(document.body.classList.contains('guest') || !INBOX.loaded || !(INBOX.invites.length||INBOX.responses.length)) return '';
+  const seen=inboxSeen();
+  const inv=INBOX.invites.map(i=>{
+    const route=i.title||`${i.from} → ${i.to}`, key=esc(i.ownerId+'|'+i.tid);
+    return `<article class="inbox-card invite">
+      <span class="tp-avatar" style="background:${personColor(i.ownerId)}">${esc(initials(i.ownerName))}</span>
+      <div class="inbox-text"><b>${esc(L2(`${i.ownerName} udostępnił(a) Ci podróż`,`${i.ownerName} shared a trip with you`))}</b>
+        <span class="inbox-route">${esc(route)}${i.day?` · ${esc(fmtDay(i.day))}`:''}</span>
+        ${i.offersLocation?`<small><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> ${esc(L2(`${i.ownerName} pokaże Ci swoją lokalizację w czasie podróży.`,`${i.ownerName} will show you their location during the trip.`))}</small>`:''}
+        <div class="inbox-btns">
+          <button type="button" class="btn-grad" data-invite-answer="${key}" data-accept="1" data-loc="1"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> ${L2('Przyjmij z moją lokalizacją','Accept with my location')}</button>
+          <button type="button" class="btn-ghost" data-invite-answer="${key}" data-accept="1" data-loc="0"><i class="fa-solid fa-check" aria-hidden="true"></i> ${L2('Przyjmij bez lokalizacji','Accept without location')}</button>
+          <button type="button" class="btn-ghost inbox-decline" data-invite-answer="${key}" data-accept="0"><i class="fa-solid fa-xmark" aria-hidden="true"></i> ${L2('Odrzuć','Decline')}</button>
+        </div><p class="inbox-msg" role="status"></p></div></article>`;
+  }).join('');
+  const res=INBOX.responses.slice(0,8).map(a=>{
+    const ok=a.status==='accepted', isNew=!seen.includes(responseKey(a));
+    const what=ok?(a.withLocation?L2('przyjął(a) zaproszenie — z lokalizacją','accepted — with location'):L2('przyjął(a) zaproszenie — bez lokalizacji','accepted — without location')):L2('odrzucił(a) zaproszenie','declined');
+    return `<article class="inbox-card ${ok?'accepted':'declined'} ${isNew?'new':''}">
+      <span class="inbox-ico"><i class="fa-solid ${ok?'fa-check':'fa-xmark'}" aria-hidden="true"></i></span>
+      <div class="inbox-text"><b>${esc(a.memberName)} ${what}</b><span class="inbox-route">${esc(a.title)} · ${esc(agoText(a.at))}</span></div>
+      <button type="button" class="btn-ghost inbox-open" data-inbox-open="${esc(a.tid)}">${L2('Otwórz','Open')}</button></article>`;
+  }).join('');
+  return `<section class="inbox">${inv?`<h5 class="section-title mb-2"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Zaproszenia do podróży','Trip invitations')} <small>${INBOX.invites.length}</small></h5>${inv}`:''}
+    ${res?`<h5 class="section-title mb-2 ${inv?'mt-3':''}"><i class="fa-solid fa-reply" aria-hidden="true"></i> ${L2('Odpowiedzi na Twoje zaproszenia','Answers to your invitations')}</h5>${res}`:''}</section>`;
+}
+async function answerInvite(btn){
+  const [ownerId, tid]=btn.dataset.inviteAnswer.split('|'), accept=btn.dataset.accept==='1', withLocation=btn.dataset.loc==='1';
+  const card=btn.closest('.inbox-card'), msg=card.querySelector('.inbox-msg'), btns=[...card.querySelectorAll('button')];
+  msg.textContent=''; msg.className='inbox-msg';
+  if(!accept && !(await askConfirm(L2('Odrzucić zaproszenie?','Decline the invitation?'), {detail:card.querySelector('.inbox-route')?.textContent||'', ok:L2('Odrzuć','Decline'), danger:true}))) return;
+  if(withLocation && !(await locationAllowed())){ msg.textContent=L2('Bez zgody na lokalizację na tym urządzeniu możesz przyjąć zaproszenie tylko bez lokalizacji.','Without location permission on this device you can only accept without location.'); msg.className='inbox-msg err'; return; }
+  btns.forEach(b=>b.disabled=true);
+  try{
+    const r=await fetch(`/api/trips/${encodeURIComponent(ownerId)}/${encodeURIComponent(tid)}/respond`,{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({accept, withLocation})});
+    const body=await r.json().catch(()=>({}));
+    if(!r.ok){ msg.textContent=body.error||L2('Nie udało się odpowiedzieć.','Could not answer.'); msg.className='inbox-msg err'; btns.forEach(b=>b.disabled=false); return; }
+    if(body.sharing) rememberSending({shared:{ownerId}, tid}, body.sharing);
+    INBOX.invites=INBOX.invites.filter(i=>!(i.ownerId===ownerId&&i.tid===tid));
+    if(accept){ await loadShared(); toast(withLocation?L2('Przyjęto. Organizator widzi Twoją lokalizację w czasie tej podróży.','Accepted. The organiser sees your location during this trip.'):L2('Przyjęto zaproszenie. Podróż jest w „Moje podróże”.','Invitation accepted. The trip is in “My trips”.')); }
+    else toast(L2('Odrzucono zaproszenie.','Invitation declined.'));
+    fillAlerts(); renderAlertsBtn();
+    if(accept){ alertsModal.hide(); openTrip(tid); }
+  }catch(e){ msg.textContent=L2('Brak połączenia.','No connection.'); msg.className='inbox-msg err'; btns.forEach(b=>b.disabled=false); }
 }
 function drawPeople(T){
   const m=TRIPMAP.map; if(!m || !PEOPLE.data || !TRIPV.map) return;
@@ -5065,8 +5259,10 @@ PEOPLE_EL.addEventListener('submit', async e=>{
   fetch('/api/trips/'+encodeURIComponent(f.tid)+'/members',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...picked, withLocation})})
     .then(async r=>{ const body=await r.json().catch(()=>({})); if(!r.ok){ msg.textContent=body.error||L2('Nie udało się udostępnić podróży.','Could not share the trip.'); msg.className='tp-invite-msg err'; return; }
       input.value=''; delete input.dataset.userId; delete input.dataset.label; closeInviteList();
-      const done=withLocation?L2(`Dodano: ${body.member.name}. Zobaczy tę podróż i Twoją lokalizację.`,`Added ${body.member.name}. They will see the trip and your location.`):L2(`Dodano: ${body.member.name}. Zobaczy tę podróż (bez Twojej lokalizacji).`,`Added ${body.member.name}. They will see the trip (without your location).`);
-      if(withLocation){ const s2=await fetch(tripApi(f)+'/location-sharing',{method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({viewerId:body.member.id, enabled:true})}).then(x=>x.ok?x.json():null).catch(()=>null); rememberSending(f, s2); }
+      const done=body.member.status==='accepted'?L2(`${body.member.name} już jest w tej podróży.`,`${body.member.name} is already on this trip.`)
+        :withLocation?L2(`Wysłano zaproszenie do: ${body.member.name}. Po akceptacji zobaczy podróż i Twoją lokalizację.`,`Invitation sent to ${body.member.name}. Once accepted, they will see the trip and your location.`)
+        :L2(`Wysłano zaproszenie do: ${body.member.name}. Po akceptacji zobaczy podróż (bez Twojej lokalizacji).`,`Invitation sent to ${body.member.name}. Once accepted, they will see the trip (without your location).`);
+      if(body.member.seesMyLocation){ const s2=await fetch(tripApi(f)+'/location-sharing',{method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({viewerId:body.member.id, enabled:true})}).then(x=>x.ok?x.json():null).catch(()=>null); rememberSending(f, s2); }
       PEOPLE.adding=false; await loadShared(); await refreshPeople(f, f.trip);
       const m2=document.querySelector('#tripPeople .tp-invite-msg'); if(m2){ m2.className='tp-invite-msg ok'; m2.textContent=done; } })
     .catch(()=>{ msg.textContent=L2('Brak połączenia.','No connection.'); msg.className='tp-invite-msg err'; })
@@ -5160,7 +5356,8 @@ document.addEventListener('click', e=>{
 sessionUser.then(async user=>{
   if(!user) return;
   FAV.user=user;
-  loadShared(); startSending();
+  loadShared(); startSending(); loadInbox();
+  setInterval(()=>{ if(!document.hidden) loadInbox(); }, 120000);
   // Zmiany zrobione bez internetu są nowsze niż kopia na serwerze: wysyłamy je zamiast łączyć.
   if(store('onward.favsPending')){ if(navigator.onLine!==false) await saveFavorites(); renderFavorites(); return; }
   const r=await fetch('/api/favorites'); if(!r.ok) return;
@@ -6081,6 +6278,7 @@ async function loadRailStations(){
       RAIL_NAMES.set(id,name); if(!TR.names.has(id)) TR.names.set(id,name); // wyszukiwarka stacji korzysta z TR.names
     }
     if(TR.trains.length){ renderBoard(); renderTrainRoute(); }
+    applySavedCity();
   }
   catch(e){ console.warn('Stacje kolejowe', e); }
 }
@@ -6230,7 +6428,7 @@ function renderBoard(){
   const el=document.getElementById('trainBoard'); const info=document.getElementById('trInfo');
   if(CFG.trains===false){ el.innerHTML='<div class="empty-note">Pociągi są wyłączone w Ustawieniach.</div>'; info.textContent=''; return; }
   const modeTxt = TR.mode==='live' ? `Dane PKP PLK · aktualizacja ${TR.ts?fmtClock(TR.ts):'—'} · co 20 min` : TR.mode==='demo' ? 'Przykładowe dane (brak klucza PKP PLK lub brak połączenia)' : TR.mode==='loading' ? 'Pobieranie danych PKP PLK…' : '';
-  info.innerHTML = (TR.station==='all'?'':favButton({type:'stop',view:'kolej',name:RAIL_ST[TR.station][0]})+' ') + esc(modeTxt) + (TR.err?` · <span class="txt-red">${esc(TR.err)}</span>`:'');
+  info.innerHTML = (TR.station==='all'?'':favButton({type:'stop',view:'kolej',name:railName(TR.station)})+' ') + esc(modeTxt) + (TR.err?` · <span class="txt-red">${esc(TR.err)}</span>`:'');
   const banner = TR.mode==='demo' ? `<div class="line-notice" style="margin:0 0 12px"><div><span class="ln-badge off">i</span>Nie udało się pobrać danych PKP PLK — pokazuję przykładowy rozkład.</div></div>` : '';
   const now=nowSec(), all=(TR.station==='all'?allStationRows(TR.tab,TR.query,now):boardRows(TR.station,TR.tab)).filter(r=>r.pred>=now-90 && boardMatches(r,TR.query));
   const p=paginate(all, TR.page??1, BOARD_PAGE), rows=p.rows;

@@ -839,7 +839,7 @@ body:not([data-view="pks"]) .only-pks{display:none !important}
 body:not(.map-open) .map-part{display:none !important}
 body:not(.tt-mode) .tt-part{display:none !important}
 /* rozkład z menu zastępuje treść strony */
-body.tt-mode main.shell > :not(.tt-part):not(#favBar):not(#attribution):not(#feedNotice){display:none !important}
+body.tt-mode main.shell > :not(.tt-part):not(#favBar):not(#attribution):not(#feedNotice):not(#transitTabs){display:none !important}
 .hero #heroLead{display:block; margin:6px 0 0; color:#BDBDBD; font-size:.9rem; max-width:70ch}
 a.brand{color:#fff; text-decoration:none}
 .view-tab i{margin-right:4px; font-size:.85em}
@@ -2625,13 +2625,13 @@ body.plan-deep #planResults .res-layout{grid-template-columns:minmax(0,1fr)}
    ================================================================ */
 .transit-tabs{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px; margin:18px 0 6px}
 .transit-tabs[hidden]{display:none}
-.tt-modes,.tt-subs{display:inline-flex; flex-wrap:wrap; gap:6px; padding:5px; border-radius:999px; background:#fff; border:1px solid #E3EAF3; box-shadow:0 2px 6px rgba(23,59,112,.05)}
-.tt-mode,.tt-sub{display:inline-flex; align-items:center; gap:8px; border:0; background:transparent; color:#173B70; font-weight:600; font-size:.9rem; padding:8px 16px; border-radius:999px; white-space:nowrap}
-.tt-mode:hover,.tt-sub:hover{background:#E5F1FD}
-.tt-mode.on{background:#173B70; color:#fff}
-.tt-sub.on{background:#E5F1FD; color:#173B70; box-shadow:inset 0 0 0 1.5px #2878D0}
-.tt-mode .oi{width:1.1em; height:1.1em}
-@media (max-width:700px){ .transit-tabs{margin-top:12px} .tt-modes,.tt-subs{width:100%; justify-content:space-between; border-radius:16px} .tt-mode,.tt-sub{flex:1 1 auto; justify-content:center; padding:8px 10px; font-size:.84rem} }
+.tx-modes,.tx-subs{display:inline-flex; flex-wrap:wrap; gap:6px; padding:5px; border-radius:999px; background:#fff; border:1px solid #E3EAF3; box-shadow:0 2px 6px rgba(23,59,112,.05)}
+.tx-mode,.tx-sub{display:inline-flex; align-items:center; gap:8px; border:0; background:transparent; color:#173B70; font-weight:600; font-size:.9rem; padding:8px 16px; border-radius:999px; white-space:nowrap}
+.tx-mode:hover,.tx-sub:hover{background:#E5F1FD}
+.tx-mode.on{background:#173B70; color:#fff}
+.tx-sub.on{background:#E5F1FD; color:#173B70; box-shadow:inset 0 0 0 1.5px #2878D0}
+.tx-mode .oi{width:1.1em; height:1.1em}
+@media (max-width:700px){ .transit-tabs{margin-top:12px} .tx-modes,.tx-subs{width:100%; justify-content:space-between; border-radius:16px} .tx-mode,.tx-sub{flex:1 1 auto; justify-content:center; padding:8px 10px; font-size:.84rem} }
 
 /* ================================================================
    Uczestnicy podróży w oknie na środku ekranu
@@ -2749,3 +2749,98 @@ body.multi-mode #multiForm{display:none !important}
 .trip-tab .fa-route{margin-right:4px}
 @media (max-width:1180px){ .mf-step{grid-template-columns:34px 1fr 1fr 34px} .mf-step .mf-to-f{grid-column:2 / 4} .mf-step .mf-date-f{grid-column:2} .mf-step .mf-time-f{grid-column:3} .mf-step .mf-modes{grid-column:2 / 4; max-width:none} .mf-remove{grid-row:1; grid-column:4} }
 @media (max-width:640px){ .mf-step{grid-template-columns:30px 1fr 30px} .mf-step .mf-to-f,.mf-step .mf-date-f,.mf-step .mf-time-f,.mf-step .mf-modes{grid-column:2} .mf-remove{grid-column:3} }
+
+/* ceny lotów: EUR, potem PLN */
+.fx-eur{font-weight:800}
+.fx-sep{opacity:.45; font-weight:400; margin:0 1px}
+.fx-pln{font-weight:600; opacity:.85}
+.fl-price b .fx-pln{font-size:.82em}
+/* środki transportu w jednej linii */
+.mf-modes{flex-wrap:nowrap; max-width:none; gap:6px}
+.mf-modes .mode-check.sm{padding:5px 9px; font-size:.76rem; white-space:nowrap; gap:5px}
+.mf-step{grid-template-columns:34px minmax(180px,1.3fr) minmax(140px,.7fr) minmax(170px,.8fr) auto 34px}
+@media (max-width:1500px){ .mf-step{grid-template-columns:34px 1.4fr 1fr 1fr 34px} .mf-step .mf-modes{grid-column:2 / 5; grid-row:2} .mf-remove{grid-row:1; grid-column:5} }
+@media (max-width:640px){ .mf-step{grid-template-columns:30px 1fr 30px} .mf-step .mf-to-f,.mf-step .mf-date-f,.mf-step .mf-time-f{grid-column:2} .mf-step .mf-modes{grid-column:2; grid-row:auto; flex-wrap:wrap} .mf-remove{grid-column:3; grid-row:1} }
+
+/* Wybór miasta na stronach komunikacji */
+.tx-city{position:relative}
+.tx-city-btn{display:inline-flex; align-items:center; gap:8px; border:1px solid #E3EAF3; background:#fff; color:#173B70; border-radius:999px; padding:9px 16px; font-weight:600; font-size:.9rem; box-shadow:0 2px 6px rgba(23,59,112,.05)}
+.tx-city-btn:hover{border-color:#2878D0}
+.tx-city-btn b{font-weight:800}
+.tx-city-btn .fa-chevron-down{font-size:.7rem; opacity:.7}
+.tx-city-pop{position:absolute; z-index:1050; top:calc(100% + 8px); left:0; width:min(360px, calc(100vw - 24px)); background:#fff; border:1px solid #E3EAF3; border-radius:16px; box-shadow:0 12px 32px rgba(23,59,112,.16); padding:12px}
+.tx-city-pop input{width:100%; min-height:40px; border:1px solid #E3EAF3; border-radius:12px; padding:0 12px; font:inherit}
+.tx-city-pop input:focus{outline:none; border-color:#2878D0; box-shadow:0 0 0 3px rgba(40,120,208,.18)}
+.tx-city-pop ul{list-style:none; margin:8px 0 6px; padding:0; max-height:320px; overflow:auto}
+.tx-city-pop li button{display:flex; flex-direction:column; align-items:flex-start; width:100%; border:0; background:transparent; text-align:left; padding:8px 10px; border-radius:10px}
+.tx-city-pop li button:hover,.tx-city-pop li button:focus-visible{background:#E5F1FD; outline:none}
+.tx-city-pop li button.on{background:#E5F1FD; box-shadow:inset 3px 0 0 #2878D0}
+.tx-city-pop li b{color:#172B45; font-size:.9rem} .tx-city-pop li small{color:#6B7A90; font-size:.74rem}
+.tx-city-note{display:block; color:#6B7A90; font-size:.72rem}
+.tx-city-none{padding:8px 10px; color:#6B7A90; font-size:.85rem}
+.tx-mode.soon{opacity:.55}
+.tx-mode.soon small{font-size:.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; margin-left:2px}
+@media (max-width:700px){ .tx-city{width:100%} .tx-city-btn{width:100%; justify-content:center} }
+
+/* Udostępnianie: zwarty formularz dodawania osoby (pole nie rośnie w pionie) */
+#peopleBody .tp-invite{align-items:stretch; gap:8px; padding:12px 14px}
+#peopleBody .tp-invite-label{text-align:left}
+#peopleBody .tp-invite-field{flex:none; width:100%}
+#peopleBody .tp-invite-field input{width:100%; min-height:42px}
+#peopleBody .tp-invite-btns{justify-content:flex-start}
+#peopleBody .tp-invite-btns button{flex:1 1 200px; justify-content:center; min-height:42px; padding:8px 14px !important; border-radius:12px}
+#peopleBody .tp-invite-msg:empty{display:none}
+#peopleBody .tp-people-list{margin-bottom:10px}
+
+/* „Wiele miejsc”: szerszy formularz etapów na dużych ekranach */
+@media (min-width:1260px){
+  body.multi-form[data-view="podroz"]:not(.tt-mode) main.shell > .search-box{width:min(1480px, calc(100vw - 64px)); max-width:none !important; align-self:center}
+  body.multi-form .mf-start{max-width:none}
+}
+
+/* „Wiele miejsc” jako łańcuch: Start → Miejsce 1 → Następne miejsce … */
+.multi-form .mf-steps{position:relative; gap:12px}
+.mf-step{position:relative; grid-template-rows:auto auto}
+.mf-route{grid-column:1 / -1; display:flex; align-items:center; gap:8px; font-size:.82rem; font-weight:700; color:#173B70; padding:0 2px}
+.mf-route i{color:#2878D0; font-size:.85em}
+.mf-route.empty .mf-route-to{color:#8A99AE; font-weight:600}
+.mf-step + .mf-step::before, .mf-start + .mf-steps .mf-step:first-child::before{content:""; position:absolute; left:28px; top:-13px; height:13px; border-left:2px dashed #9DB8DA}
+.mf-next{display:flex; align-items:center; gap:12px; width:100%; padding:12px 14px; border:2px dashed #B9CDE6; border-radius:16px; background:#F7FAFE; color:#173B70; text-align:left; cursor:pointer; position:relative; transition:border-color .15s, background .15s}
+.mf-next::before{content:""; position:absolute; left:28px; top:-12px; height:12px; border-left:2px dashed #9DB8DA}
+.mf-next:hover:not(:disabled){border-color:#2878D0; background:#EEF5FD}
+.mf-next:focus-visible{outline:3px solid rgba(40,120,208,.35); outline-offset:2px}
+.mf-next:disabled{opacity:.55; cursor:not-allowed}
+.mf-next-plus{display:inline-grid; place-items:center; width:30px; height:30px; flex:none; border-radius:50%; background:#2878D0; color:#fff}
+.mf-next-text{display:flex; flex-direction:column; line-height:1.25}
+.mf-next-text b{font-size:.95rem} .mf-next-text small{font-size:.8rem; color:var(--ink-soft)}
+.mf-foot{justify-content:flex-end}
+@media (max-width:1500px){ .mf-step .mf-modes{grid-row:3} }
+.mf-route{grid-row:1}
+@media (max-width:1500px){ .mf-remove{grid-row:2} }
+@media (max-width:640px){ .mf-step .mf-modes{grid-row:auto} .mf-remove{grid-row:2} }
+/* oba przyciski udostępniania tej samej wysokości */
+#peopleBody .tp-invite > *{flex:none}
+#peopleBody .tp-invite-btns{align-items:stretch}
+#peopleBody .tp-invite-btns button{align-self:stretch; height:44px; min-height:44px; padding:0 14px !important; line-height:1.2}
+
+/* Zaproszenia do podróży w dzwonku */
+.inbox{margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid #E3EAF3}
+.inbox-card{display:flex; gap:12px; align-items:flex-start; padding:12px 14px; border:1px solid #E3EAF3; border-radius:14px; background:#fff; margin-bottom:8px}
+.inbox-card.invite{border-color:#B9D4F3; background:#F4F9FF}
+.inbox-card.new{box-shadow:inset 3px 0 0 #2878D0}
+.inbox-text{display:flex; flex-direction:column; gap:2px; flex:1; min-width:0}
+.inbox-text b{color:#173B70; font-size:.92rem}
+.inbox-route{font-size:.84rem; color:var(--ink-soft)}
+.inbox-text small{font-size:.78rem; color:#1C7F70}
+.inbox-btns{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px}
+.inbox-btns button{display:inline-flex; align-items:center; gap:6px; height:38px; min-height:38px; padding:0 12px !important; font-size:.82rem; border-radius:10px}
+.inbox-decline{color:#B23B3B}
+.inbox-msg{margin:4px 0 0; font-size:.8rem} .inbox-msg:empty{display:none} .inbox-msg.err{color:#A3292B}
+.inbox-ico{display:inline-grid; place-items:center; width:34px; height:34px; flex:none; border-radius:50%; background:#E3F5EF; color:#199B70}
+.inbox-card.declined .inbox-ico{background:#FDECEC; color:#DC5555}
+.inbox-open{align-self:center; height:34px; min-height:34px; padding:0 12px !important; font-size:.8rem}
+/* stan zaproszenia przy uczestniku */
+.tp-status-chip{display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:.76rem; font-weight:700; white-space:nowrap}
+.tp-status-chip.pending{background:#FFF4DE; color:#8A5A00}
+.tp-status-chip.declined{background:#FDECEC; color:#B23B3B}
+.tp-status-chip.accepted{background:#E3F5EF; color:#16765A}

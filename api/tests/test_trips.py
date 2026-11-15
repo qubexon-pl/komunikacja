@@ -21,6 +21,12 @@ def owner_with_trip(client, days_ahead=3):
     return owner
 
 
+def accept(client, owner, friend, with_location=False):
+    r = client.post(f"/api/trips/{owner['user']['id']}/trip0001/respond", json={"accept": True, "withLocation": with_location}, headers=bearer(friend["token"]))
+    assert r.status_code == 200
+    return r.json()
+
+
 def test_a_trip_is_shared_with_a_registered_friend_who_sees_it_read_only_and_can_leave(client):
     owner = owner_with_trip(client)
     friend = login(client)
@@ -30,6 +36,7 @@ def test_a_trip_is_shared_with_a_registered_friend_who_sees_it_read_only_and_can
     assert client.post("/api/trips/other/members", json={"email": "ania@example.com"}, headers=bearer(t)).status_code == 404
     added = client.post("/api/trips/trip0001/members", json={"email": "Ania@example.com"}, headers=bearer(t))
     assert added.status_code == 201 and added.json()["member"]["name"] == "Ania"
+    accept(client, owner, friend)
     shared = client.get("/api/trips/shared", headers=bearer(friend["token"])).json()["trips"]
     assert [(x["ownerName"], x["trip"]["tid"], x["trip"]["to"]) for x in shared] == [("Nowy", "trip0001", "Sztokholm")]
     assert client.get("/api/trips/mine/shares", headers=bearer(t)).json() == {"shares": {"trip0001": ["Ania"]}}
@@ -49,6 +56,7 @@ def test_location_is_visible_only_after_that_person_switches_it_on_and_disappear
     friend = login(client)
     oid, t, ft = owner["user"]["id"], owner["token"], friend["token"]
     client.post("/api/trips/trip0001/members", json={"email": "ania@example.com"}, headers=bearer(t))
+    accept(client, owner, friend)
     url = f"/api/trips/{oid}/trip0001"
     # without her consent nothing about Ania's position exists, and it cannot be sent
     assert client.put(f"{url}/location", json={"lat": 50.04, "lon": 21.99}, headers=bearer(ft)).status_code == 409
@@ -72,8 +80,9 @@ def test_an_old_position_is_not_shown_as_current_and_a_finished_trip_cannot_star
     owner = owner_with_trip(client)
     oid, t = owner["user"]["id"], owner["token"]
     url = f"/api/trips/{oid}/trip0001"
-    login(client)
+    friend = login(client)
     client.post("/api/trips/trip0001/members", json={"email": "ania@example.com"}, headers=bearer(t))  # someone to show it to
+    accept(client, owner, friend)
     client.put(f"{url}/location-sharing", json={"enabled": True}, headers=bearer(t))
     client.repo.clock = "2020-01-01T10:00:00Z"
     client.put(f"{url}/location", json={"lat": 50.0, "lon": 22.0}, headers=bearer(t))
@@ -116,7 +125,8 @@ def test_location_is_shown_only_to_the_people_its_owner_chose(client):
     url = f"/api/trips/{oid}/trip0001"
     # added "with my location": Ania sees the owner's position
     added = client.post("/api/trips/trip0001/members", json={"email": "ania@example.com", "withLocation": True}, headers=bearer(t)).json()
-    assert added["member"]["seesMyLocation"] is True
+    assert added["member"]["status"] == "pending" and added["member"]["offersLocation"] is True and added["member"]["seesMyLocation"] is False
+    accept(client, owner, ania)
     client.put(f"{url}/location", json={"lat": 50.0, "lon": 22.0}, headers=bearer(t))
     assert [x["name"] for x in client.get(f"{url}/locations", headers=bearer(ania["token"])).json()["locations"]] == ["Nowy"]
     people = client.get(f"{url}/members", headers=bearer(ania["token"])).json()["members"]
@@ -131,3 +141,46 @@ def test_location_is_shown_only_to_the_people_its_owner_chose(client):
     assert [x["name"] for x in client.get(f"{url}/locations", headers=bearer(ania["token"])).json()["locations"]] == ["Ania"]
     # a person outside the trip cannot be chosen
     assert client.put(f"{url}/location-sharing", json={"viewerId": "00000000-0000-0000-0000-000000000009", "enabled": True}, headers=bearer(t)).status_code == 404
+
+
+def test_an_invitation_waits_for_an_answer_and_the_organiser_sees_it_with_the_location_choice(client):
+    owner = owner_with_trip(client)
+    ania = login(client)
+    t, oid, at = owner["token"], owner["user"]["id"], ania["token"]
+    url = f"/api/trips/{oid}/trip0001"
+    client.post("/api/trips/trip0001/members", json={"email": "ania@example.com", "withLocation": True}, headers=bearer(t))
+    # pending: Ania gets an invitation but does not see the trip yet
+    inbox = client.get("/api/trips/inbox", headers=bearer(at)).json()
+    assert [(i["ownerName"], i["tid"], i["to"], i["offersLocation"]) for i in inbox["invites"]] == [("Nowy", "trip0001", "Sztokholm", True)]
+    assert client.get("/api/trips/shared", headers=bearer(at)).json()["trips"] == []
+    assert client.get(f"{url}/members", headers=bearer(at)).status_code == 404
+    assert [(p["name"], p["status"]) for p in client.get(f"{url}/members", headers=bearer(t)).json()["members"]] == [("Nowy", "accepted"), ("Ania", "pending")]
+    # accepted with location: she sees the owner (he offered it) and he sees her; only between the two of them
+    r = accept(client, owner, ania, with_location=True)
+    assert r["status"] == "accepted" and r["withLocation"] is True and r["sharing"]["viewers"] == [oid]
+    assert client.get("/api/trips/inbox", headers=bearer(at)).json()["invites"] == []
+    people = client.get(f"{url}/members", headers=bearer(t)).json()["members"]
+    assert [(p["name"], p["status"], p.get("acceptedWithLocation"), p["sharesWithMe"], p["seesMyLocation"]) for p in people[1:]] == [("Ania", "accepted", True, True, True)]
+    answers = client.get("/api/trips/inbox", headers=bearer(t)).json()["responses"]
+    assert [(a["memberName"], a["status"], a["withLocation"], a["title"]) for a in answers] == [("Ania", "accepted", True, "Rzeszów → Sztokholm")]
+    # an invitation can be answered only once
+    assert client.post(f"{url}/respond", json={"accept": False}, headers=bearer(at)).status_code == 404
+
+
+def test_a_declined_invitation_is_shown_to_the_organiser_and_can_be_sent_again(client):
+    owner = owner_with_trip(client)
+    ania = login(client)
+    t, oid, at = owner["token"], owner["user"]["id"], ania["token"]
+    url = f"/api/trips/{oid}/trip0001"
+    client.post("/api/trips/trip0001/members", json={"email": "ania@example.com"}, headers=bearer(t))
+    assert client.post(f"{url}/respond", json={"accept": False}, headers=bearer(at)).json()["status"] == "declined"
+    assert client.get("/api/trips/shared", headers=bearer(at)).json()["trips"] == []
+    people = client.get(f"{url}/members", headers=bearer(t)).json()["members"]
+    assert [(p["name"], p["status"]) for p in people] == [("Nowy", "accepted"), ("Ania", "declined")]
+    assert client.get("/api/trips/mine/shares", headers=bearer(t)).json() == {"shares": {}}
+    assert [(a["memberName"], a["status"]) for a in client.get("/api/trips/inbox", headers=bearer(t)).json()["responses"]] == [("Ania", "declined")]
+    # nobody can answer for someone else, and nobody gets the owner's location without accepting
+    assert client.post(f"{url}/respond", json={"accept": True}, headers=bearer(t)).status_code == 404
+    again = client.post("/api/trips/trip0001/members", json={"email": "ania@example.com"}, headers=bearer(t)).json()
+    assert again["member"]["status"] == "pending"
+    assert len(client.get("/api/trips/inbox", headers=bearer(at)).json()["invites"]) == 1

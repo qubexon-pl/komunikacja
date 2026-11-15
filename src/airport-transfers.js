@@ -341,7 +341,12 @@ function createAirportTransfers({ database = null, snapshots = null, fetchSource
     const zone = zoneOf(rec);
     let target = placeOk(lat, lon) ? { lat, lon, label: String(label).slice(0, 120), centre: false } : null;
     if (!target || km(target.lat, target.lon, rec.airportLat, rec.airportLon) < AT_AIRPORT_KM) target = await cityCentre(rec);
-    if (!target) return { code: rec.code, target: null, options: [], note: "centre-unknown" };
+    if (!target) {
+      // The timetables need the city centre; the routes and fares stored in the database do not.
+      const known = await describedOptions(rec, []);
+      return { code: rec.code, city: rec.city, zone, target: null, airport: { lat: rec.airportLat, lon: rec.airportLon, name: rec.airport },
+        hint: { pickup: rec.pickup.name, walk: rec.walk, route: rec.route, gtfs: rec.gtfs }, options: known, note: "centre-unknown", source: "database" };
+    }
     const step = 30 * 60000;
     const at = Math.floor((localToUtc(time, zone) + AFTER_LANDING_MIN * 60000) / step) * step;
     const place = `${target.lat.toFixed(3)},${target.lon.toFixed(3)}`;

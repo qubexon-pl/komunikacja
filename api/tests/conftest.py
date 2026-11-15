@@ -26,7 +26,7 @@ class MemoryRepo:
         self.users = {U1: {"id": U1, "email": "ania@example.com", "displayName": "Ania", "isAdmin": False}}
         self.passwords = {"ania@example.com": (U1, hash_password("correct horse battery"))}
         self.sessions, self.states, self.google, self.favs, self.prefs, self.photos_ = {}, {}, {}, {}, {}, {}
-        self.shares, self.locs, self.clock, self.grants = [], {}, None, set()
+        self.shares, self.locs, self.clock, self.grants, self.share_state = [], {}, None, set(), {}
 
     def user_by_session(self, h): return self.users.get(self.sessions.get(h))
     def create_session(self, uid, h, ttl): self.sessions[h] = uid
@@ -79,15 +79,47 @@ class MemoryRepo:
 
     def user_by_email(self, email): return next((u for u in self.users.values() if u["email"] == email), None)
 
-    def trip_members(self, owner, tid):
-        return [{"id": m, "email": self.users[m]["email"], "name": self.users[m]["displayName"]} for (o, t, m) in self.shares if o == owner and t == tid]
+    def _state(self, key): return self.share_state.setdefault(key, {"status": "pending", "offer": False, "with": False, "at": None})
 
-    def add_member(self, owner, tid, member):
-        if (owner, tid, member) not in self.shares:
-            self.shares.append((owner, tid, member))
+    def trip_members(self, owner, tid):
+        out = []
+        for (o, t, m) in self.shares:
+            if o == owner and t == tid:
+                s = self._state((o, t, m))
+                out.append({"id": m, "email": self.users[m]["email"], "name": self.users[m]["displayName"], "status": s["status"],
+                            "offersLocation": s["offer"], "withLocation": s["with"], "respondedAt": s["at"]})
+        return out
+
+    def add_member(self, owner, tid, member, offer_location=False):
+        key = (owner, tid, member)
+        if key not in self.shares:
+            self.shares.append(key)
+        s = self._state(key)
+        s["offer"] = offer_location
+        if s["status"] != "accepted":
+            s.update({"status": "pending", "at": None, "with": False})
+        return s["status"]
+
+    def invites(self, member):
+        return [{"ownerId": o, "tid": t, "ownerName": self.users[o]["displayName"], "offersLocation": self._state((o, t, m))["offer"], "at": "2026-01-01T00:00:00Z"}
+                for (o, t, m) in self.shares if m == member and self._state((o, t, m))["status"] == "pending"]
+
+    def respond_invite(self, owner, tid, member, accept, with_location):
+        key = (owner, tid, member)
+        if key not in self.shares or self._state(key)["status"] != "pending":
+            return None
+        s = self._state(key)
+        s.update({"status": "accepted" if accept else "declined", "at": "2026-01-02T00:00:00Z", "with": accept and with_location})
+        return {"offersLocation": s["offer"]}
+
+    def responses(self, owner, days=14):
+        return [{"tid": t, "memberId": m, "memberName": self.users[m]["displayName"], "status": self._state((o, t, m))["status"],
+                 "offersLocation": self._state((o, t, m))["offer"], "withLocation": self._state((o, t, m))["with"], "at": self._state((o, t, m))["at"]}
+                for (o, t, m) in self.shares if o == owner and self._state((o, t, m))["at"]]
 
     def remove_member(self, owner, tid, member):
         self.shares = [x for x in self.shares if x != (owner, tid, member)]
+        self.share_state.pop((owner, tid, member), None)
         self.locs.pop((owner, tid, member), None)
         self.grants = {g for g in self.grants if not (g[0] == owner and g[1] == tid and member in (g[2], g[3]))}
 
@@ -100,13 +132,13 @@ class MemoryRepo:
     def clear_location_grants(self, owner, tid, uid):
         self.grants = {g for g in self.grants if not (g[0] == owner and g[1] == tid and g[2] == uid)}
 
-    def is_member(self, owner, tid, uid): return (owner, tid, uid) in self.shares
-    def shared_with(self, member): return [{"ownerId": o, "tid": t, "ownerName": self.users[o]["displayName"]} for (o, t, m) in self.shares if m == member]
+    def is_member(self, owner, tid, uid): return (owner, tid, uid) in self.shares and self._state((owner, tid, uid))["status"] == "accepted"
+    def shared_with(self, member): return [{"ownerId": o, "tid": t, "ownerName": self.users[o]["displayName"]} for (o, t, m) in self.shares if m == member and self._state((o, t, m))["status"] == "accepted"]
 
     def my_shares(self, owner):
         out = {}
         for (o, t, m) in self.shares:
-            if o == owner:
+            if o == owner and self._state((o, t, m))["status"] != "declined":
                 out.setdefault(t, []).append(self.users[m]["displayName"])
         return out
 

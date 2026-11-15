@@ -30,7 +30,7 @@
     <div class="view-tabs" aria-label="Kategorie">
       <a class="view-tab" data-view="podroz" href="/plan" title="Zaplanuj podróż"><i class="oi oi-plane" aria-hidden="true"></i> Planuj</a>
       <a class="view-tab" data-view="kierunki" data-go="podroz" data-sub="kierunki" href="/destinations"><i class="oi oi-pin" aria-hidden="true"></i> Kierunki</a>
-      <a class="view-tab" data-view="transit" data-go="ztm" data-sub="" href="/buses" title="Autobusy miejskie, podmiejskie i pociągi"><i class="oi oi-bus" aria-hidden="true"></i> Komunikacja</a>
+      <a class="view-tab" data-view="transit" data-go="ztm" data-sub="" href="/buses" title="Autobusy miejskie, podmiejskie i pociągi"><i class="oi oi-bus" aria-hidden="true"></i> Komunikacja miejska</a>
     </div>
     <div class="nav-links">
       <span class="nav-sep" aria-hidden="true"></span>
@@ -111,7 +111,8 @@
     <div class="multi-form only-podroz" id="multiForm" hidden>
       <div class="mf-start pl-field"><label for="mfFrom"><i class="oi oi-pin" aria-hidden="true"></i> Start</label><div class="pl-inp"><input id="mfFrom" placeholder="Skąd zaczynasz podróż" autocomplete="off"></div></div>
       <ol class="mf-steps" id="mfSteps"></ol>
-      <div class="mf-foot"><button type="button" class="btn-ghost" id="mfAdd"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj kolejne miejsce</button>
+      <button type="button" class="mf-next" id="mfAdd"><span class="mf-next-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span><span class="mf-next-text"><b>Następne miejsce</b><small id="mfNextFrom"></small></span></button>
+      <div class="mf-foot"><span></span>
         <button type="button" class="btn-grad mf-go" id="mfGo"><i class="oi oi-search" aria-hidden="true"></i> Zaplanuj etapy</button></div>
     </div>
     <form id="planForm" class="planner" autocomplete="off">

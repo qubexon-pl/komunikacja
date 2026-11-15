@@ -216,18 +216,63 @@ class SqlRepository:
             return _user(row) if row else None
 
     def trip_members(self, owner_id: str, trip_id: str) -> list[dict]:
+        """Everyone the trip was shared with, with the state of the invitation (pending, accepted, declined)."""
         with self.db.connection() as c:
             rows = c.cursor().execute(
-                """SELECT u.user_id, u.email, u.display_name FROM dbo.TripShare s INNER JOIN dbo.AppUser u ON u.user_id = s.member_user_id
+                """SELECT u.user_id, u.email, u.display_name, s.status, s.owner_location, s.member_location, s.responded_at
+                   FROM dbo.TripShare s INNER JOIN dbo.AppUser u ON u.user_id = s.member_user_id
                    WHERE s.owner_user_id = ? AND s.trip_id = ? ORDER BY s.created_at;""", owner_id, trip_id).fetchall()
-            return [{"id": str(r.user_id).lower(), "email": r.email, "name": r.display_name} for r in rows]
+            return [{"id": str(r.user_id).lower(), "email": r.email, "name": r.display_name, "status": r.status,
+                     "offersLocation": bool(r.owner_location), "withLocation": bool(r.member_location),
+                     "respondedAt": r.responded_at.isoformat() + "Z" if r.responded_at else None} for r in rows]
 
-    def add_member(self, owner_id: str, trip_id: str, member_id: str) -> None:
+    def add_member(self, owner_id: str, trip_id: str, member_id: str, offer_location: bool = False) -> str:
+        """Invite a person (pending until they accept). A declined invitation can be sent again; an accepted one stays."""
         with self.db.connection() as c:
-            c.cursor().execute(
-                """IF NOT EXISTS (SELECT 1 FROM dbo.TripShare WHERE owner_user_id = ? AND trip_id = ? AND member_user_id = ?)
-                   INSERT INTO dbo.TripShare (owner_user_id, trip_id, member_user_id) VALUES (?, ?, ?);""",
-                owner_id, trip_id, member_id, owner_id, trip_id, member_id)
+            row = c.cursor().execute(
+                """SET NOCOUNT ON; SET XACT_ABORT ON;
+                   UPDATE dbo.TripShare WITH (UPDLOCK, SERIALIZABLE)
+                     SET owner_location = ?, status = CASE WHEN status = 'accepted' THEN status ELSE 'pending' END,
+                         responded_at = CASE WHEN status = 'accepted' THEN responded_at END,
+                         member_location = CASE WHEN status = 'accepted' THEN member_location ELSE 0 END
+                     WHERE owner_user_id = ? AND trip_id = ? AND member_user_id = ?;
+                   IF @@ROWCOUNT = 0 INSERT INTO dbo.TripShare (owner_user_id, trip_id, member_user_id, status, owner_location) VALUES (?, ?, ?, 'pending', ?);
+                   SELECT status FROM dbo.TripShare WHERE owner_user_id = ? AND trip_id = ? AND member_user_id = ?;""",
+                1 if offer_location else 0, owner_id, trip_id, member_id, owner_id, trip_id, member_id, 1 if offer_location else 0,
+                owner_id, trip_id, member_id).fetchone()
+            return row.status if row else "pending"
+
+    def invites(self, member_id: str) -> list[dict]:
+        """Trips shared with me that I have not answered yet."""
+        with self.db.connection() as c:
+            rows = c.cursor().execute(
+                """SELECT s.owner_user_id, s.trip_id, s.owner_location, s.created_at, u.display_name FROM dbo.TripShare s
+                   INNER JOIN dbo.AppUser u ON u.user_id = s.owner_user_id
+                   WHERE s.member_user_id = ? AND s.status = 'pending' ORDER BY s.created_at DESC;""", member_id).fetchall()
+            return [{"ownerId": str(r.owner_user_id).lower(), "tid": r.trip_id, "ownerName": r.display_name,
+                     "offersLocation": bool(r.owner_location), "at": r.created_at.isoformat() + "Z"} for r in rows]
+
+    def respond_invite(self, owner_id: str, trip_id: str, member_id: str, accept: bool, with_location: bool) -> dict | None:
+        """Accept or decline a pending invitation; None when there is none. Says whether the owner offered their location."""
+        with self.db.connection() as c:
+            row = c.cursor().execute(
+                """UPDATE dbo.TripShare SET status = ?, member_location = ?, responded_at = SYSUTCDATETIME()
+                   OUTPUT inserted.owner_location
+                   WHERE owner_user_id = ? AND trip_id = ? AND member_user_id = ? AND status = 'pending';""",
+                "accepted" if accept else "declined", 1 if accept and with_location else 0, owner_id, trip_id, member_id).fetchone()
+            return {"offersLocation": bool(row.owner_location)} if row else None
+
+    def responses(self, owner_id: str, days: int = 14) -> list[dict]:
+        """Recent answers to my invitations, for the organiser's notifications."""
+        with self.db.connection() as c:
+            rows = c.cursor().execute(
+                """SELECT s.trip_id, s.member_user_id, u.display_name, s.status, s.owner_location, s.member_location, s.responded_at
+                   FROM dbo.TripShare s INNER JOIN dbo.AppUser u ON u.user_id = s.member_user_id
+                   WHERE s.owner_user_id = ? AND s.responded_at > DATEADD(day, -?, SYSUTCDATETIME()) ORDER BY s.responded_at DESC;""",
+                owner_id, days).fetchall()
+            return [{"tid": r.trip_id, "memberId": str(r.member_user_id).lower(), "memberName": r.display_name, "status": r.status,
+                     "offersLocation": bool(r.owner_location), "withLocation": bool(r.member_location),
+                     "at": r.responded_at.isoformat() + "Z"} for r in rows]
 
     def remove_member(self, owner_id: str, trip_id: str, member_id: str) -> None:
         with self.db.connection() as c:
@@ -261,21 +306,21 @@ class SqlRepository:
 
     def is_member(self, owner_id: str, trip_id: str, user_id: str) -> bool:
         with self.db.connection() as c:
-            return c.cursor().execute("SELECT 1 FROM dbo.TripShare WHERE owner_user_id = ? AND trip_id = ? AND member_user_id = ?;",
+            return c.cursor().execute("SELECT 1 FROM dbo.TripShare WHERE owner_user_id = ? AND trip_id = ? AND member_user_id = ? AND status = 'accepted';",
                                       owner_id, trip_id, user_id).fetchone() is not None
 
     def shared_with(self, member_id: str) -> list[dict]:
         with self.db.connection() as c:
             rows = c.cursor().execute(
                 """SELECT s.owner_user_id, s.trip_id, u.display_name FROM dbo.TripShare s INNER JOIN dbo.AppUser u ON u.user_id = s.owner_user_id
-                   WHERE s.member_user_id = ? ORDER BY s.created_at;""", member_id).fetchall()
+                   WHERE s.member_user_id = ? AND s.status = 'accepted' ORDER BY s.created_at;""", member_id).fetchall()
             return [{"ownerId": str(r.owner_user_id).lower(), "tid": r.trip_id, "ownerName": r.display_name} for r in rows]
 
     def my_shares(self, owner_id: str) -> dict[str, list[str]]:
         with self.db.connection() as c:
             rows = c.cursor().execute(
                 """SELECT s.trip_id, u.display_name FROM dbo.TripShare s INNER JOIN dbo.AppUser u ON u.user_id = s.member_user_id
-                   WHERE s.owner_user_id = ? ORDER BY s.created_at;""", owner_id).fetchall()
+                   WHERE s.owner_user_id = ? AND s.status <> 'declined' ORDER BY s.created_at;""", owner_id).fetchall()
             out: dict[str, list[str]] = {}
             for r in rows:
                 out.setdefault(r.trip_id, []).append(r.display_name)

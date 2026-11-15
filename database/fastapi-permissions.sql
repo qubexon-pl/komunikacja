@@ -21,7 +21,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.TripPhoto TO [onward-api];
 GO
 
 -- shared trips and participants' live location (only while each person shares it)
-GRANT SELECT, INSERT, DELETE ON dbo.TripShare TO [onward-api];
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.TripShare TO [onward-api];
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.TripLocation TO [onward-api];
 GRANT SELECT, INSERT, DELETE ON dbo.TripLocationViewer TO [onward-api];
 GO

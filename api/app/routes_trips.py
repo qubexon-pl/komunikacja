@@ -1,7 +1,8 @@
 """Shared trips and participants' live location.
 
-A trip is a saved trip (favourite with a `tid`) of its owner. The owner shares it with other registered users by
-e-mail; they see it read-only and can leave it. Location is strictly opt-in per person and per trip: each participant
+A trip is a saved trip (favourite with a `tid`) of its owner. The owner invites other registered users; an invitation
+stays pending until the person accepts (with or without showing their location to the organiser) or declines it. Only
+people who accepted see the trip, read-only, and can leave it. Location is strictly opt-in per person and per trip: each participant
 switches it on for themselves on their own device, it ends automatically (at most a day after the trip), and switching
 it off forgets the last position. Nobody can switch it on for somebody else, and only the trip's participants see it.
 """
@@ -94,6 +95,45 @@ def people(request: Request, q: str = "", user: dict = Depends(require_user)):
     return {"people": out}
 
 
+@router.get("/inbox")
+def inbox(request: Request, user: dict = Depends(require_user)):
+    """Notifications about sharing: invitations waiting for my answer, and recent answers to the invitations I sent."""
+    repo = request.app.state.repo
+    invites = []
+    for inv in repo.invites(user["id"]):
+        try:
+            trip = _trip(request, inv["ownerId"], inv["tid"])
+        except HTTPException:
+            continue  # the owner removed the trip
+        invites.append({**inv, "title": trip.get("title") or "", "from": trip.get("from") or "", "to": trip.get("to") or "",
+                        "day": (trip.get("flight") or {}).get("day") or ((trip.get("trip") or {}).get("out") or {}).get("day") or ""})
+    titles = {f.get("tid"): f.get("title") or f"{f.get('from') or ''} → {f.get('to') or ''}" for f in repo.favorites(user["id"]) if f.get("type") == "trip"}
+    responses = [{**r, "title": titles[r["tid"]]} for r in repo.responses(user["id"]) if r["tid"] in titles]
+    return {"invites": invites, "responses": responses}
+
+
+@router.post("/{owner_id}/{tid}/respond")
+async def respond(request: Request, owner_id: str, tid: str, user: dict = Depends(require_user)):
+    """Accept or decline an invitation. Accepting "with my location" shows MY location to the organiser only."""
+    owner_id = _uuid(owner_id)
+    body = await request.json()
+    body = body if isinstance(body, dict) else {}
+    accept, with_location = body.get("accept") is True, body.get("withLocation") is True
+    done = request.app.state.repo.respond_invite(owner_id, tid, user["id"], accept, with_location)
+    if done is None:
+        raise HTTPException(404, "Nie ma takiego zaproszenia.")
+    out = {"status": "accepted" if accept else "declined", "withLocation": accept and with_location, "sharing": None}
+    if accept:
+        try:
+            if done["offersLocation"]:
+                _grant(request, owner_id, tid, owner_id, user["id"], True)  # the organiser chose this when inviting
+            if with_location:
+                out["sharing"] = _grant(request, owner_id, tid, user["id"], owner_id, True)
+        except HTTPException:
+            pass  # the trip has ended: accepted, but no location any more
+    return out
+
+
 @router.get("/mine/shares")
 def my_shares(request: Request, user: dict = Depends(require_user)):
     """Who each of my trips is shared with (names), for the "shared" mark on my trips."""
@@ -107,9 +147,12 @@ def members(request: Request, owner_id: str, tid: str, user: dict = Depends(requ
     repo = request.app.state.repo
     grants = set(repo.location_grants(owner_id, tid))
     owner = repo.user_by_id(owner_id)
-    people = [{"id": owner_id, "name": (owner or {}).get("displayName") or "", "role": "owner"}] + \
-             [{"id": m["id"], "name": m["name"], "role": "member", **({"email": m["email"]} if role == "owner" else {})}
-              for m in repo.trip_members(owner_id, tid)]
+    # the organiser sees every invitation with its answer; members see only the people who accepted
+    people = [{"id": owner_id, "name": (owner or {}).get("displayName") or "", "role": "owner", "status": "accepted"}] + \
+             [{"id": m["id"], "name": m["name"], "role": "member", "status": m["status"],
+               **({"email": m["email"], "offersLocation": m["offersLocation"], "acceptedWithLocation": m["withLocation"],
+                   "respondedAt": m["respondedAt"]} if role == "owner" else {})}
+              for m in repo.trip_members(owner_id, tid) if role == "owner" or m["status"] == "accepted"]
     me = user["id"]
     for p in people:
         p["me"] = p["id"] == me
@@ -141,14 +184,16 @@ async def add_member(request: Request, tid: str, user: dict = Depends(require_us
         raise HTTPException(404, "Nie ma konta z tym adresem e-mail. Poproś tę osobę, aby założyła konto w aplikacji.")
     if friend["id"] == user["id"]:
         raise HTTPException(400, "To Twoja podróż.")
-    if len(repo.trip_members(user["id"], tid)) >= MAX_MEMBERS:
+    current = [m for m in repo.trip_members(user["id"], tid) if m["status"] != "declined" and m["id"] != friend["id"]]
+    if len(current) >= MAX_MEMBERS:
         raise HTTPException(400, f"Podróż można udostępnić najwyżej {MAX_MEMBERS} osobom.")
-    repo.add_member(user["id"], tid, friend["id"])
+    # "share with my location": the owner will show THEIR OWN location to this person once they accept (nobody else's)
     with_location = body.get("withLocation") is True
-    if with_location:
-        # "share with my location": the owner shows THEIR OWN location to this person (nobody else's)
+    status = repo.add_member(user["id"], tid, friend["id"], with_location)
+    if status == "accepted" and with_location:
         _grant(request, user["id"], tid, user["id"], friend["id"], True)
-    return {"member": {"id": friend["id"], "name": friend["displayName"], "email": friend["email"], "role": "member", "seesMyLocation": with_location}}
+    return {"member": {"id": friend["id"], "name": friend["displayName"], "email": friend["email"], "role": "member", "status": status,
+                       "offersLocation": with_location, "seesMyLocation": status == "accepted" and with_location}}
 
 
 @router.delete("/{owner_id}/{tid}/members/{member_id}")
@@ -162,7 +207,7 @@ def remove_member(request: Request, owner_id: str, tid: str, member_id: str, use
 
 
 def _participants(request: Request, owner_id: str, tid: str) -> list[str]:
-    return [owner_id] + [m["id"] for m in request.app.state.repo.trip_members(owner_id, tid)]
+    return [owner_id] + [m["id"] for m in request.app.state.repo.trip_members(owner_id, tid) if m["status"] == "accepted"]
 
 
 def _grant(request: Request, owner_id: str, tid: str, user_id: str, viewer_id: str | None, enabled: bool) -> dict:

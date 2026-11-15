@@ -661,3 +661,16 @@ test("trip sharing requests are passed on to the FastAPI server with the session
   assert.equal(down.status, 503);
   assert.equal((await down.json()).code, "api-offline");
 });
+
+test("the EUR rate is served for prices in two currencies, and a bad currency is refused", async (t) => {
+  const asked = [];
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, fareRates: async (amount, code) => { asked.push(code); return amount * 4.2537; }, fetchSource: async () => { throw new Error("no outside calls"); } });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/rates`;
+  const eur = await fetch(`${base}?currency=EUR`);
+  assert.equal(eur.status, 200);
+  assert.deepEqual(await eur.json(), { currency: "EUR", pln: 4.2537 });
+  assert.equal((await fetch(`${base}?currency=E1`)).status, 400);
+  assert.deepEqual(asked, ["EUR"]);
+});

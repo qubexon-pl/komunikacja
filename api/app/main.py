@@ -79,8 +79,8 @@ def create_app(settings: Settings | None = None, repo=None, storage=None, verify
         @app.exception_handler(pyodbc.ProgrammingError)
         async def missing_table(request: Request, exc: Exception):
             # A table this version needs is not created yet (e.g. TripShare before `npm run db:migrate`): say so plainly.
-            if "Invalid object name" in str(exc):
-                return JSONResponse({"error": "Udostępnianie nie jest jeszcze włączone na serwerze (brak tabel w bazie – uruchom migrację: npm run db:migrate)."}, 503)
+            if "Invalid object name" in str(exc) or "Invalid column name" in str(exc):
+                return JSONResponse({"error": "Udostępnianie nie jest jeszcze włączone na serwerze (brak tabel lub kolumn w bazie – uruchom migrację: npm run db:migrate)."}, 503)
             return JSONResponse({"error": "Błąd bazy danych."}, 500)
     except ImportError:  # pragma: no cover
         pass

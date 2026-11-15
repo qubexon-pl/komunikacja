@@ -764,3 +764,18 @@ test("a trip planned leg by leg: each leg keeps its own transport, the trip span
   assert.deepEqual({ ...context.api.groundDates(f) }, { day: "2027-05-01", back: "2027-05-07", ground: true });
   assert.match(source, /if\(raw\.length\)\{[\s\S]{0,200}startMulti\(/, "places in between start the leg-by-leg trip");
 });
+
+test("the transit menu is one item called City Transit, with a city picker built from the railway stations", () => {
+  assert.match(html, /data-view="transit"[^>]*>.*Komunikacja miejska<\/a>/);
+  assert.match(source, /function cityList\(\)\{\n  const names=railStationNames\(\), cities=railCities\(\);/, "cities follow the train search's rule: several stations and a main one");
+  assert.match(source, /const LOCAL_TRANSIT=new Set\(\['Rzeszów'\]\);/, "city and suburban buses only where the app has them");
+  assert.equal((source.match(/^function railCities\(/gm) || []).length, 1, "one definition of a city");
+});
+
+test("the transit tabs never reuse the page's timetable class, which would restyle the whole page", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../assets/app.css"), "utf8");
+  // body.tt-mode switches the page to the timetable; a button styled as .tt-mode once turned the whole page into a row
+  assert.doesNotMatch(source, /class="tt-mode|class="tt-modes|class="tt-sub/);
+  assert.doesNotMatch(css.replace(/body\.tt-mode|:not\(\.tt-mode\)/g, ""), /\.tt-mode\b/);
+  assert.match(css, /body\.tt-mode main\.shell > :not\(\.tt-part\)[^{]*:not\(#transitTabs\)/, "the transit tabs stay visible on the timetable");
+});
