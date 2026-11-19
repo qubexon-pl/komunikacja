@@ -92,7 +92,8 @@
   .pl-inp button{min-width:36px; min-height:36px}
   .pl-when{min-height:24px}
   .pl-go,.search-box .pl-go{width:100%; min-height:52px !important}
-  .rng-pop{position:fixed !important; left:8px !important; right:8px !important; top:auto !important; bottom:calc(76px + env(safe-area-inset-bottom,0px)); max-height:70vh; overflow:auto; z-index:1060}
+  /* kalendarz jako arkusz nad dolnym menu: bez przesunięcia translate(-50%,-50%) z app.css, które wypychało go poza ekran */
+  .rng-pop{position:fixed !important; left:8px !important; right:8px !important; top:auto !important; bottom:calc(76px + env(safe-area-inset-bottom,0px)) !important; transform:none !important; width:auto !important; max-width:none !important; max-height:calc(100dvh - 96px - env(safe-area-inset-bottom,0px)) !important; overflow:auto; z-index:1060}
   .rng-grid{grid-template-columns:repeat(7,minmax(0,1fr)) !important}
 
   /* transport, people and airport options */
