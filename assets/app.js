@@ -31,7 +31,7 @@ async function initializeUserMenu(){
 }
 document.getElementById('logoutBtn').addEventListener('click',async()=>{
   const response=await fetch('/api/auth/logout',{method:'POST'});
-  if(response.ok){ store('rzbus.favs', []); store('onward.user', null); store('onward.favsPending', false); try{ await caches?.delete('onward-api'); }catch(e){} location.assign(ONW.loginUrl()); }
+  if(response.ok){ forgetActivity(); store('rzbus.favs', []); store('onward.user', null); store('onward.favsPending', false); try{ await caches?.delete('onward-api'); }catch(e){} location.assign(ONW.loginUrl()); }
 });
 const deleteAccountModalElement=document.getElementById('deleteAccountModal');
 const deleteAccountModal=bootstrap.Modal.getOrCreateInstance(deleteAccountModalElement);
@@ -140,8 +140,10 @@ const IDLE={key:'podavo-voyage-last-activity', limit:60*60000, warn:2*60000, war
 const idleDesktop=()=>matchMedia('(hover: hover) and (pointer: fine)').matches && !(window.ONWARD&&window.ONWARD.native);
 const lastActivity=()=>{ try{ return +localStorage.getItem(IDLE.key)||0; }catch(e){ return 0; } };
 function markActivity(){ const now=Date.now(); if(now-lastActivity()>15000){ try{ localStorage.setItem(IDLE.key,String(now)); }catch(e){} } IDLE.warned=false; }
+const forgetActivity=()=>{ try{ localStorage.removeItem(IDLE.key); }catch(e){} };
 async function idleSignOut(){
   clearInterval(IDLE.timer);
+  forgetActivity(); // inaczej stary znacznik wylogowałby od razu po następnym zalogowaniu
   try{ await fetch('/api/auth/logout',{method:'POST'}); }catch(e){}
   store('onward.user', null);
   location.assign('/login?powod=bezczynnosc&returnTo='+encodeURIComponent(location.pathname));

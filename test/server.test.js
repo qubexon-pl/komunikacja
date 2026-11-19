@@ -365,7 +365,9 @@ test("Google sign-in is hidden when provider credentials are absent", async (t) 
   const baseUrl = await startServer(t, {});
   const response = await fetch(`${baseUrl}/api/auth/config`);
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).googleEnabled, false);
+  const config = await response.json();
+  assert.equal(config.googleEnabled, false);
+  assert.equal(config.googleNativeEnabled, false);
 
   const start = await fetch(`${baseUrl}/api/auth/google`);
   assert.equal(start.status, 503);

@@ -736,6 +736,8 @@ async function handleAuth(req, res, url, auth) {
   if (route === "/api/auth/config" && req.method === "GET") {
     json(res, 200, {
       googleEnabled: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.APP_BASE_URL),
+      // The Android/iOS app signs in natively and only needs ID tokens issued for a client id the server accepts.
+      googleNativeEnabled: Boolean(process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_NATIVE_CLIENT_IDS?.trim()),
       emailEnabled: isEmailConfigured(),
       codeLogin: true,
       family: "podavo",
