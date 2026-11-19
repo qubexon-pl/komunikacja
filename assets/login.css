@@ -106,6 +106,14 @@ button, input { font: inherit; }
   .login-card { max-width: 410px; }
   .mobile-brand { display: block; margin-bottom: 54px; }
   .login-side footer { right: 24px; bottom: 18px; left: 24px; text-align: center; }
+  /* phones: the page grows with the form, the footer sits under it instead of on top of it */
+  .login-layout { padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .login-side { flex-direction: column; justify-content: flex-start; min-height: 0; padding: 8px 0 0; }
+  .login-card { width: 100%; }
+  .mobile-brand { margin-bottom: 32px; }
+  .login-side footer { position: static; margin-top: 28px; padding-bottom: 4px; line-height: 1.8; }
+  input, select { font-size: 16px; }
+  .submit-button { width: 100%; margin-bottom: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
