@@ -1,0 +1,215 @@
+/* ================================================================
+   Phone layout (≤ 760 px): one column, nothing wider than the screen.
+   Loaded after app.css, so these rules settle the earlier narrow-screen patches in one place.
+   Breakpoints: 760 px (phones, bottom bar on), 400 px (small phones such as 360 px Android).
+   ================================================================ */
+@media (max-width:760px){
+  /* ---- base: the page never scrolls sideways, text wraps, inputs don't zoom on iOS ---- */
+  html,body{overflow-x:clip; max-width:100%}
+  body{-webkit-text-size-adjust:100%; text-size-adjust:100%}
+  img,svg,video,canvas{max-width:100%}
+  main.shell{max-width:100%; padding-left:max(12px,env(safe-area-inset-left,0px)) !important; padding-right:max(12px,env(safe-area-inset-right,0px)) !important}
+  main.shell > *{min-width:0; max-width:100%}
+  input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{font-size:16px !important}
+  .sec-head{gap:10px; margin-top:20px; margin-bottom:10px}
+  .sec-head h2{font-size:1.3rem !important; line-height:1.2; min-width:0; overflow-wrap:anywhere}
+  .sec-rule{min-width:12px}
+
+  /* ---- top bar: logo, language, bell, admin and account in one 56 px row ---- */
+  .topbar{padding-left:env(safe-area-inset-left,0px); padding-right:env(safe-area-inset-right,0px)}
+  .topbar-inner{gap:8px !important; padding:0 10px 0 12px !important; height:56px !important; min-width:0}
+  .brand{flex:0 1 auto; min-width:0; display:flex; align-items:center; overflow:hidden}
+  .brand-wordmark{width:150px !important; height:auto; max-width:100%}
+  .nav-links{flex:none; gap:2px !important; margin-left:auto; min-width:0}
+  .lang-switch{padding:2px; margin-right:2px}
+  .lang-switch button{min-width:34px; min-height:32px; padding:0 6px; font-size:.74rem}
+  .nav-link-btn,#userMenu{display:inline-flex; align-items:center; justify-content:center; min-width:40px; min-height:44px; padding:0 6px !important; gap:2px}
+  .nav-links .dropdown-toggle::after{display:none}
+  #adminMenu .oi,#alertsBtn .oi{width:22px !important; height:22px !important}
+  #userMenu .fa-user{margin:0; font-size:1.15rem}
+  #alertsBtn .badge-num{top:4px; right:0}
+  .topbar .dropdown-menu{max-width:calc(100vw - 16px); min-width:220px}
+  .topbar .dropdown-item{min-height:44px; display:flex; align-items:center; gap:8px; font-size:.95rem}
+
+  /* ---- page header: shorter, weather as one compact row, no countdown ---- */
+  .hero{padding:18px 16px 20px !important; min-height:0 !important}
+  body[data-banner] .hero{min-height:0 !important}
+  .hero-inner{flex-direction:column; align-items:stretch !important; gap:12px !important}
+  .hero-left{min-width:0}
+  .hero h1{font-size:1.65rem !important; line-height:1.15; margin:6px 0 4px !important}
+  .hero #heroLead,.hero p{font-size:.92rem !important; line-height:1.4; margin-bottom:0}
+  .hero .kicker{font-size:.72rem}
+  .hero-right{width:100%; gap:8px !important}
+  .hero .countdown{display:none !important}
+  .wx{width:100%; max-width:none !important; min-width:0 !important; margin:0; padding:10px 14px !important; border-radius:14px !important; transform:none !important}
+  .wx-now{gap:10px}
+  .wx-temp{font-size:1.6rem !important}
+  .wx-ico img{width:32px; height:32px}
+  .wx-hours{display:none !important}
+  .wx-tip{font-size:.68rem}
+  /* planner pages: search card overlaps the bottom of the header a little */
+  body[data-view="podroz"]:not(.tt-mode) .hero{padding-bottom:56px !important}
+  body[data-view="podroz"]:not(.tt-mode) main.shell > .search-box{margin-top:-40px !important}
+  body[data-view="podroz"].explore-mode .hero,body[data-view="podroz"].fav-mode .hero,
+  body[data-view="podroz"].mytrips-mode .hero,body[data-view="podroz"].trip-mode .hero{padding:18px 16px 20px !important}
+
+  /* ---- search card ---- */
+  .search-box{padding:14px 12px 14px !important; border-radius:18px; max-width:100%}
+  .trip-tabs{display:grid !important; grid-template-columns:repeat(3,minmax(0,1fr)) 44px; gap:6px !important; margin:0 0 12px !important; padding:0 !important}
+  .trip-tab{display:flex; align-items:center; justify-content:center; gap:4px; min-width:0; min-height:44px; padding:6px 6px !important;
+    font-size:.8rem !important; line-height:1.15; text-align:center; white-space:normal; border-radius:12px !important}
+  .trip-tab .fa-route{display:none}
+  .pl-reset{width:44px; min-height:44px; margin:0 !important; padding:0 !important; font-size:0 !important; border-radius:12px !important; display:inline-flex; align-items:center; justify-content:center}
+  .pl-reset i{font-size:1rem}
+  body.multi-mode .search-box .trip-tabs{grid-template-columns:minmax(0,1fr) 44px}
+
+  /* from / to / date / time / search: one column */
+  .search-box .planner,.search-box .planner.round,.planner{display:grid !important; grid-template-columns:minmax(0,1fr) !important; gap:8px !important}
+  .planner > *{grid-column:1 / -1 !important; min-width:0}
+  .pl-pair{grid-template-columns:minmax(0,1fr) !important; gap:8px}
+  .pl-field{min-width:0; padding:10px 14px !important; border-radius:14px}
+  .pl-pair .pl-field:first-child,.pl-pair .pl-field:last-child{padding-right:56px !important; padding-left:14px !important}
+  .search-box .pl-swap{left:auto !important; right:10px; width:40px !important; height:40px !important; transform:translateY(-50%) rotate(90deg) !important}
+  .pl-inp{min-width:0}
+  .pl-inp input,.pl-inp select{min-width:0; width:100%}
+  .pl-inp button{min-width:36px; min-height:36px}
+  .pl-when{min-height:24px}
+  .pl-go,.search-box .pl-go{width:100%; min-height:52px !important}
+  .rng-pop{position:fixed !important; left:8px !important; right:8px !important; top:auto !important; bottom:calc(76px + env(safe-area-inset-bottom,0px)); max-height:70vh; overflow:auto; z-index:1060}
+  .rng-grid{grid-template-columns:repeat(7,minmax(0,1fr)) !important}
+
+  /* transport, people and airport options */
+  .trip-options{gap:10px !important}
+  .trip-options > *{min-width:0; max-width:100%}
+  .trip-options .btn-ghost{font-size:.85rem; min-height:44px}
+  .trip-modes{display:flex; flex-wrap:wrap; gap:6px !important; width:100%}
+  .mode-check{min-height:40px !important; padding:6px 12px; font-size:.86rem}
+  .pl-people{min-height:44px}
+  .pl-people select,.pref-airport select{min-height:36px}
+  .pref-airport{display:flex !important; flex-wrap:wrap; align-items:center; gap:6px 8px; width:100%; padding:10px 12px !important; border-radius:16px !important}
+  .pref-airport[hidden]{display:none !important}
+  .pref-airport select{flex:1 1 120px; max-width:none; min-width:0}
+  .pref-airport .pref-sep{flex-basis:100%; height:0; margin:0; border:0}
+
+  /* ---- several places: each stop is a card ---- */
+  .mf-start{max-width:none}
+  .mf-step{grid-template-columns:30px minmax(0,1fr) 40px !important; grid-template-rows:auto !important; gap:8px !important; padding:10px !important}
+  .mf-step > *{min-width:0}
+  .mf-route{grid-column:1 / -1 !important; grid-row:auto !important; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis}
+  .mf-n{grid-column:1; grid-row:auto !important}
+  .search-box .mf-step .mf-to-f{grid-column:2 !important}
+  .mf-remove{grid-column:3 !important; grid-row:2 !important; width:40px; height:40px}
+  .mf-n{grid-row:2 !important}
+  .search-box .mf-step .mf-to-f{grid-row:2 !important}
+  .search-box .mf-step .mf-date-f,.search-box .mf-step .mf-time-f,.mf-modes{grid-column:1 / -1 !important; grid-row:auto !important}
+  .mf-modes{flex-wrap:wrap !important; max-width:none}
+  .mf-modes .mode-check.sm{min-height:36px; padding:5px 10px}
+  .mf-foot .mf-go{width:100%; justify-content:center; min-height:48px}
+  .mb-legs{flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding-bottom:2px}
+  .mb-legs li button{max-width:240px}
+
+  /* ---- city transit: city picker and tabs as full-width segmented controls ---- */
+  .transit-tabs{display:grid !important; grid-template-columns:minmax(0,1fr); gap:8px !important; margin:14px 0 4px !important}
+  .transit-tabs[hidden]{display:none !important}
+  .tx-city,.tx-city-btn{width:100%; justify-content:center}
+  .tx-city-btn{min-height:44px}
+  .tx-city-pop{left:0; right:0; width:auto}
+  .tx-modes,.tx-subs{display:grid !important; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:4px !important; width:100%; padding:4px !important; border-radius:16px !important}
+  .tx-mode,.tx-sub{justify-content:center; min-width:0; min-height:44px; padding:6px 6px !important; gap:6px !important; font-size:.82rem !important;
+    line-height:1.15; text-align:center; white-space:normal !important; border-radius:12px !important}
+  .tx-mode .oi,.tx-sub .oi,.tx-sub i{flex:none}
+
+  /* timetables and boards */
+  .timetable-bar,#ttForm,#trRouteForm{grid-template-columns:minmax(0,1fr) !important; gap:8px}
+  .timetable-bar > *{min-width:0 !important; grid-column:1 / -1 !important}
+  .tt-reset{border-left:0 !important; min-height:44px}
+  .tr-bar{gap:8px}
+  .tr-bar > *{flex:1 1 100%; min-width:0 !important}
+  .tr-bar .pl-field{min-width:0 !important}
+  .tr-bar .pill-btn{flex:1}
+  .tt-row{grid-template-columns:58px 48px minmax(0,1fr) auto !important; gap:8px}
+  .board-row{grid-template-columns:64px minmax(0,1fr) !important; gap:4px 12px !important; padding:12px 2px !important}
+  .br-time b{font-size:1.25rem}
+  .board-row > *{min-width:0}
+
+  /* lines, stops and suburban destinations */
+  .fav-star{display:inline-flex; align-items:center; justify-content:center; min-width:40px; min-height:40px; margin:-8px -8px -8px 0}
+  .dest-card .dest-name{padding-right:0 !important}
+  .dest-card{position:relative}
+  .dest-map{min-height:36px}
+
+  /* favourites filter chips scroll sideways instead of wrapping into a wall */
+  .fav-filters{flex-wrap:nowrap !important; overflow-x:auto; scrollbar-width:none; margin:0 -12px 18px !important; padding:2px 12px}
+  .fav-filters::-webkit-scrollbar{display:none}
+  .fav-filter{flex:none; min-height:44px}
+
+  /* results */
+  .res-layout{grid-template-columns:minmax(0,1fr) !important; gap:12px}
+  .res-filters{position:static !important}
+  .res-card,.fl-card,.plan-card{max-width:100%}
+  .pc-trip{gap:8px}
+  .pc-end b{font-size:1.15rem !important}
+  .ds-day{min-width:72px}
+  .res-bar{gap:8px}
+
+  /* destinations map */
+  body.explore-mode .explore{padding:12px !important; border-radius:18px}
+  .explore-tools{display:grid !important; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px !important; width:100%}
+  .explore-search{grid-column:1 / -1}
+  .explore-airlines{grid-column:1 / -1; display:grid; grid-template-columns:1fr 1fr; gap:8px}
+  .explore-air,.explore-toggle{min-height:44px; justify-content:center}
+  .explore-toggle{display:inline-flex; align-items:center; gap:6px}
+  body.explore-mode #exploreMap{height:min(62vh,460px) !important}
+  .explore-style{flex-wrap:nowrap !important; justify-content:space-between !important; padding:4px !important}
+  .explore-style > span,.explore-style > .oi{display:none}
+  .explore-style button{flex:1; min-height:40px; padding:0 8px}
+  .explore-from{flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none}
+
+  /* live map */
+  #map{height:min(58vh,480px) !important}
+  .map-toggle{width:100%; min-height:48px; justify-content:center}
+
+  /* trip pages */
+  .tp-people-list{grid-template-columns:minmax(0,1fr)}
+  .tp-photo-grid{grid-template-columns:repeat(3,minmax(0,1fr)) !important}
+
+  /* ---- dialogs open as bottom sheets ---- */
+  .modal-dialog,.modal-dialog.modal-lg,.modal-dialog.modal-xl,.people-dialog{max-width:none !important; width:100%; margin:0 !important;
+    min-height:100% !important; display:flex; align-items:flex-end !important}
+  .modal-dialog-scrollable{height:100% !important; max-height:100%}
+  .modal-content{width:100%; max-height:calc(100dvh - 24px - env(safe-area-inset-top,0px)); border-radius:22px 22px 0 0 !important;
+    padding-bottom:env(safe-area-inset-bottom,0px)}
+  .modal.fade .modal-dialog{transform:translateY(40px)}
+  .modal.show .modal-dialog{transform:none}
+  .modal-hero{padding:18px 60px 16px 18px !important}
+  .modal-hero h4{font-size:1.25rem !important; overflow-wrap:anywhere}
+  .modal-hero .btn-close{top:10px !important; right:10px !important; width:44px; height:44px; padding:0; background-size:14px}
+  .modal-hero .big-line{font-size:1.6rem !important; padding:8px 12px !important; min-width:56px}
+  .modal-body{overflow-wrap:anywhere}
+  .modal-footer{flex-wrap:wrap; gap:8px; padding-bottom:12px !important}
+  .modal-footer > *{flex:1 1 auto; margin:0 !important; min-height:44px}
+  #pickMap,#tripMap{height:42vh !important}
+  .ask-btns{flex-wrap:wrap}
+  .ask-btns button{flex:1 1 120px; min-width:0; min-height:44px}
+
+  /* ---- bottom bar and floating notes ---- */
+  .bottom-nav{padding-left:max(4px,env(safe-area-inset-left,0px)) !important; padding-right:max(4px,env(safe-area-inset-right,0px)) !important}
+  .bottom-nav a{min-width:0}
+  .bottom-nav a span{max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.68rem}
+  .toast-note{left:12px; right:12px; max-width:none; transform:none}
+  .suggest-list{max-height:min(50vh,320px); left:0; right:0}
+
+  /* general touch targets */
+  .btn-grad,.btn-ghost,.pill-btn,.fav-filter,.tx-mode,.tx-sub,.ln-link,.line-tile{min-height:44px}
+}
+
+/* small phones (≤ 400 px, e.g. 360 px Android): tighter top bar and header */
+@media (max-width:400px){
+  .brand-wordmark{width:124px !important}
+  .lang-switch button{min-width:30px; padding:0 4px}
+  .nav-link-btn,#userMenu{min-width:36px; padding:0 4px !important}
+  .hero h1{font-size:1.5rem !important}
+  .trip-tab{font-size:.76rem !important; padding:4px !important}
+  .tx-mode,.tx-sub{font-size:.76rem !important; gap:4px !important}
+  .tx-mode .oi,.tx-sub .oi,.tx-sub i{display:none}
+}
