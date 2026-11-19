@@ -687,3 +687,20 @@ test("the EUR rate is served for prices in two currencies, and a bad currency is
   assert.equal((await fetch(`${base}?currency=E1`)).status, 400);
   assert.deepEqual(asked, ["EUR"]);
 });
+
+test("the weather where the person is has its own public route and checks the place", async (t) => {
+  const asked = [];
+  const tripWeather = {
+    forecast: async () => ({ days: [] }),
+    current: async (q) => { asked.push(q); if (!Number.isFinite(q.lat)) throw Object.assign(new Error("Podaj miejsce."), { status: 400 }); return { current: { temperature_2m: 5 }, hourly: {}, place: "Rzeszów" }; },
+  };
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, tripWeather });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/weather/now`;
+  const ok = await fetch(`${base}?lat=50.04&lon=22.00`);
+  assert.equal(ok.status, 200);
+  assert.equal((await ok.json()).place, "Rzeszów");
+  assert.deepEqual(asked[0], { lat: 50.04, lon: 22 });
+  assert.equal((await fetch(`${base}?lat=x&lon=1`)).status, 400);
+});
