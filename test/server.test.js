@@ -655,6 +655,27 @@ test("a signed-in trip search asks the airlines only about its own routes and da
   assert.equal((await post({ ...trip, back: "", date: day(9) })).status, 202);
 });
 
+test("a trip search to a city Ryanair and Wizz Air do not fly to asks the fare API about the nearest airports", async (t) => {
+  const users = { rider: { id: "3", email: "rider@example.invalid", isAdmin: false } };
+  const asked = [];
+  const server = createServer({
+    database: {},
+    auth: { resolveSession: async (token) => users[token] || null },
+    flights: { tripPairs: () => [], returnPairs: () => [], apiPairs: () => [{ from: "RZE", to: "ZRH", airlines: [] }] },
+    duffel: { searchRoutes: (pairs, date, back) => { asked.push({ pairs, date, back }); return "started"; }, status: () => ({ available: true, running: true, progress: { done: 1, total: 2 } }) },
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  const response = await fetch(`${base}/api/flights/trip`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base, Cookie: "rzbus_session=rider" }, body: JSON.stringify({ origin: "50.04,22.00", dest: "47.38,8.54", date: day(7), back: day(14) }) });
+  assert.equal(response.status, 202);
+  assert.deepEqual(asked, [{ pairs: [{ from: "RZE", to: "ZRH", airlines: [] }], date: day(7), back: day(14) }]);
+  const status = await (await fetch(`${base}/api/flights/status`)).json();
+  assert.equal(status.running, true);
+  assert.deepEqual(status.progress, { done: 1, total: 2 });
+});
+
 test("trip sharing requests are passed on to the FastAPI server with the session cookie, and a stopped API is reported plainly", async (t) => {
   const seen = [];
   let apiUp = true;

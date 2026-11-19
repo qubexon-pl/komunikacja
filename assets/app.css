@@ -2621,6 +2621,8 @@ body:has(.edit-badge:not([hidden])) .ground-next{margin-bottom:76px}
 .cs-save > .cs-choice{flex:1 1 100%}
 .cs-save > .trip-title-field{flex:1 1 100%; margin:0}
 .cs-save > .cs-saved{flex:1 1 100%}
+.cs-saved .cs-finish{margin-left:auto; display:inline-flex; align-items:center; gap:8px; padding:10px 20px}
+@media (max-width:640px){ .cs-saved .cs-finish{margin-left:0; width:100%; justify-content:center} }
 
 /* ================================================================
    Komunikacja: zakładki na stronach autobusów, podmiejskich i pociągów
