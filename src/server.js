@@ -1125,6 +1125,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         if (publicRoute === "hotels") {
           try {
             const q = (name) => url.searchParams.get(name) || "";
+            if (q("link") === "1" && hotels.link) { json(res, 200, hotels.link({ lat: Number(q("lat")), lon: Number(q("lon")), checkin: q("checkin"), checkout: q("checkout"), adults: Number(q("adults")) || 1, city: q("city").slice(0, 80) })); return; }
             json(res, 200, await hotels.search({ lat: Number(q("lat")), lon: Number(q("lon")), checkin: q("checkin"), checkout: q("checkout"), adults: Number(q("adults")) || 1, city: q("city").slice(0, 80) }));
           } catch (error) {
             if (error.detail) console.warn("Booking.com:", error.message, error.detail);

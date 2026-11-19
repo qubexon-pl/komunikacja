@@ -58,13 +58,16 @@ function distanceKm(aLat, aLon, bLat, bLon) {
 }
 
 // A Booking.com search page for the same place and dates: always available, also without API credentials.
-function bookingSearchUrl({ city = "", checkin, checkout, adults = 1, lat, lon }) {
+// With an affiliate ID (aid) the link is an affiliate deep link, so a booking made from it is credited to the partner;
+// the label says where in the app it came from. Both are public values that appear in the link anyway.
+function bookingSearchUrl({ city = "", checkin, checkout, adults = 1, lat, lon, aid = "", label = "" }) {
   const params = new URLSearchParams({ ss: city || `${lat},${lon}`, checkin, checkout, group_adults: String(adults), no_rooms: "1", group_children: "0" });
   if (Number.isFinite(lat) && Number.isFinite(lon)) { params.set("latitude", String(lat)); params.set("longitude", String(lon)); }
+  if (/^\d+$/.test(String(aid || ""))) { params.set("aid", String(aid)); if (label) params.set("label", String(label).replace(/[^\w-]/g, "").slice(0, 60)); }
   return `https://www.booking.com/searchresults.html?${params}`;
 }
 
-function createHotels({ apiKey = process.env.BOOKING_API_KEY || "", affiliateId = process.env.BOOKING_AFFILIATE_ID || "", base = process.env.BOOKING_API_BASE || DEFAULT_BASE,
+function createHotels({ apiKey = process.env.BOOKING_API_KEY || "", affiliateId = process.env.BOOKING_AFFILIATE_ID || "", label = process.env.BOOKING_LABEL || "voyage-planner", base = process.env.BOOKING_API_BASE || DEFAULT_BASE,
   rpm = Number(process.env.BOOKING_RPM) || 30, fetchSource = fetch, now = Date.now } = {}) {
   const configured = !!(apiKey && /^\d+$/.test(String(affiliateId)));
   const cache = new Map();
@@ -95,11 +98,23 @@ function createHotels({ apiKey = process.env.BOOKING_API_KEY || "", affiliateId 
     return run;
   }
 
-  async function search({ lat, lon, checkin, checkout, adults = 1, city = "", radius = 3 }) {
+  const aid = /^\d+$/.test(String(affiliateId)) ? String(affiliateId) : "";
+
+  function checked({ lat, lon, checkin, checkout, adults = 1 }) {
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw Object.assign(new Error("Nieprawidłowe miejsce."), { status: 400 });
     if (!DAY.test(checkin || "") || !DAY.test(checkout || "") || checkout <= checkin) throw Object.assign(new Error("Podaj daty przyjazdu i wyjazdu."), { status: 400 });
-    const guests = Math.min(8, Math.max(1, Math.round(Number(adults) || 1)));
-    const link = bookingSearchUrl({ city, checkin, checkout, adults: guests, lat, lon });
+    return Math.min(8, Math.max(1, Math.round(Number(adults) || 1)));
+  }
+
+  // Only the Booking.com link (with the affiliate ID when there is one), without asking the API.
+  function link(query) {
+    const guests = checked(query);
+    return { configured, bookingUrl: bookingSearchUrl({ ...query, adults: guests, aid, label }) };
+  }
+
+  async function search({ lat, lon, checkin, checkout, adults = 1, city = "", radius = 3 }) {
+    const guests = checked({ lat, lon, checkin, checkout, adults });
+    const link = bookingSearchUrl({ city, checkin, checkout, adults: guests, lat, lon, aid, label });
     if (!configured) return { configured: false, hotels: [], bookingUrl: link };
     const key = `${lat.toFixed(3)},${lon.toFixed(3)}|${checkin}|${checkout}|${guests}|${radius}`;
     const hit = cache.get(key);
@@ -124,7 +139,7 @@ function createHotels({ apiKey = process.env.BOOKING_API_KEY || "", affiliateId 
     return result;
   }
 
-  return { search, configured: () => configured };
+  return { search, link, configured: () => configured };
 }
 
 module.exports = { createHotels, bookingSearchUrl, priceOf, hotelFrom };
