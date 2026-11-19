@@ -2888,3 +2888,52 @@ body.multi-mode #multiForm{display:none !important}
 .cp-walk small{color:var(--ink-soft, #64748b)}
 .cp-walk-btns{display:flex; gap:6px; flex-wrap:wrap}
 .cp-walk-btns .btn-ghost,.lp-actions a.btn-ghost{padding:4px 10px; font-size:.82rem}
+
+/* ---------- Przewodnik po aplikacji (assets/app.tour.js) ---------- */
+.tour-btn{display:inline-flex; align-items:center; justify-content:center; min-width:38px}
+.tour-btn i{font-size:1.1rem}
+@media (max-width:760px){ .nav-links .tour-btn{display:none !important} }
+.tour__btn{display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:38px; padding:0 16px; border-radius:999px; border:1px solid transparent;
+  background:var(--red,#2878D0); color:#fff; font:inherit; font-size:.88rem; font-weight:700; cursor:pointer; transition:background .15s, border-color .15s}
+.tour__btn:hover{background:var(--red-dark,#1F63B3)}
+.tour__btn--ghost{background:transparent; color:var(--ink); border-color:var(--card-border,#E3E9F2)}
+.tour__btn--ghost:hover{background:var(--soft,#F2F5F9); border-color:var(--card-border,#E3E9F2)}
+.tour__btn:focus-visible,.tour__close:focus-visible,.tour-suggest__close:focus-visible{outline:3px solid var(--gold,#F2B84B); outline-offset:2px}
+
+/* first-visit suggestion: a small card in the corner, not blocking the page */
+.tour-suggest{position:fixed; right:20px; bottom:20px; z-index:1050; width:min(380px,calc(100vw - 24px)); display:grid; grid-template-columns:auto 1fr; gap:12px;
+  padding:16px 40px 16px 16px; background:var(--bg-alt,#fff); color:var(--ink); border:1px solid var(--card-border,#E3E9F2); border-radius:18px;
+  box-shadow:0 18px 44px -18px rgba(23,59,112,.45); animation:tour-in .35s ease both}
+.tour-suggest h2{margin:0 0 4px; font-size:1rem; font-weight:800}
+.tour-suggest p{margin:0; font-size:.86rem; line-height:1.45; color:var(--ink-soft)}
+.tour-suggest__icon{width:40px; height:40px; border-radius:12px; display:grid; place-items:center; background:color-mix(in srgb,var(--red,#2878D0) 12%,transparent); color:var(--red,#2878D0); font-size:1.2rem}
+.tour-suggest__actions{display:flex; gap:8px; margin-top:12px; flex-wrap:wrap}
+.tour-suggest__close,.tour__close{position:absolute; top:8px; right:8px; width:32px; height:32px; border:0; background:transparent; border-radius:8px; cursor:pointer; color:var(--ink-soft); display:grid; place-items:center}
+.tour-suggest__close:hover,.tour__close:hover{background:var(--soft,#F2F5F9); color:var(--ink)}
+@media (max-width:760px){ .tour-suggest{left:12px; right:12px; width:auto; bottom:calc(76px + env(safe-area-inset-bottom,0px))} }
+
+/* the tour: dimmed page, a lit "hole" around the element, a card next to it */
+.tour{position:fixed; inset:0; z-index:5000}
+.tour__shade{position:fixed; inset:0}
+.tour__shade.is-full{background:rgba(11,26,51,.58)}
+.tour__spot{position:fixed; border-radius:14px; pointer-events:none; box-shadow:0 0 0 3px var(--gold,#F2B84B), 0 0 0 9999px rgba(11,26,51,.58);
+  transition:top .25s ease, left .25s ease, width .25s ease, height .25s ease}
+.tour__spot[hidden]{display:none}
+.tour__pulse{position:absolute; inset:-3px; border-radius:inherit; border:3px solid var(--gold,#F2B84B); animation:tour-pulse 1.6s ease-out infinite}
+.tour__card{position:fixed; width:min(360px,calc(100vw - 24px)); padding:14px 18px 18px; outline:none; background:var(--bg-alt,#fff); color:var(--ink);
+  border:1px solid var(--card-border,#E3E9F2); border-radius:18px; box-shadow:0 22px 50px -18px rgba(11,26,51,.6); transition:top .25s ease, left .25s ease; animation:tour-in .25s ease both}
+.tour__top{display:flex; align-items:center; gap:8px; margin-bottom:8px; padding-right:28px}
+.tour__badge{display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 11px; border-radius:999px; font-size:.78rem; font-weight:700;
+  background:color-mix(in srgb,var(--red,#2878D0) 10%,transparent); color:var(--red,#2878D0)}
+.tour__close{top:10px; right:10px}
+.tour__count{margin:0; font-size:.78rem; color:var(--ink-soft)}
+.tour__card h2{margin:2px 0 6px; font-size:1.15rem; font-weight:800}
+.tour__card #tourT{margin:0 0 10px; font-size:.92rem; line-height:1.5; color:var(--ink-soft)}
+.tour__dots{display:flex; flex-wrap:wrap; gap:5px; margin:4px 0 14px}
+.tour__dots span{width:6px; height:6px; border-radius:999px; background:var(--card-border,#E3E9F2); transition:width .2s ease, background .2s ease}
+.tour__dots span.is-past{background:var(--red,#2878D0); opacity:.45}
+.tour__dots span.is-on{width:18px; background:var(--red,#2878D0)}
+.tour__actions{display:flex; justify-content:space-between; gap:8px}
+@keyframes tour-pulse{from{opacity:.9; transform:scale(1)} to{opacity:0; transform:scale(1.12)}}
+@keyframes tour-in{from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none}}
+@media (prefers-reduced-motion:reduce){ .tour__pulse{animation:none} .tour__spot,.tour__card{transition:none} }

@@ -687,3 +687,20 @@ test("the EUR rate is served for prices in two currencies, and a bad currency is
   assert.equal((await fetch(`${base}?currency=E1`)).status, 400);
   assert.deepEqual(asked, ["EUR"]);
 });
+
+test("visitors who are not signed in start on the welcome page, signed-in users on the app", async (t) => {
+  const baseUrl = await startServer(t, {});
+  const guest = await fetch(`${baseUrl}/`);
+  assert.equal(guest.status, 200);
+  assert.match(guest.headers.get("vary"), /Cookie/);
+  const welcome = await guest.text();
+  assert.match(welcome, /<title>Witaj · podavo\.voyage<\/title>/);
+  assert.match(welcome, /href="\/plan\?tour=1"/);
+  const signedIn = await fetch(`${baseUrl}/`, { headers: { cookie: "rzbus_session=test-session" } });
+  assert.match(await signedIn.text(), /<title>Zaplanuj podróż · podavo\.voyage<\/title>/);
+  const direct = await fetch(`${baseUrl}/welcome`, { headers: { cookie: "rzbus_session=test-session" } });
+  assert.match(await direct.text(), /<title>Witaj · podavo\.voyage<\/title>/);
+  assert.equal((await fetch(`${baseUrl}/plan`)).status, 200);
+  assert.equal((await fetch(`${baseUrl}/assets/app.welcome.css`)).status, 200);
+  assert.equal((await fetch(`${baseUrl}/assets/app.tour.js`)).status, 200);
+});

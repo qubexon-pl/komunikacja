@@ -570,6 +570,8 @@ function serveStatic(res, pathname, root, search = "") {
     return;
   }
   const isLoginPage = pathname === "/login";
+  // Welcome page for visitors who are not signed in (also at "/" for them, see the request handler).
+  const isWelcomePage = pathname === "/welcome";
   const isAppPage = APP_PAGES.has(pathname);
   const isLoginAsset = pathname === "/assets/login.css" || pathname === "/assets/login.js" || pathname === "/assets/i18n.js";
   const isLogo = /^\/assets\/logo(-\d+)?\.png$/.test(pathname); // the app logo, in the sizes it is used
@@ -579,7 +581,7 @@ function serveStatic(res, pathname, root, search = "") {
     || pathname === "/assets/hero.svg" || pathname === "/assets/manifest.webmanifest";
   // The service worker must live at the site root to cover every page.
   const isServiceWorker = pathname === "/sw.js";
-  if (!isAppPage && !isLoginPage && !isServiceWorker && !pathname.startsWith("/assets/")) {
+  if (!isAppPage && !isLoginPage && !isWelcomePage && !isServiceWorker && !pathname.startsWith("/assets/")) {
     json(res, 404, { error: "Not found." });
     return;
   }
@@ -587,13 +589,13 @@ function serveStatic(res, pathname, root, search = "") {
     json(res, 404, { error: "Not found." });
     return;
   }
-  const requestedPath = isAppPage ? "/index.html" : isLoginPage ? "/login.html" : isServiceWorker ? "/assets/app.sw.js" : pathname;
+  const requestedPath = isAppPage ? "/index.html" : isLoginPage ? "/login.html" : isWelcomePage ? "/welcome.html" : isServiceWorker ? "/assets/app.sw.js" : pathname;
   const filePath = path.resolve(root, `.${requestedPath}`);
   if (!filePath.startsWith(`${root}${path.sep}`)) {
     json(res, 403, { error: "Forbidden." });
     return;
   }
-  if (!isLoginPage && !isAppPage && !filePath.startsWith(`${path.resolve(root, "assets")}${path.sep}`)) {
+  if (!isLoginPage && !isAppPage && !isWelcomePage && !filePath.startsWith(`${path.resolve(root, "assets")}${path.sep}`)) {
     json(res, 404, { error: "Not found." });
     return;
   }
@@ -612,7 +614,8 @@ function serveStatic(res, pathname, root, search = "") {
       "Referrer-Policy": "strict-origin-when-cross-origin",
       "Cache-Control": "no-cache",
       ETag: etag,
-      Vary: "Accept-Encoding",
+      // "/" is the welcome page or the app depending on the sign-in cookie.
+      Vary: pathname === "/" || isWelcomePage ? "Accept-Encoding, Cookie" : "Accept-Encoding",
     };
     if (res.req?.headers?.["if-none-match"] === etag) {
       res.writeHead(304, base);
@@ -1361,6 +1364,12 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         return;
       }
 
+      // Visitors who are not signed in start on the welcome page; signed-in users go straight to the app.
+      if (url.pathname === "/") {
+        const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE)).catch(() => null);
+        serveStatic(res, user ? "/" : "/welcome", root, url.search);
+        return;
+      }
       if (url.pathname === "/login") {
         const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
         if (user) {

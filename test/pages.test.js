@@ -811,3 +811,12 @@ test("abroad, the way to the airport uses the same airport lines as the way into
   P.xferTo.clear();
   assert.deepEqual(JSON.parse(JSON.stringify((await context.xferToAirport(P, f, 100000)).map((o) => o.title))), ["R2 Nord", "Taxi"]);
 });
+
+test("every element the app tour points at exists on the page", () => {
+  const tour = fs.readFileSync(path.resolve(__dirname, "../assets/app.tour.js"), "utf8");
+  const ids = new Set([...tour.matchAll(/target:'([^']+)'/g)].flatMap((m) => [...m[1].matchAll(/#([A-Za-z][\w-]*)/g)].map((x) => x[1])));
+  assert.ok(ids.size > 5);
+  for (const id of ids) assert.match(html, new RegExp(`id="${id}"`), `#${id}`);
+  for (const id of ["tourHelp", "tourBtn"]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.ok(html.indexOf("app.tour.js") < html.indexOf("/assets/app.js"), "the tour loads before app.js to read ?tour=1");
+});
