@@ -218,6 +218,7 @@
     'Zapisane trasy, przystanki, stacje i podróże.':'Saved routes, stops, stations and trips.',
     'Sprawdź, dokąd polecisz z polskich lotnisk.':'Discover where you can fly from Polish airports.',
     'Twoje zaplanowane podróże w jednym miejscu.':'Your planned journeys in one place.',
+    'Archiwum: Twoje minione podróże, ich plany i zdjęcia.':'Archive: your past trips, their plans and photos.','Archiwum':'Archive',
     'Szczegóły podróży':'Trip details',
     'Wyniki wyszukiwania':'Search results',
     'Porównaj możliwości i wybierz najlepszą podróż.':'Compare options and choose the best trip.',

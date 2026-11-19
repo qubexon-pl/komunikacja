@@ -2438,8 +2438,9 @@ body.offline .edit-badge{bottom:76px}
 .tp-person-pin span{display:flex; width:34px; height:34px; align-items:center; justify-content:center; border-radius:50%; border:3px solid #fff; color:#fff; font-weight:800; font-size:.8rem; box-shadow:0 4px 12px rgba(0,0,0,.35)}
 .tp-person-text small{white-space:normal; overflow:visible; line-height:1.3}
 
-/* „Udostępnij” na karcie w Moich podróżach, pod „za 1 dzień” */
-.tl-side{display:inline-flex; flex-direction:column; align-items:flex-end; gap:6px; flex:none}
+/* „Udostępnij” na karcie w Moich podróżach: osobny wiersz pod nazwą, żeby nie zasłaniał nazwy podróży */
+.tl-actions{display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin:8px 0 0 54px}
+.tl-actions .tl-shared{margin:0; min-width:0}
 .tl-share{display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:4px 12px; border:1px solid color-mix(in srgb,var(--red) 35%,var(--line)); border-radius:999px; background:var(--bg-alt); color:var(--red); font-size:.78rem; font-weight:700; white-space:nowrap}
 .tl-share:hover{background:color-mix(in srgb,var(--red) 8%,var(--bg-alt))}
 .tl-share small{min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--red); color:#fff; font-size:.68rem; line-height:18px; text-align:center}
@@ -2943,3 +2944,38 @@ body.multi-mode #multiForm{display:none !important}
 .wx-here{display:inline-flex; align-items:center; gap:6px; margin-top:10px; min-height:36px; padding:6px 12px; border:1px solid rgba(255,255,255,.45); border-radius:999px; background:transparent; color:inherit; font-size:.78rem; font-weight:600; cursor:pointer}
 .wx-here:hover,.wx-here:focus-visible{background:rgba(255,255,255,.12)}
 .wx-here:disabled{opacity:.7; cursor:default}
+
+/* Moje podróże: zakładki „Nadchodzące” i „Archiwum” */
+.mytrips-tabs{margin:0 0 18px}
+.mytrips-note{margin:0 0 14px; color:var(--ink-soft); font-size:.88rem}
+.tl-head .fav-card-open b{white-space:normal; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical}
+.tl-head .fav-card-open small.tl-dates{white-space:normal}
+@media (max-width:600px){
+  .tl-actions{margin-left:0}
+  .mytrips-tabs{flex-wrap:nowrap}
+  .mytrips-tabs .fav-filter{flex:1 1 0; justify-content:center; padding:8px 10px}
+}
+
+/* Koszt podróży: na stronie podróży koszt i mapa obok siebie dopiero na szerokim ekranie, na telefonie jedno pod drugim.
+   Opis pozycji zawija się w swojej kolumnie, uwaga („cena nieznana”) idzie pod nim, a kwota zostaje w jednej linii po prawej. */
+.tp-extra{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+@media (max-width:1100px){ .tp-extra{grid-template-columns:minmax(0,1fr)} }
+.cost-row{align-items:flex-start}
+.cost-row > span{display:grid; grid-template-columns:16px minmax(0,1fr); column-gap:8px; align-items:baseline; flex:1 1 auto; min-width:0; overflow-wrap:anywhere}
+.cost-row > span > em{grid-column:2; display:block; line-height:1.3}
+.cost-row > b{flex:none; text-align:right}
+.cost-total,.cost-per{gap:12px; align-items:baseline}
+.cost-total > span:last-child,.cost-per > span:last-child{white-space:nowrap; text-align:right}
+@media (max-width:420px){ .cost-card{padding:12px} .cost-row{gap:8px; font-size:.84rem} }
+
+/* Zdjęcia czekające na wysłanie: krótki stan na zdjęciu i jedno zdanie pod zdjęciami, dlaczego czeka i co dalej */
+.tp-photo.waiting figcaption{background:linear-gradient(transparent,rgba(120,72,6,.88))}
+.tp-photo.waiting .tp-photo-bar i{background:rgba(255,255,255,.55)}
+.tp-photo-note{display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:10px 0 0; padding:8px 12px; border-radius:12px; background:#FFF6E5; color:#7A4A06; font-size:.8rem; line-height:1.35}
+.tp-photo-note > i{color:#B45309}
+.tp-photo-note > span{flex:1 1 200px; min-width:0}
+.tp-photo-note.err{background:color-mix(in srgb,var(--error,#DC5555) 12%,#fff); color:#A3292B} .tp-photo-note.err > i{color:#A3292B}
+.tp-photo-note .tp-photo-retry{display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:4px 12px; font-size:.78rem}
+.tp-photos.compact .tp-photo-note{font-size:.76rem}
+.tp-photo.failed > .tp-photo-x{position:absolute; width:32px; height:32px; padding:0; border-radius:50%; font-size:1.1rem; margin:0}
+.tp-photos.compact .tp-photo.failed > .tp-photo-x{width:22px; height:22px; font-size:.85rem}
