@@ -65,16 +65,33 @@ test("the price of one departure replaces only that departure, and a refusal pau
 
 test("a moved Wizz API version is found by trying the next likely ones, and remembered", async () => {
   const { nextVersions } = require("../src/wizz-timetable");
-  assert.deepEqual(nextVersions("29.24.0").slice(0, 3), ["29.24.1", "29.25.0", "29.25.1"]);
+  assert.deepEqual(nextVersions("29.24.0").slice(0, 6), ["29.24.1", "29.24.2", "29.25.0", "29.25.1", "29.25.2", "29.26.0"]);
   const tried = [];
   let saved = null;
   const { store } = memoryStore();
+  // As seen on 2026-11-19: 29.24.0 gone (404), 29.25.0 a CloudFront 503 error page, 29.26.0 live.
   const wizz = createWizzTimetable({ flights: store, toPln: async (a) => a, now: () => NOW, gapMs: 0, version: "29.24.0", saveVersion: async (v) => { saved = v; },
-    fetchSource: async (url) => { const v = /be\.wizzair\.com\/([\d.]+)\//.exec(String(url))[1]; tried.push(v); return v === "29.25.0" ? answer([]) : new Response("", { status: 404 }); } });
+    fetchSource: async (url) => { const v = /be\.wizzair\.com\/([\d.]+)\//.exec(String(url))[1]; tried.push(v);
+      return v === "29.26.0" ? answer([]) : new Response("", { status: v === "29.25.0" ? 503 : 404 }); } });
   await wizz.priceForTime({ from: "KRK", to: "BCN", time: `${day(5)}T15:25` });
-  assert.equal(wizz.status().version, "29.25.0");
-  assert.equal(saved, "29.25.0");
-  assert.deepEqual(tried.slice(0, 3), ["29.24.0", "29.24.1", "29.25.0"]);
+  assert.equal(wizz.status().version, "29.26.0");
+  assert.equal(saved, "29.26.0");
+  assert.deepEqual(tried.slice(0, 7), ["29.24.0", "29.24.1", "29.24.2", "29.25.0", "29.25.1", "29.25.2", "29.26.0"]);
+});
+
+test("when no version answers, the search is not repeated for an hour", async () => {
+  let clock = NOW, calls = 0;
+  const { store } = memoryStore();
+  const wizz = createWizzTimetable({ flights: store, toPln: async (a) => a, now: () => clock, gapMs: 0, version: "29.24.0",
+    fetchSource: async () => { calls += 1; return new Response("", { status: 404 }); } });
+  await assert.rejects(wizz.priceForTime({ from: "KRK", to: "BCN", time: `${day(5)}T15:25` }), /HTTP 404/);
+  const first = calls;
+  await assert.rejects(wizz.priceForTime({ from: "KRK", to: "BCN", time: `${day(6)}T15:25` }), /HTTP 404/);
+  assert.equal(calls, first + 1); // only the request itself, no new version search
+  clock += 60 * 60 * 1000 + 1;
+  await assert.rejects(wizz.priceForTime({ from: "KRK", to: "BCN", time: `${day(7)}T15:25` }), /HTTP 404/);
+  assert.ok(calls > first + 2);
+  assert.equal(wizz.status().version, "29.24.0"); // nothing wrong is remembered
 });
 
 test("picking another day asks Wizz Air again only when that day's last check is more than 3 hours old", async () => {

@@ -7,7 +7,7 @@
 
 const { parseWizzResponses } = require("./wizz-import");
 
-const DEFAULT_VERSION = "29.24.0";
+const DEFAULT_VERSION = "29.26.0"; // live on 2026-11-19; later versions are found automatically
 const GAP_MS = 4000;
 const PAUSE_MS = 60 * 60 * 1000;
 const FRESH_MS = 3 * 60 * 60 * 1000;
@@ -38,14 +38,22 @@ function timetableBody(legs) {
   };
 }
 
-// The API version is part of the address and changes when Wizz Air releases its website. The working one is
-// remembered (readVersion/saveVersion, the database in production); when it answers 404, the next likely
-// versions are tried, a few requests at most.
+// The API version is part of the address and changes when Wizz Air releases its website. Its website and
+// /buildnumber sit behind a bot check, so the version is found from the API itself: a gone version answers 404
+// (or a CloudFront 5xx error page), the live one answers. The working one is remembered (readVersion/saveVersion,
+// the database in production); when it stops answering, the next likely versions are tried in order, politely.
 function nextVersions(version) {
   const [major, minor, patch] = String(version).split(".").map(Number);
   if (![major, minor, patch].every(Number.isInteger)) return [];
-  return [`${major}.${minor}.${patch + 1}`, `${major}.${minor + 1}.0`, `${major}.${minor + 1}.1`, `${major}.${minor + 2}.0`, `${major}.${minor + 3}.0`, `${major + 1}.0.0`, `${major + 1}.1.0`, `${major}.${minor + 4}.0`];
+  const list = [`${major}.${minor}.${patch + 1}`, `${major}.${minor}.${patch + 2}`];
+  for (let k = 1; k <= 6; k += 1) for (let p = 0; p <= 2; p += 1) list.push(`${major}.${minor + k}.${p}`);
+  list.push(`${major + 1}.0.0`, `${major + 1}.1.0`, `${major + 1}.2.0`);
+  return list;
 }
+
+// A version is live when the API itself answers there: not a 404 and not an error page from the CDN in front.
+const versionGone = (response) => response.status === 404 || response.status >= 500;
+const DISCOVERY_RETRY_MS = 60 * 60 * 1000; // after a search that found nothing, the next one waits an hour
 
 function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: initialVersion = process.env.WIZZ_API_VERSION || DEFAULT_VERSION, readVersion = async () => null, saveVersion = async () => {}, enabled = process.env.WIZZ_API !== "off", now = Date.now, gapMs = GAP_MS }) {
   let version = initialVersion;
@@ -76,7 +84,9 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
   let loaded = null;
   const loadVersion = () => (loaded ||= readVersion().then((saved) => { if (saved) version = saved; }).catch(() => {}));
   let discovering = null;
+  let discoveryFailedAt = -Infinity;
   function discover(sample, failed = false) {
+    if (!discovering && now() - discoveryFailedAt < DISCOVERY_RETRY_MS) return Promise.reject(Object.assign(new Error(`Wizz Air API version not found recently (last known: ${version}); next search in an hour.`), { status: 502 }));
     if (!discovering) {
       discovering = (async () => {
         await loadVersion();
@@ -84,13 +94,14 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
         for (const candidate of failed ? nextVersions(version) : [version, ...nextVersions(version)]) {
           const response = await send(candidate, probe);
           if (response.status === 429 || response.status === 403) { pausedUntil = now() + PAUSE_MS; break; }
-          if (response.status !== 404) {
+          if (!versionGone(response)) {
             if (candidate !== version) console.log(`Wizz Air API version: ${candidate}`);
             version = candidate;
             await saveVersion(candidate).catch(() => {});
             return version;
           }
         }
+        discoveryFailedAt = now();
         throw Object.assign(new Error(`Nie udało się ustalić wersji API Wizz Air (ostatnia znana: ${version}).`), { status: 502 });
       })().finally(() => { discovering = null; });
     }
@@ -101,8 +112,8 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
     if (now() < pausedUntil) throw Object.assign(new Error("Wizz Air poprosił o przerwę; kolejne zapytanie za godzinę."), { status: 429 });
     await loadVersion();
     let response = await send(version, legs);
-    // A new release moves the API: find the new version once and repeat this request.
-    if (response.status === 404) {
+    // A new release moves the API (404, or a CDN error page): find the new version once and repeat this request.
+    if (versionGone(response)) {
       const before = version;
       await discover(legs, true).catch(() => {});
       if (version !== before) response = await send(version, legs);
@@ -297,7 +308,7 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
       headers: { Accept: "application/json", "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(30000),
     });
     if (response.status === 429 || response.status === 403) { pausedUntil = now() + PAUSE_MS; throw new Error(`Wizz Air refused the route map (HTTP ${response.status}); paused for an hour.`); }
-    if (response.status === 404) { discover(null, true).catch(() => {}); throw new Error("Wizz Air API version changed; the route map is asked again next time."); }
+    if (versionGone(response)) { discover(null, true).catch(() => {}); throw new Error("Wizz Air API version changed; the route map is asked again next time."); }
     if (!response.ok) throw new Error(`Wizz Air route map: HTTP ${response.status}.`);
     return response.json();
   }
