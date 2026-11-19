@@ -7106,18 +7106,59 @@ function trainsBoot(){
 /* ============================================================
    POGODA — Open-Meteo (bez klucza)
    ============================================================ */
-const WX={timer:null, data:null};
+const WX={timer:null, data:null, spot:undefined, local:false, noLoc:false};
 const WMO = {0:['Bezchmurnie','☀'],1:['Przeważnie pogodnie','🌤'],2:['Częściowe zachmurzenie','⛅'],3:['Pochmurno','☁'],45:['Mgła','🌫'],48:['Mgła szadziowa','🌫'],
   51:['Słaba mżawka','🌦'],53:['Mżawka','🌦'],55:['Gęsta mżawka','🌧'],56:['Marznąca mżawka','🌧'],57:['Marznąca mżawka','🌧'],61:['Słaby deszcz','🌧'],63:['Deszcz','🌧'],65:['Ulewa','🌧'],
   66:['Marznący deszcz','🌧'],67:['Marznący deszcz','🌧'],71:['Słaby śnieg','🌨'],73:['Śnieg','🌨'],75:['Intensywny śnieg','❄'],77:['Ziarna śniegu','🌨'],
   80:['Przelotny deszcz','🌦'],81:['Przelotne opady','🌧'],82:['Silne przelotne opady','⛈'],85:['Przelotny śnieg','🌨'],86:['Silny przelotny śnieg','❄'],95:['Burza','⛈'],96:['Burza z gradem','⛈'],99:['Burza z gradem','⛈']};
 function wmo(c){ return WMO[c] || ['—','·']; }
-async function weatherTick(){
+/* Pogoda tam, gdzie jestem: położenie z urządzenia (przeglądarka albo natywne GPS w aplikacji), zaokrąglone do ok. 1 km.
+   Bez zgody, bez GPS albo gdy serwis nie odpowie, widżet pokazuje Rzeszów, jak dotąd. Odmowę zapamiętujemy, żeby nie pytać
+   przy każdym otwarciu; przycisk w widżecie pozwala spróbować ponownie. */
+const WX_SPOT='onward.wxSpot', WX_NOLOC='onward.wxNoLoc';
+async function weatherSpot(ask){
+  if(!navigator.geolocation) return null;
+  if(!ask && store(WX_NOLOC)) return null;
+  try{ const st=await navigator.permissions?.query({name:'geolocation'}); if(st?.state==='denied'){ store(WX_NOLOC,true); return null; } }catch(e){}
+  return new Promise(res=>{
+    try{
+      navigator.geolocation.getCurrentPosition(p=>{
+        const spot={lat:+p.coords.latitude.toFixed(2), lon:+p.coords.longitude.toFixed(2)};
+        store(WX_SPOT, spot); store(WX_NOLOC, false); res(spot);
+      }, e=>{
+        if(e?.code===1){ store(WX_NOLOC,true); store(WX_SPOT,null); res(null); }
+        else res(store(WX_SPOT)||null); // GPS chwilowo milczy: ostatnie znane miejsce
+      }, {enableHighAccuracy:false, timeout:10000, maximumAge:15*60*1000});
+    }catch(e){ res(null); }
+  });
+}
+async function weatherTick(ask){
   if(CFG.weather===false) return;
-  try{ const buf=await fetchTimeout('/api/live/weather', 15000); WX.data=JSON.parse(new TextDecoder().decode(buf)); if(WX.data.error) throw new Error(WX.data.reason||'błąd'); WX.err=null; }
-  catch(e){ WX.err='Brak danych pogodowych'; console.warn('weather',e); }
+  const spot=await weatherSpot(ask);
+  WX.spot=spot; WX.noLoc=!spot;
+  let ok=false;
+  if(spot){
+    try{
+      const buf=await fetchTimeout('/api/weather/now?'+new URLSearchParams({lat:spot.lat, lon:spot.lon}), 15000);
+      const d=JSON.parse(new TextDecoder().decode(buf)); if(!d?.current) throw new Error(d?.error||'błąd');
+      WX.data=d; WX.local=true; WX.err=null; ok=true;
+    }catch(e){ console.warn('weather here',e); }
+  }
+  if(!ok){
+    try{ const buf=await fetchTimeout('/api/live/weather', 15000); WX.data=JSON.parse(new TextDecoder().decode(buf)); if(WX.data.error) throw new Error(WX.data.reason||'błąd'); WX.local=false; WX.err=null; }
+    catch(e){ WX.err='Brak danych pogodowych'; console.warn('weather',e); }
+  }
   renderAlertsBtn();
   renderWeather();
+}
+function weatherTitle(){
+  if(!WX.local) return esc('Pogoda w Rzeszowie');
+  const place=WX.data?.place;
+  return place ? esc(L2('Pogoda: ','Weather: ')+place) : esc(L2('Pogoda w Twojej okolicy','Weather near you'));
+}
+function weatherHere(){
+  const b=document.getElementById('wxHere'); if(b){ b.disabled=true; b.textContent=L2('Szukam lokalizacji…','Finding your location…'); }
+  store(WX_NOLOC,false); weatherTick(true);
 }
 /* tytuł w nagłówku: ostatnie słowo wyróżnione kolorem (po przetłumaczeniu całości) */
 function setHeroTitle(title){
@@ -7130,19 +7171,21 @@ function renderWeather(){
   const el=document.getElementById('wx'); if(!el) return;
   if(CFG.weather===false){ el.classList.add('d-none'); return; }
   el.classList.remove('d-none');
-  const d=WX.data; if(!d||!d.current){ el.innerHTML=`<div class="cd-label">Pogoda w Rzeszowie</div><div class="wx-err">${WX.err?esc(WX.err):'wczytywanie…'}</div>`; return; }
+  const here = WX.noLoc && navigator.geolocation ? `<button type="button" class="wx-here" id="wxHere"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> ${esc(L2('Pokaż dla mojej lokalizacji','Show for my location'))}</button>` : '';
+  const d=WX.data; if(!d||!d.current){ el.innerHTML=`<div class="cd-label">${WX.spot===undefined?esc(L2('Pogoda','Weather')):weatherTitle()}</div><div class="wx-err">${WX.err?esc(WX.err):'wczytywanie…'}</div>${here}`; return; }
   const c=d.current; const [desc,ico]=wmo(c.weather_code);
   const h=d.hourly||{}; const hrs=(h.time||[]).map((t,i)=>({t, temp:h.temperature_2m[i], pp:h.precipitation_probability?h.precipitation_probability[i]:null, pr:h.precipitation?h.precipitation[i]:0, code:h.weather_code?h.weather_code[i]:null})).slice(1,5);
   const codes=[c.weather_code, ...hrs.map(x=>x.code)];
   const hard = codes.some(k=>[45,48,56,57,66,67,71,73,75,77,85,86,95,96,99,65,82].includes(k)) || c.temperature_2m<=0 && c.precipitation>0;
   const wet = c.precipitation>0.3 || hrs.some(x=>(x.pp||0)>=60);
   const tip = hard ? 'Trudne warunki na drogach — licz się z większymi opóźnieniami.' : wet ? 'Spodziewany deszcz — możliwe niewielkie opóźnienia.' : 'Warunki sprzyjające punktualności.';
-  el.innerHTML=`<div class="cd-label">Pogoda w Rzeszowie</div>
+  el.innerHTML=`<div class="cd-label">${WX.local?'<i class="fa-solid fa-location-dot" aria-hidden="true"></i> ':''}${weatherTitle()}</div>
     <div class="wx-now"><span class="wx-ico"><img src="${weatherIcon(c.weather_code)}" alt="" aria-hidden="true" width="40" height="40"></span><span class="wx-temp">${Math.round(c.temperature_2m)}°</span>
       <span class="wx-desc">${esc(desc)}<small>odczuwalna ${Math.round(c.apparent_temperature)}° · wiatr ${Math.round(c.wind_speed_10m)} km/h${c.precipitation?` · opad ${c.precipitation} mm`:''}</small></span></div>
     <div class="wx-hours">${hrs.map(x=>`<span><small>${esc(String(x.t).slice(11,16))}</small>${wmo(x.code)[1]} ${Math.round(x.temp)}°${x.pp!=null?`<small>${x.pp}%</small>`:''}</span>`).join('')}</div>
-    <div class="wx-tip ${hard?'hard':wet?'wet':''}">${tip}</div>`;
+    <div class="wx-tip ${hard?'hard':wet?'wet':''}">${tip}</div>${here}`;
 }
+document.getElementById('wx')?.addEventListener('click', e=>{ if(e.target.closest('#wxHere')) weatherHere(); });
 function weatherBoot(){ clearInterval(WX.timer); renderWeather(); if(CFG.weather===false) return; weatherTick(); WX.timer=setInterval(()=>{ if(!document.hidden) weatherTick(); }, 45*60*1000); }
 
 /* ============================================================

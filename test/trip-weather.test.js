@@ -41,3 +41,36 @@ test("each day carries its local hours, so a night landing is not shown with the
   assert.deepEqual(result.days[0].hours, [[0, 12.1, 65, 61], [1, 11.8, 70, 61], [14, 16.9, null, 3]]);
   assert.equal(result.days[0].max, 17);
 });
+
+test("the weather where the person is comes rounded to about 1 km, names the town and is kept for 20 minutes", async () => {
+  const asked = [];
+  let clock = 0;
+  const fetchSource = async (u) => {
+    const url = String(u);
+    asked.push(url);
+    if (url.includes("nominatim")) return new Response(JSON.stringify({ address: { city: "Kraków", county: "Kraków" } }));
+    return new Response(JSON.stringify({ timezone: "Europe/Warsaw", current: { temperature_2m: 4.2, weather_code: 3 }, hourly: { time: ["2026-11-19T16:00"], temperature_2m: [3.9] } }));
+  };
+  const weather = createTripWeather({ fetchSource, now: () => clock });
+  const here = await weather.current({ lat: 50.061234, lon: 19.937812 });
+  assert.equal(here.place, "Kraków");
+  assert.equal(here.current.temperature_2m, 4.2);
+  assert.deepEqual(here.hourly.temperature_2m, [3.9]);
+  const meteo = asked.find((u) => u.includes("open-meteo"));
+  assert.match(meteo, /latitude=50\.06&longitude=19\.94/);
+  assert.match(meteo, /current=temperature_2m/);
+  assert.match(asked.find((u) => u.includes("nominatim")), /lat=50\.06&lon=19\.94/);
+  clock = 10 * 60 * 1000;
+  await weather.current({ lat: 50.0611, lon: 19.9379 });
+  assert.equal(asked.length, 2); // the same square, within 20 minutes
+  await assert.rejects(weather.current({ lat: Number.NaN, lon: 19 }), /Podaj/);
+});
+
+test("the weather where the person is still comes when the town name cannot be found", async () => {
+  const fetchSource = async (u) => String(u).includes("nominatim")
+    ? new Response("busy", { status: 503 })
+    : new Response(JSON.stringify({ current: { temperature_2m: 20, weather_code: 0 } }));
+  const here = await createTripWeather({ fetchSource, now: () => 5000 }).current({ lat: 41.39, lon: 2.17 });
+  assert.equal(here.place, null);
+  assert.equal(here.current.temperature_2m, 20);
+});

@@ -2888,3 +2888,8 @@ body.multi-mode #multiForm{display:none !important}
 .cp-walk small{color:var(--ink-soft, #64748b)}
 .cp-walk-btns{display:flex; gap:6px; flex-wrap:wrap}
 .cp-walk-btns .btn-ghost,.lp-actions a.btn-ghost{padding:4px 10px; font-size:.82rem}
+/* Pogoda: przycisk „Pokaż dla mojej lokalizacji”, gdy nie ma zgody na lokalizację */
+.wx .cd-label .fa-location-dot{font-size:.85em; margin-right:2px}
+.wx-here{display:inline-flex; align-items:center; gap:6px; margin-top:10px; min-height:36px; padding:6px 12px; border:1px solid rgba(255,255,255,.45); border-radius:999px; background:transparent; color:inherit; font-size:.78rem; font-weight:600; cursor:pointer}
+.wx-here:hover,.wx-here:focus-visible{background:rgba(255,255,255,.12)}
+.wx-here:disabled{opacity:.7; cursor:default}
