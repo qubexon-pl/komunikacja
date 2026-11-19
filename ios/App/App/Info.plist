@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>ON/WARD</string>
+        <string>podavo.voyage</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -67,11 +67,11 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>ON/WARD uses the camera to add photos to your trips. / ON/WARD używa aparatu, aby dodawać zdjęcia do podróży.</string>
+	<string>podavo.voyage uses the camera to add photos to your trips. / podavo.voyage używa aparatu, aby dodawać zdjęcia do podróży.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>ON/WARD lets you choose photos from your library for your trips. / ON/WARD pozwala wybrać zdjęcia z galerii do podróży.</string>
+	<string>podavo.voyage lets you choose photos from your library for your trips. / podavo.voyage pozwala wybrać zdjęcia z galerii do podróży.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>ON/WARD can save trip photos to your library. / ON/WARD może zapisać zdjęcia z podróży w galerii.</string>
+	<string>podavo.voyage can save trip photos to your library. / podavo.voyage może zapisać zdjęcia z podróży w galerii.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Your location is used to find the nearest stop and plan the trip from where you are. / Lokalizacja pozwala znaleźć najbliższy przystanek i zaplanować podróż z miejsca, w którym jesteś.</string>
 	<key>LSApplicationQueriesSchemes</key>

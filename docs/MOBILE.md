@@ -1,4 +1,4 @@
-# ON/WARD on web, Android and iOS
+# podavo.voyage on web, Android and iOS
 
 One frontend (the existing pages in `index.html`, `login.html` and `assets/`) runs in the browser, as an installable PWA
 and inside native Android/iOS apps built with Capacitor. All three call the same API.
@@ -81,11 +81,11 @@ Android back button (closes a dialog or menu, then goes back, then exits), statu
    file system for FastAPI's Managed Identity. Locally your own Azure sign-in needs the same role.
 3. **Google Cloud** (OAuth consent screen + three OAuth clients in the same project):
    - *Web*: authorized redirect URI `https://<APP_BASE_URL>/api/auth/google/callback` → `GOOGLE_CLIENT_ID`/`SECRET`.
-   - *Android*: package `app.onward.travel` and the SHA-1 of your upload key **and** of the Play App Signing key.
-   - *iOS*: bundle id `app.onward.travel`; put its id in `GOOGLE_IOS_CLIENT_ID` and its reversed form
+   - *Android*: package `app.podavo.voyage` and the SHA-1 of your upload key **and** of the Play App Signing key.
+   - *iOS*: bundle id `app.podavo.voyage`; put its id in `GOOGLE_IOS_CLIENT_ID` and its reversed form
      (`com.googleusercontent.apps.<id>`) in `ios/App/App/Info.plist` instead of `REPLACE_WITH_IOS_CLIENT_ID`.
    - Add the Android and iOS client ids to `GOOGLE_NATIVE_CLIENT_IDS` on the server.
-4. **App id** – `app.onward.travel` is in `capacitor.config.json`, `android/app/build.gradle` and the Xcode project;
+4. **App id** – `app.podavo.voyage` is in `capacitor.config.json`, `android/app/build.gradle` and the Xcode project;
    change it everywhere before the first store upload if you want a different one.
 
 ## Running

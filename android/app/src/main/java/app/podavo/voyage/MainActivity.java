@@ -1,4 +1,4 @@
-package app.onward.travel;
+package app.podavo.voyage;
 
 import com.getcapacitor.BridgeActivity;
 

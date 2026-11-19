@@ -1989,8 +1989,8 @@ body[data-view="podroz"]:not(.tt-mode) .hero{padding:48px 24px 140px}
   --bg:var(--onward-background,#F4F7FB); --bg-alt:var(--onward-surface,#FFFFFF); --navy:var(--onward-navy,#173B70);
   --red:var(--onward-blue,#2878D0); --on:var(--onward-blue,#2878D0); --teal:var(--onward-teal,#20A995); --gold:var(--onward-amber,#F2B84B) }
 .brand{display:inline-flex; align-items:center}
-.brand-wordmark{display:block; width:168px; height:auto; aspect-ratio:460/120}
-@media(max-width:560px){ .brand-wordmark{width:132px} }
+.brand-wordmark{display:block; width:230px; height:auto; aspect-ratio:960/134}
+@media(max-width:560px){ .brand-wordmark{width:170px} }
 /* ikony jednobarwne z pakietu: kształt z pliku SVG, kolor z otoczenia (currentColor) */
 .oi{display:inline-block; flex:none; width:1.15em; height:1.15em; vertical-align:-.2em; background-color:currentColor;
   -webkit-mask:var(--oi) center / contain no-repeat; mask:var(--oi) center / contain no-repeat}
@@ -2600,11 +2600,13 @@ body.plan-deep #planResults .res-layout{grid-template-columns:minmax(0,1fr)}
 .pc-pick{margin:6px 0; justify-content:center}
 .pc-pick.on{background:#2878D0; border-color:#2878D0; color:#fff}
 .plan-card.picked{border-color:#2878D0 !important; box-shadow:0 0 0 2px rgba(40,120,208,.25), var(--shadow-soft)}
-.ground-next{position:sticky; bottom:12px; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:16px; padding:12px 16px;
+.ground-next{position:relative; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:16px; padding:12px 16px;
   border:1px solid #E3EAF3; border-radius:16px; background:#fff; box-shadow:0 12px 32px rgba(23,59,112,.14); font-size:.9rem; color:var(--ink-soft)}
 .ground-next.ready{border-color:#2878D0; color:var(--ink)}
 .ground-next.ready > span > i{color:#199B70}
 .ground-next .btn-grad{display:inline-flex; align-items:center; gap:8px}
+/* pasek nie przykrywa wyników przy przewijaniu; pod nim miejsce na plakietkę trybu edycji */
+body:has(.edit-badge:not([hidden])) .ground-next{margin-bottom:76px}
 .ground-leg{margin-bottom:12px}
 .ground-leg > small{display:block; margin:-4px 0 8px}
 /* nazwa podróży */
@@ -2844,3 +2846,45 @@ body.multi-mode #multiForm{display:none !important}
 .tp-status-chip.pending{background:#FFF4DE; color:#8A5A00}
 .tp-status-chip.declined{background:#FDECEC; color:#B23B3B}
 .tp-status-chip.accepted{background:#E3F5EF; color:#16765A}
+
+/* podróż w obie strony bez wybranego powrotu */
+.tl-noreturn{color:#B45309; font-weight:600}
+.tp-noreturn .empty-note,.empty-note.tp-noreturn{color:#B45309}
+
+/* nocleg: szukaj, Booking.com i „dodaj ręcznie” w jednym wierszu */
+.hotel-bar{display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin-top:6px}
+.hotel-bar > .btn-grad{display:inline-flex; align-items:center; gap:6px; width:auto; padding:7px 14px}
+.hotel-bar > .btn-ghost{padding:6px 12px}
+.hotel-bar .hotel-manual{margin:0}
+.hotel-bar .hotel-manual[open]{flex-basis:100%}
+.tp-card.tp-noreturn .empty-note{padding:4px 0 0; margin:0; border:0; background:none; text-align:left}
+/* podpowiedzi adresów w planerze przejazdów po mieście */
+.cp-field{position:relative}
+/* plan zwiedzania: miasta podróży, zapisane przejazdy po mieście */
+.lp-tabs{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 4px}
+.lp-tab{border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:999px; padding:5px 12px; font-size:.86rem; font-weight:600}
+.lp-tab.on{background:#2878D0; border-color:#2878D0; color:#fff}
+.lp-tab small{opacity:.8; margin-left:2px}
+.lp-list{list-style:none; margin:10px 0 0; padding:0; display:grid; gap:8px; counter-reset:lp}
+.lp-item{display:flex; gap:12px; align-items:flex-start; justify-content:space-between; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--bg); counter-increment:lp}
+.lp-main{min-width:0; display:grid; gap:3px}
+.lp-main > b::before{content:counter(lp) ". "; color:#2878D0}
+.lp-main small{color:var(--ink-soft, #64748b)}
+.lp-main details summary{cursor:pointer; font-size:.82rem}
+.lp-actions{display:flex; gap:6px; flex:none}
+.lp-actions .btn-ghost{padding:5px 10px; font-size:.82rem}
+.lp-empty{margin-top:10px}
+.cp-save{margin:6px 0 2px; padding:4px 10px; font-size:.82rem}
+.lp-proxy{color:#B45309}
+/* plan zwiedzania: zmiana kolejności */
+.lp-tools{display:flex; justify-content:flex-end; margin-top:8px}
+.lp-tools .btn-ghost{padding:4px 10px; font-size:.82rem}
+.lp-move{display:inline-flex; gap:2px}
+.lp-move .btn-ghost{padding:5px 8px}
+.lp-move .btn-ghost[disabled]{opacity:.35; cursor:default}
+/* planer po mieście: pieszo z trasą Google */
+.cp-walk{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; margin-bottom:8px; border:1px solid var(--line); border-radius:10px; background:var(--bg)}
+.cp-walk > div:first-child{display:grid; gap:2px}
+.cp-walk small{color:var(--ink-soft, #64748b)}
+.cp-walk-btns{display:flex; gap:6px; flex-wrap:wrap}
+.cp-walk-btns .btn-ghost,.lp-actions a.btn-ghost{padding:4px 10px; font-size:.82rem}

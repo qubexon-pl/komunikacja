@@ -30,6 +30,9 @@ class Settings:
     sql_database: str = ""
     azure_client_id: str = ""
     sql_odbc_driver: str = "ODBC Driver 18 for SQL Server"
+    # Podavo family accounts (shared database podavo-mdm): sessions are read there.
+    mdm_sql_server: str = "sql-podavo-mdm.database.windows.net"
+    mdm_sql_database: str = "podavo-mdm"
 
     # Public address of the app (cookies, CSRF origin check, Google redirect).
     app_base_url: str = "http://localhost:8000"
@@ -81,6 +84,8 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         sql_database=env.get("AZURE_SQL_DATABASE", ""),
         azure_client_id=env.get("AZURE_CLIENT_ID", ""),
         sql_odbc_driver=env.get("SQL_ODBC_DRIVER", "ODBC Driver 18 for SQL Server"),
+        mdm_sql_server=env.get("MDM_SQL_SERVER", "sql-podavo-mdm.database.windows.net"),
+        mdm_sql_database=env.get("MDM_SQL_DATABASE", "podavo-mdm"),
         app_base_url=base,
         node_upstream=env.get("NODE_UPSTREAM", "http://127.0.0.1:3000").rstrip("/"),
         google_client_id=env.get("GOOGLE_CLIENT_ID", ""),

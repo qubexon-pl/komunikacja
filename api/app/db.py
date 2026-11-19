@@ -23,8 +23,9 @@ pyodbc.pooling = True
 
 
 class Database:
-    def __init__(self, settings: Settings):
-        if not settings.sql_server or not settings.sql_database:
+    def __init__(self, settings: Settings, server: str | None = None, database: str | None = None):
+        self.server, self.database = server or settings.sql_server, database or settings.sql_database
+        if not self.server or not self.database:
             raise RuntimeError("AZURE_SQL_SERVER and AZURE_SQL_DATABASE must be configured.")
         self.settings = settings
         self._token: tuple[bytes, float] | None = None
@@ -49,7 +50,7 @@ class Database:
     def _connect(self) -> pyodbc.Connection:
         s = self.settings
         conn_str = (
-            f"Driver={{{s.sql_odbc_driver}}};Server=tcp:{s.sql_server},1433;Database={s.sql_database};"
+            f"Driver={{{s.sql_odbc_driver}}};Server=tcp:{self.server},1433;Database={self.database};"
             "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=15;"
         )
         return pyodbc.connect(conn_str, attrs_before={SQL_COPT_SS_ACCESS_TOKEN: self._access_token()}, timeout=15)

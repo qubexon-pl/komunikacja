@@ -1,26 +1,19 @@
 "use strict";
 
-const loginForm = document.getElementById("loginForm");
-const registerForm = document.getElementById("registerForm");
-const forgotPasswordForm = document.getElementById("forgotPasswordForm");
-const loginTab = document.getElementById("loginTab");
-const registerTab = document.getElementById("registerTab");
+// Sign-in the Podavo family way (one account for every Podavo app): a 6-digit code sent by e-mail is the main way in
+// and makes the account on first use; a password is optional (set later in the account menu); Google.
+const codeForm = document.getElementById("codeForm");
+const passwordForm = document.getElementById("passwordForm");
+const codeTab = document.getElementById("codeTab");
+const passwordTab = document.getElementById("passwordTab");
 const message = document.getElementById("formMessage");
 const googleButton = document.getElementById("googleButton");
 const googleNote = document.getElementById("googleNote");
 const emailNote = document.getElementById("emailNote");
 const params = new URLSearchParams(location.search);
 const returnTo = params.get("returnTo");
-const loginViews = [
-  googleButton,
-  document.querySelector(".divider"),
-  document.querySelector(".form-tabs"),
-  document.querySelector(".privacy-note"),
-];
-let emailEnabled = false;
-let googleEnabled = false;
-let verificationPending = false;
-let resetCodeRequested = false;
+let codeEmail = "";
+let resendTimer = null;
 
 // In the Android/iOS app the pages are local files and Google sign-in is native (assets/app.native.js).
 const nativeApp = Boolean(window.ONWARD && window.ONWARD.native);
@@ -39,46 +32,42 @@ function showMessage(text, kind = "error") {
 }
 
 function setMode(mode) {
-  const isLogin = mode === "login";
-  loginForm.hidden = !isLogin;
-  registerForm.hidden = isLogin;
-  forgotPasswordForm.hidden = true;
-  for (const element of loginViews) element.hidden = false;
-  googleNote.hidden = googleEnabled;
-  emailNote.hidden = emailEnabled;
-  loginTab.classList.toggle("active", isLogin);
-  registerTab.classList.toggle("active", !isLogin);
-  loginTab.setAttribute("aria-selected", String(isLogin));
-  registerTab.setAttribute("aria-selected", String(!isLogin));
-  document.getElementById("form-title").textContent = isLogin ? "Zaloguj się" : "Utwórz konto";
+  const code = mode === "code";
+  codeForm.hidden = !code;
+  passwordForm.hidden = code;
+  codeTab.classList.toggle("active", code);
+  passwordTab.classList.toggle("active", !code);
+  codeTab.setAttribute("aria-selected", String(code));
+  passwordTab.setAttribute("aria-selected", String(!code));
   showMessage("");
+  const email = (code ? document.getElementById("loginEmail") : document.getElementById("codeEmail")).value;
+  const target = code ? document.getElementById("codeEmail") : document.getElementById("loginEmail");
+  if (email && !target.value) target.value = email;
 }
 
-function setForgotMode(active) {
-  loginForm.hidden = active;
-  registerForm.hidden = true;
-  forgotPasswordForm.hidden = !active;
-  for (const element of loginViews) element.hidden = active;
-  googleNote.hidden = active || googleEnabled;
-  emailNote.hidden = active || emailEnabled;
+function showCodeStep(active) {
+  document.getElementById("codeEmailStep").hidden = active;
+  document.getElementById("codeStep").hidden = !active;
+  document.getElementById("codeEmail").required = !active;
+  document.getElementById("loginCode").required = active;
   if (active) {
-    document.getElementById("form-title").textContent = "Odzyskaj hasło";
-    document.getElementById("resetEmail").value = document.getElementById("loginEmail").value;
-    showMessage("");
-  } else {
-    setMode("login");
+    document.getElementById("codeSentTo").textContent = `Wysłaliśmy 6-cyfrowy kod na ${codeEmail}. Kod jest ważny 10 minut.`;
+    document.getElementById("loginCode").value = "";
+    document.getElementById("loginCode").focus();
   }
 }
 
-function resetForgotForm() {
-  resetCodeRequested = false;
-  document.getElementById("passwordResetStep").hidden = true;
-  for (const id of ["resetCode", "newPassword"]) {
-    const input = document.getElementById(id);
-    input.required = false;
-    input.value = "";
-  }
-  document.getElementById("resetSubmitButton").firstChild.textContent = "Wyślij kod ";
+function waitBeforeResend(seconds) {
+  const button = document.getElementById("resendCodeButton");
+  clearInterval(resendTimer);
+  let left = Math.max(0, Math.round(seconds || 0));
+  const tick = () => {
+    button.disabled = left > 0;
+    button.textContent = left > 0 ? `Wyślij nowy kod (${left} s)` : "Wyślij nowy kod";
+    if (left-- <= 0) clearInterval(resendTimer);
+  };
+  tick();
+  resendTimer = setInterval(tick, 1000);
 }
 
 async function postJson(endpoint, values) {
@@ -87,7 +76,7 @@ async function postJson(endpoint, values) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(values),
   });
-  const result = await response.json();
+  const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || "Nie udało się wykonać tej operacji.");
   return result;
 }
@@ -104,104 +93,54 @@ async function withBusyButton(button, action) {
   }
 }
 
-function registrationValues() {
-  return {
-    displayName: document.getElementById("registerName").value,
-    email: document.getElementById("registerEmail").value,
-    password: document.getElementById("registerPassword").value,
-  };
+async function sendCode(button) {
+  const sent = await postJson("/api/auth/code", { email: codeEmail });
+  showCodeStep(true);
+  waitBeforeResend(sent.resendIn);
+  // Development only (AUTH_EMAIL_CONSOLE): the server also returns the code, so it can be tried without e-mail.
+  if (sent.devCode) document.getElementById("loginCode").value = sent.devCode;
+  showMessage(sent.devCode ? `Tryb deweloperski: kod ${sent.devCode} wpisano za Ciebie.` : "Kod jest w drodze — sprawdź pocztę (także folder spam).", "success");
+  return button;
 }
 
-loginTab.addEventListener("click", () => setMode("login"));
-registerTab.addEventListener("click", () => {
-  if (!registerTab.disabled) setMode("register");
-});
+codeTab.addEventListener("click", () => setMode("code"));
+passwordTab.addEventListener("click", () => setMode("password"));
 
-loginForm.addEventListener("submit", (event) => {
+codeForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const submit = loginForm.querySelector('button[type="submit"]');
-  withBusyButton(submit, async () => {
-    await postJson("/api/auth/login", Object.fromEntries(new FormData(loginForm)));
-    afterSignIn();
-  });
-});
-
-registerForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  if (verificationPending) {
-    const submit = document.getElementById("registerSubmit");
+  if (!document.getElementById("codeStep").hidden) {
+    const submit = document.getElementById("verifyCodeButton");
     withBusyButton(submit, async () => {
-      const { email } = registrationValues();
-      const { user } = await postJson("/api/auth/verify-email", {
-        email,
-        code: document.getElementById("verificationCode").value.trim(),
-      });
-      if (!user) throw new Error("Nie udało się potwierdzić adresu e-mail.");
+      const { user } = await postJson("/api/auth/verify", { email: codeEmail, code: document.getElementById("loginCode").value.trim() });
+      if (!user) throw new Error("Nie udało się zalogować.");
       afterSignIn();
     });
     return;
   }
-
-  const submit = document.getElementById("startRegistrationButton");
+  const submit = document.getElementById("sendCodeButton");
   withBusyButton(submit, async () => {
-    await postJson("/api/auth/register", registrationValues());
-    verificationPending = true;
-    document.getElementById("registrationDetails").hidden = true;
-    document.getElementById("verificationStep").hidden = false;
-    document.getElementById("verificationCode").required = true;
-    document.getElementById("verificationCode").focus();
-    showMessage("Kod potwierdzający został wysłany na Twój adres e-mail.", "success");
+    codeEmail = document.getElementById("codeEmail").value.trim().toLowerCase();
+    await sendCode(submit);
   });
 });
 
-document.getElementById("resendVerificationButton").addEventListener("click", (event) => {
-  withBusyButton(event.currentTarget, async () => {
-    await postJson("/api/auth/register", registrationValues());
-    showMessage("Wysłaliśmy nowy kod. Sprawdź pocztę e-mail.", "success");
-  });
+document.getElementById("resendCodeButton").addEventListener("click", (event) => {
+  const button = event.currentTarget;
+  withBusyButton(button, () => sendCode(button)).finally(() => waitBeforeResend(60));
 });
-
-document.getElementById("editRegistrationButton").addEventListener("click", () => {
-  verificationPending = false;
-  document.getElementById("verificationStep").hidden = true;
-  document.getElementById("registrationDetails").hidden = false;
-  document.getElementById("verificationCode").required = false;
-  document.getElementById("verificationCode").value = "";
+document.getElementById("changeEmailButton").addEventListener("click", () => {
+  clearInterval(resendTimer);
+  showCodeStep(false);
   showMessage("");
-  document.getElementById("registerEmail").focus();
+  document.getElementById("codeEmail").focus();
 });
 
-document.getElementById("forgotPasswordButton").addEventListener("click", () => setForgotMode(true));
-document.getElementById("backToLoginButton").addEventListener("click", () => {
-  resetForgotForm();
-  setForgotMode(false);
-});
-
-forgotPasswordForm.addEventListener("submit", (event) => {
+passwordForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const submit = document.getElementById("resetSubmitButton");
+  const submit = passwordForm.querySelector('button[type="submit"]');
   withBusyButton(submit, async () => {
-    const email = document.getElementById("resetEmail").value;
-    if (!resetCodeRequested) {
-      await postJson("/api/auth/forgot-password", { email });
-      resetCodeRequested = true;
-      document.getElementById("passwordResetStep").hidden = false;
-      document.getElementById("resetCode").required = true;
-      document.getElementById("newPassword").required = true;
-      submit.firstChild.textContent = "Zmień hasło ";
-      document.getElementById("resetCode").focus();
-      showMessage("Jeśli konto z hasłem istnieje, kod został wysłany na ten adres.", "success");
-      return;
-    }
-
-    await postJson("/api/auth/reset-password", {
-      email,
-      code: document.getElementById("resetCode").value.trim(),
-      password: document.getElementById("newPassword").value,
-    });
-    resetForgotForm();
-    setForgotMode(false);
-    showMessage("Hasło zostało zmienione. Możesz się teraz zalogować.", "success");
+    await postJson("/api/auth/login", Object.fromEntries(new FormData(passwordForm)));
+    afterSignIn();
   });
 });
 
@@ -221,34 +160,26 @@ fetch("/api/auth/config")
   .then(async (response) => {
     if (!response.ok) throw new Error("Nie udało się pobrać konfiguracji logowania.");
     const config = await response.json();
-    googleEnabled = Boolean(nativeApp ? config.googleNativeEnabled : config.googleEnabled);
+    const googleEnabled = Boolean(nativeApp ? config.googleNativeEnabled : config.googleEnabled);
     googleButton.disabled = !googleEnabled;
     googleNote.hidden = googleEnabled;
-    if (googleEnabled) {
-      googleButton.dataset.href = `/api/auth/google?returnTo=${encodeURIComponent(safeReturnTo(returnTo))}`;
-    }
-    emailEnabled = Boolean(config.emailEnabled);
-    registerTab.disabled = !emailEnabled;
-    document.getElementById("forgotPasswordButton").hidden = !emailEnabled;
-    emailNote.hidden = emailEnabled;
+    if (googleEnabled) googleButton.dataset.href = `/api/auth/google?returnTo=${encodeURIComponent(safeReturnTo(returnTo))}`;
+    emailNote.hidden = Boolean(config.emailEnabled);
   })
   .catch((error) => {
     googleButton.disabled = true;
     googleNote.hidden = false;
-    registerTab.disabled = true;
-    document.getElementById("forgotPasswordButton").hidden = true;
-    emailNote.hidden = false;
     showMessage(error.message);
   });
 
-if (params.get("error") === "google_account_exists") {
-  showMessage("To konto już istnieje. Zaloguj się przy użyciu wcześniej wybranej metody.");
-} else if (params.get("error") === "google_signin_failed") {
-  showMessage("Logowanie przez Google nie powiodło się. Spróbuj ponownie lub użyj adresu e-mail.");
+if (params.get("error") === "google_signin_failed") {
+  showMessage("Logowanie przez Google nie powiodło się. Spróbuj ponownie albo zaloguj się kodem z e-maila.");
+} else if (params.get("powod") === "bezczynnosc") {
+  showMessage("Wylogowaliśmy Cię po godzinie bez aktywności. Zaloguj się ponownie.", "success");
 }
 
 fetch("/api/auth/me")
-  .then((response) => response.ok ? response.json() : null)
+  .then((response) => (response.ok ? response.json() : null))
   .then((result) => {
     if (result?.user) location.replace(nativeApp ? window.ONWARD.homeUrl() : safeReturnTo(returnTo));
   })

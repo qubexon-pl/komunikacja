@@ -18,7 +18,7 @@ function loadSubpage() {
     pks: { title: "Komunikacja podmiejska", lead: "pks" }, kolej: { title: "Pociągi w Polsce", lead: "kolej" },
   };
   const context = {
-    S: { agency: "podroz", sub: "kierunki" }, VIEWS, FAVF: { kind: "all" }, TRIPV: { id: "" }, APP_NAME: "W drogę",
+    S: { agency: "podroz", sub: "kierunki" }, VIEWS, FAVF: { kind: "all" }, TRIPV: { id: "" }, APP_NAME: "podavo.voyage",
     FAV_TITLES: { all: "Ulubione" }, EXPLORE: { summary: "" },
     document: { getElementById: el, body: { classList: { toggle() {} } }, title: "" },
     location: { pathname: "/destinations", search: "", hash: "" }, history: { replaceState: (a, b, url) => { page.url = url; } },
@@ -51,10 +51,11 @@ function loadTrainPlanner(trains) {
   return (from, to, at, by) => context.planTrainTrips(from, to, at, trains, by);
 }
 
-function loadRailTargets(names, nearby = []) {
+function loadRailTargets(names, nearby = [], counts = new Map()) {
   const points = { "Rzeszów Główny": [50.043, 22.006], "Rzeszów Załęże": [50.059, 22.07] };
   const context = {
     HOME_STATION: "Rzeszów Główny",
+    railStopCounts: () => counts,
     railStationNames: () => names,
     stopPoint: (name) => points[name] || null,
     stationsNear: () => nearby,
@@ -440,6 +441,13 @@ test("a street leads to the stations of its city", () => {
   assert.equal(targets({ label: "Floriańska 10, Kraków", place: { label: "Floriańska 10, Kraków", locality: "Kraków" } })[0], "Kraków Główny");
 });
 
+test("a big city uses every station with trains, busiest first, not the first ones alphabetically", () => {
+  const warsaw = ["Warszawa Aleje Jerozolimskie", "Warszawa Anin", "Warszawa Babice", "Warszawa Centralna", "Warszawa Główna", "Warszawa Wschodnia", "Warszawa Zachodnia", "Warszawa Żerań"];
+  const counts = new Map([["Warszawa Centralna", 400], ["Warszawa Wschodnia", 900], ["Warszawa Zachodnia", 1100], ["Warszawa Główna", 5], ["Warszawa Anin", 80]]);
+  const targets = loadRailTargets(warsaw, [], counts)({ label: "Warszawa", place: { label: "Warszawa", locality: "Warszawa" } });
+  assert.deepEqual(targets, ["Warszawa Zachodnia", "Warszawa Wschodnia", "Warszawa Centralna", "Warszawa Anin", "Warszawa Główna"]);
+});
+
 test("a typed station is used exactly", () => {
   assert.deepEqual(loadRailTargets(stations)({ label: "Kraków Płaszów", station: "Kraków Płaszów" }), ["Kraków Płaszów"]);
 });
@@ -714,7 +722,7 @@ test("a trip without a plane is picked, saved with its own name and dated on the
   assert.equal(api.groundWizard(P), true);
   assert.equal(api.groundWizard({ ...P, flight: true }), true, "a train or the car can be picked next to flights");
   assert.equal(api.groundWizard({ ...P, single: false }), true, "every stage of a trip with several places can be picked");
-  assert.equal(api.groundWizard({ ...P, by: 1800000000 }), false, "an 'arrive by' search keeps the plain list");
+  assert.equal(api.groundWizard({ ...P, by: 1800000000 }), true, "an 'arrive by' search is picked too and saved only at the end");
   assert.match(api.groundPickBtn(P, "car", null, "car", "out"), /data-ground-pick="0"/);
   const car = api.groundSnap(P, context.S.groundOpts[0]);
   assert.equal(car.kind, "car");
@@ -778,4 +786,28 @@ test("the transit tabs never reuse the page's timetable class, which would resty
   assert.doesNotMatch(source, /class="tt-mode|class="tt-modes|class="tt-sub/);
   assert.doesNotMatch(css.replace(/body\.tt-mode|:not\(\.tt-mode\)/g, ""), /\.tt-mode\b/);
   assert.match(css, /body\.tt-mode main\.shell > :not\(\.tt-part\)[^{]*:not\(#transitTabs\)/, "the transit tabs stay visible on the timetable");
+});
+
+test("abroad, the way to the airport uses the same airport lines as the way into town, in reverse", async () => {
+  const start = source.indexOf("const XFER_TO_ICON="), end = source.indexOf("async function buildAccess(");
+  const asked = [];
+  const context = {
+    URLSearchParams, console,
+    fetch: async (url) => { asked.push(String(url)); return { ok: true, json: async () => ({ options: [
+      { id: "r2", kind: "rail", name: "R2 Nord", minutes: 25, alight: "Passeig de Gràcia", fare: { text: "€5.15", pln: 22.4 } },
+      { id: "taxi", kind: "taxi", name: "Taxi", minutes: 30, fare: { text: "€39", pln: 170 } },
+    ] }) }; },
+    L2: (pl) => pl, fmtDuration: (m) => `${m} min`, step: (icon, text, sub = "") => ({ icon, text, sub }), seqIcon: (i) => i,
+    MODE_COLOR: { train: "#7C3AED", car: "#EA580C", other: "#64748B" },
+  };
+  vm.runInNewContext(`${source.slice(start, end)}; this.xferToAirport = xferToAirport;`, context);
+  const P = { origin: { points: [[41.387, 2.17]] }, from: "Barcelona", allowed: new Set(["train", "bus", "plane"]) };
+  const f = { from: "BCN", fromLabel: "Barcelona (BCN)", day: "2026-12-01", departure: "2026-12-01T14:30", airport: { lat: 41.297, lon: 2.083 } };
+  const list = await context.xferToAirport(P, f, 100000);
+  assert.match(asked[0], /airport-transfers\/options\?code=BCN&time=2026-12-01T14%3A30/);
+  assert.deepEqual(JSON.parse(JSON.stringify(list.map((o) => [o.title, o.cost, o.minutes, o.atAirport, o.leave]))), [["R2 Nord", 22, 40, 100000, 100000 - 40 * 60]]); // no taxi: car not ticked
+  assert.match(list[0].steps[0].sub, /Passeig de Gràcia/);
+  P.allowed.add("car");
+  P.xferTo.clear();
+  assert.deepEqual(JSON.parse(JSON.stringify((await context.xferToAirport(P, f, 100000)).map((o) => o.title))), ["R2 Nord", "Taxi"]);
 });

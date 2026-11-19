@@ -1,6 +1,6 @@
 {
-  "appId": "app.onward.travel",
-  "appName": "ON/WARD",
+  "appId": "app.podavo.voyage",
+  "appName": "podavo.voyage",
   "webDir": "www",
   "server": {
     "androidScheme": "https"
@@ -11,7 +11,7 @@
   },
   "ios": {
     "contentInset": "never",
-    "scheme": "ON/WARD"
+    "scheme": "App"
   },
   "plugins": {
     "SplashScreen": {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<title>Zaplanuj podróż · W drogę</title>
+<title>Zaplanuj podróż · podavo.voyage</title>
 <script src="/assets/app.config.js"></script>
 <script src="/assets/app.native.js"></script>
 <script src="/assets/i18n.js"></script>
@@ -26,7 +26,7 @@
 
 <nav class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="/plan"><img class="brand-wordmark" src="/assets/onward/logos/wordmark-on-dark.svg" alt="ON/WARD" width="168" height="44"></a>
+    <a class="brand" href="/plan"><img class="brand-wordmark" src="/assets/onward/logos/wordmark-on-dark.svg" alt="podavo.voyage" width="230" height="32"></a>
     <div class="view-tabs" aria-label="Kategorie">
       <a class="view-tab" data-view="podroz" href="/plan" title="Zaplanuj podróż"><i class="oi oi-plane" aria-hidden="true"></i> Planuj</a>
       <a class="view-tab" data-view="kierunki" data-go="podroz" data-sub="kierunki" href="/destinations"><i class="oi oi-pin" aria-hidden="true"></i> Kierunki</a>
@@ -51,6 +51,7 @@
           <li class="guest-only"><a class="dropdown-item" id="loginLink" href="/login">Zaloguj się</a></li>
           <li><button class="dropdown-item" id="aboutBtn" type="button" data-bs-toggle="modal" data-bs-target="#aboutModal"><i class="fa-solid fa-circle-info ico" aria-hidden="true"></i> O aplikacji</button></li>
           <li><button class="dropdown-item" id="themeBtn" type="button" title="Motyw">Motyw</button></li>
+          <li class="account-only"><button class="dropdown-item" id="passwordBtn" type="button">Hasło</button></li>
           <li class="account-only"><button class="dropdown-item" id="deleteAccountBtn" type="button">Usuń konto</button></li>
           <li class="account-only"><hr class="dropdown-divider"></li>
           <li class="account-only"><button class="dropdown-item" id="logoutBtn" type="button">Wyloguj</button></li>
@@ -263,7 +264,7 @@
 <div class="modal fade" id="aboutModal" tabindex="-1" aria-hidden="true" aria-labelledby="aboutTitle">
   <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
     <div class="modal-content">
-      <div class="modal-hero about-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><img class="about-logo" src="/assets/onward/logos/mark-dark.svg" alt="" width="64" height="64"><div><span class="kicker mb-1">O aplikacji</span><h4 id="aboutTitle">W drogę</h4><div class="sub">Planer podróży: autobusy miejskie i podmiejskie, pociągi, samoloty i samochód w jednym miejscu.</div></div></div>
+      <div class="modal-hero about-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><img class="about-logo" src="/assets/onward/logos/mark-dark.svg" alt="" width="64" height="64"><div><span class="kicker mb-1">O aplikacji</span><h4 id="aboutTitle">podavo.voyage</h4><div class="sub">Planer podróży: autobusy miejskie i podmiejskie, pociągi, samoloty i samochód w jednym miejscu.</div></div></div>
       <div class="modal-body p-3 p-md-4" id="attribution">
         <h5 class="about-h">Źródła danych</h5>
         <ul class="about-list">
@@ -512,6 +513,33 @@
 </div>
 
 <!-- Account deletion modal -->
+<div class="modal fade" id="passwordModal" tabindex="-1" aria-labelledby="passwordModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-hero">
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+        <span class="kicker">Konto Podavo</span><h4 id="passwordModalTitle">Hasło</h4>
+      </div>
+      <form class="modal-body p-3 p-md-4" id="passwordFormApp" autocomplete="on">
+        <p id="passwordStatus" class="text-soft">Sprawdzam…</p>
+        <div class="alert d-none mb-3" id="passwordMessage" role="alert" aria-live="polite"></div>
+        <input type="email" name="username" id="passwordUsername" autocomplete="username" hidden>
+        <div id="currentPasswordRow" hidden>
+          <label class="form-label" for="currentPassword">Obecne hasło</label>
+          <input class="form-control mb-3" id="currentPassword" type="password" autocomplete="current-password" maxlength="128">
+        </div>
+        <label class="form-label" for="newPasswordApp">Nowe hasło <span class="text-soft small">min. 8 znaków</span></label>
+        <input class="form-control mb-3" id="newPasswordApp" type="password" autocomplete="new-password" minlength="8" maxlength="128">
+        <p class="small text-soft">Hasło działa we wszystkich aplikacjach Podavo. Po jego zmianie wylogujemy Cię na innych urządzeniach.</p>
+        <div class="d-flex justify-content-end gap-2 flex-wrap">
+          <button type="button" class="btn-ghost" id="removePasswordBtn" hidden>Usuń hasło</button>
+          <button type="submit" class="btn-grad" id="savePasswordBtn">Zapisz hasło</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="deleteAccountModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -520,7 +548,7 @@
         <span class="kicker">Ustawienia konta</span><h4>Usuń konto</h4>
       </div>
       <div class="modal-body p-3 p-md-4">
-        <p>Usunięcie konta jest trwałe. Wyślemy kod potwierdzający na adres przypisany do konta.</p>
+        <p>Usuniesz swoje dane w podavo.voyage: podróże, ulubione, alerty i ustawienia. Konto Podavo zostaje dla innych aplikacji Podavo (chyba że używasz tylko tej). Wyślemy kod potwierdzający na adres przypisany do konta.</p>
         <div class="alert d-none mb-3" id="deleteAccountMessage" role="alert" aria-live="polite"></div>
         <div id="deleteAccountCodeStep" hidden>
           <label class="form-label" for="deleteAccountCode">Kod z e-maila</label>

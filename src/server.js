@@ -7,13 +7,23 @@ const { pipeline } = require("node:stream/promises");
 const zlib = require("node:zlib");
 const crypto = require("node:crypto");
 const tls = require("node:tls");
+// Trust the operating system's certificates as well as Node's own: behind corporate HTTPS inspection every call to
+// OpenStreetMap, Photon, PKP PLK and the rest otherwise fails with UNABLE_TO_GET_ISSUER_CERT_LOCALLY.
+// (Same as starting with --use-system-ca; older Node versions without this API keep their default.)
+if (typeof tls.setDefaultCACertificates === "function" && typeof tls.getCACertificates === "function") {
+  try {
+    tls.setDefaultCACertificates([...new Set([...tls.getCACertificates("default"), ...tls.getCACertificates("system")])]);
+  } catch (error) {
+    console.warn("System certificates unavailable:", error.message);
+  }
+}
 const { createAirportTransfers } = require("./airport-transfers");
 const { createCityTransit } = require("./city-transit");
 const { createTransitous } = require("./transitous");
 const { AGENCIES, createSnapshots, createSqlConfig, getSchedule, importedHash, readAirportFares, readAirportTransfers, readFlightFares, readFlightNetwork, readSchedule, readSetting, replaceAirportFares, replaceAirportTransfers, replaceFlightFares, appendFareHistory, replaceSchedule, saveFlightNetwork, saveSetting } = require("./database");
 const { MAX_WALK_TARGETS, PATH_URLS, createDrivingRouter, createPathRouter, createWalkTable, parsePoint } = require("./driving");
 const { createFlightCollector, trackerDatabase } = require("./flight-collector");
-const { readNetwork } = require("./flight-network");
+const { parseWizzMap, readNetwork } = require("./flight-network");
 const { createFlightStore } = require("./flights");
 const { createAlertDatabase, createPriceAlerts } = require("./price-alerts");
 const { createWizzTimetable } = require("./wizz-timetable");
@@ -175,9 +185,13 @@ function constantTimeEqual(left, right) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+// The Android / iOS app signs in through FastAPI with "X-Auth-Mode: token" from its own origin. A web page elsewhere
+// cannot send that header here (Node allows no cross-origin requests), so only the app and our own pages pass.
+const NATIVE_ORIGINS = new Set(String(process.env.NATIVE_ORIGINS || "capacitor://localhost,https://localhost,http://localhost").split(",").map((o) => o.trim()).filter(Boolean));
 function requireSameOrigin(req) {
   const origin = req.headers.origin;
   const configuredOrigin = process.env.APP_BASE_URL ? new URL(process.env.APP_BASE_URL).origin : `http://${req.headers.host}`;
+  if (req.headers["x-auth-mode"] === "token" && NATIVE_ORIGINS.has(origin)) return;
   if (!origin || origin !== configuredOrigin) {
     throw new AuthError("Nie udało się zweryfikować źródła żądania.", 403);
   }
@@ -200,6 +214,14 @@ function takeAuthAttempt(req) {
 // address in X-Forwarded-For, which only the local proxy may set.
 function clientAddress(req) {
   const remote = req.socket.remoteAddress || "unknown";
+  if (process.env.TRUST_PROXY === "appservice") {
+    // Azure App Service: every request comes through its front end, which adds the caller's address (X-Client-IP,
+    // and as the last X-Forwarded-For entry, possibly with a port). Addresses a caller wrote itself come before it.
+    let ip = String(req.headers["x-client-ip"] || String(req.headers["x-forwarded-for"] || "").split(",").pop() || "").trim();
+    if (/^\[.+\](:\d+)?$/.test(ip)) ip = ip.slice(1, ip.indexOf("]"));
+    else if (/^[\d.]+:\d+$/.test(ip)) ip = ip.slice(0, ip.lastIndexOf(":"));
+    return ip && ip.length <= 64 ? ip : remote;
+  }
   if (process.env.TRUST_PROXY !== "true" || !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remote)) return remote;
   const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
   return forwarded && forwarded.length <= 64 ? forwarded : remote;
@@ -694,104 +716,87 @@ async function googleCallback(req, res, auth, url) {
   authRedirect(res, safeReturnTo(state.returnTo));
 }
 
+// Sign-in, the Podavo family way (accounts in podavo-mdm): an e-mail code first, an optional password, Google.
+// The Android / iOS app goes through FastAPI, which turns the session cookie into a token (X-Auth-Mode: token).
 async function handleAuth(req, res, url, auth) {
   const route = url.pathname;
+  const attempt = () => {
+    if (takeAuthAttempt(req)) return true;
+    json(res, 429, { error: "Zbyt wiele prób. Spróbuj ponownie za 15 minut." });
+    return false;
+  };
+  const signedIn = (result, status = 200) => {
+    setSessionCookie(res, result.session.token);
+    json(res, status, { user: { ...result.user, canAdminister: isAppAdmin(result.user) } });
+  };
+  const me = () => auth.resolveSession(readCookie(req, SESSION_COOKIE));
   if (route === "/api/auth/config" && req.method === "GET") {
     json(res, 200, {
       googleEnabled: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.APP_BASE_URL),
       emailEnabled: isEmailConfigured(),
+      codeLogin: true,
+      family: "podavo",
     });
     return true;
   }
   if (route === "/api/auth/me" && req.method === "GET") {
-    const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
+    const user = await me();
     json(res, 200, { user: user && { ...user, canAdminister: isAppAdmin(user) } });
     return true;
   }
-  if (route === "/api/auth/register" && req.method === "POST") {
+  // 1. "Send me a code": the main way in, and how a new account is made.
+  if (route === "/api/auth/code" && req.method === "POST") {
     requireSameOrigin(req);
-    if (!takeAuthAttempt(req)) {
-      json(res, 429, { error: "Zbyt wiele prób. Spróbuj ponownie za 15 minut." });
-      return true;
-    }
-    await auth.startEmailVerification(await readJson(req, MAX_AUTH_BODY_BYTES));
-    json(res, 202, { codeSent: true });
+    if (!attempt()) return true;
+    const sent = await auth.startEmailLogin(await readJson(req, MAX_AUTH_BODY_BYTES));
+    json(res, 202, sent);
     return true;
   }
-  if (route === "/api/auth/verify-email" && req.method === "POST") {
+  // 2. The code from the e-mail: signs in (the first time it also creates the Podavo account).
+  if (route === "/api/auth/verify" && req.method === "POST") {
     requireSameOrigin(req);
-    if (!takeAuthAttempt(req)) {
-      json(res, 429, { error: "Zbyt wiele prób. Spróbuj ponownie za 15 minut." });
-      return true;
-    }
-    const result = await auth.verifyEmail(await readJson(req, MAX_AUTH_BODY_BYTES));
-    setSessionCookie(res, result.session.token);
-    json(res, 201, { user: result.user });
+    if (!attempt()) return true;
+    signedIn(await auth.verifyEmailLogin(await readJson(req, MAX_AUTH_BODY_BYTES)), 201);
     return true;
   }
-  if (route === "/api/auth/forgot-password" && req.method === "POST") {
+  // Password, for accounts that set one.
+  if (route === "/api/auth/login" && req.method === "POST") {
     requireSameOrigin(req);
-    if (!takeAuthAttempt(req)) {
-      json(res, 429, { error: "Zbyt wiele prób. Spróbuj ponownie za 15 minut." });
-      return true;
-    }
-    const { email } = await readJson(req, MAX_AUTH_BODY_BYTES);
-    await auth.startPasswordReset(email);
-    json(res, 200, { requested: true });
+    if (!attempt()) return true;
+    signedIn(await auth.loginWithPassword(await readJson(req, MAX_AUTH_BODY_BYTES)));
     return true;
   }
-  if (route === "/api/auth/reset-password" && req.method === "POST") {
+  if (route === "/api/auth/password") {
+    const user = await me();
+    if (!user) { json(res, 401, { error: "Zaloguj się, aby kontynuować." }); return true; }
+    if (req.method === "GET") { json(res, 200, await auth.passwordStatus(user)); return true; }
     requireSameOrigin(req);
-    if (!takeAuthAttempt(req)) {
-      json(res, 429, { error: "Zbyt wiele prób. Spróbuj ponownie za 15 minut." });
-      return true;
-    }
-    await auth.resetPassword(await readJson(req, MAX_AUTH_BODY_BYTES));
-    json(res, 200, { reset: true });
+    if (!attempt()) return true;
+    const body = await readJson(req, MAX_AUTH_BODY_BYTES);
+    if (req.method === "PUT") { json(res, 200, await auth.setPassword(user, body.password, body.currentPassword, readCookie(req, SESSION_COOKIE))); return true; }
+    if (req.method === "DELETE") { json(res, 200, await auth.removePassword(user, body.currentPassword)); return true; }
+    json(res, 405, { error: "Metoda niedozwolona." });
     return true;
   }
   if (route === "/api/auth/account/delete" && req.method === "POST") {
     requireSameOrigin(req);
-    if (!takeAuthAttempt(req)) {
-      json(res, 429, { error: "Zbyt wiele prób. Spróbuj ponownie za 15 minut." });
-      return true;
-    }
+    if (!attempt()) return true;
     await readJson(req, MAX_AUTH_BODY_BYTES);
-    const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
-    if (!user) {
-      json(res, 401, { error: "Zaloguj się, aby kontynuować." });
-      return true;
-    }
-    await auth.startAccountDeletion(user.id);
+    const user = await me();
+    if (!user) { json(res, 401, { error: "Zaloguj się, aby kontynuować." }); return true; }
+    await auth.startAccountDeletion(user);
     json(res, 200, { codeSent: true });
     return true;
   }
   if (route === "/api/auth/account/delete/confirm" && req.method === "POST") {
     requireSameOrigin(req);
-    if (!takeAuthAttempt(req)) {
-      json(res, 429, { error: "Zbyt wiele prób. Spróbuj ponownie za 15 minut." });
-      return true;
-    }
-    const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
-    if (!user) {
-      json(res, 401, { error: "Zaloguj się, aby kontynuować." });
-      return true;
-    }
+    if (!attempt()) return true;
+    const user = await me();
+    if (!user) { json(res, 401, { error: "Zaloguj się, aby kontynuować." }); return true; }
     const { code } = await readJson(req, MAX_AUTH_BODY_BYTES);
-    await auth.confirmAccountDeletion(user.id, code);
+    await auth.confirmAccountDeletion(user, code);
     clearSessionCookie(res);
     json(res, 200, { deleted: true });
-    return true;
-  }
-  if (route === "/api/auth/login" && req.method === "POST") {
-    requireSameOrigin(req);
-    if (!takeAuthAttempt(req)) {
-      json(res, 429, { error: "Zbyt wiele prób. Spróbuj ponownie za 15 minut." });
-      return true;
-    }
-    const result = await auth.loginWithPassword(await readJson(req, MAX_AUTH_BODY_BYTES));
-    setSessionCookie(res, result.session.token);
-    json(res, 200, { user: result.user });
     return true;
   }
   if (route === "/api/auth/logout" && req.method === "POST") {
@@ -805,17 +810,21 @@ async function handleAuth(req, res, url, auth) {
     await googleLogin(req, res, auth, url);
     return true;
   }
+  // Android / iOS: the phone's Google sign-in hands over an ID token, checked against Google's keys.
+  if (route === "/api/auth/google/native" && req.method === "POST") {
+    requireSameOrigin(req);
+    if (!attempt()) return true;
+    const { idToken } = await readJson(req, MAX_AUTH_BODY_BYTES);
+    signedIn(await auth.signInWithGoogleToken(idToken));
+    return true;
+  }
   if (route === "/api/auth/google/callback" && req.method === "GET") {
     try {
       await googleCallback(req, res, auth, url);
     } catch (error) {
       if (error.statusCode >= 500) console.error("Google sign-in failed:", error.message);
       clearOAuthCookie(res);
-      authRedirect(
-        res,
-        "/login",
-        error.statusCode === 409 ? "?error=google_account_exists" : "?error=google_signin_failed",
-      );
+      authRedirect(res, "/login", "?error=google_signin_failed");
     }
     return true;
   }
@@ -1165,10 +1174,26 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
             return;
           }
           try {
-            json(res, 200, { suggestions: await suggestStreets(query) });
+            // Optional "near=lat,lon" biases suggestions to another city (the city planner of a trip's destination).
+            const near = (url.searchParams.get("near") || "").split(",").map(Number);
+            const bias = near.length === 2 && near.every(Number.isFinite) ? near : null;
+            if (typeof suggestStreets.places === "function") {
+              const places = await suggestStreets.places(query, bias);
+              json(res, 200, { suggestions: places.map((place) => place.label), places });
+            } else {
+              json(res, 200, { suggestions: await suggestStreets(query, bias) });
+            }
           } catch (error) {
-            console.error("Street suggestions failed:", error.message);
-            json(res, 502, { error: "Podpowiedzi ulic są chwilowo niedostępne." });
+            // Photon down or slow: the address search (Nominatim) still gives exact addresses as suggestions.
+            console.warn("Street suggestions failed, using the address search instead:", error.message);
+            try {
+              const { places: found } = await geocode(query);
+              const places = found.slice(0, 6).map((place) => ({ label: place.label, point: place.points?.[0] || null }));
+              json(res, 200, { suggestions: places.map((place) => place.label), places });
+            } catch (fallbackError) {
+              console.error("Address search failed too:", fallbackError.message);
+              json(res, 502, { error: "Podpowiedzi ulic są chwilowo niedostępne." });
+            }
           }
           return;
         }
@@ -1405,7 +1430,7 @@ async function main() {
   const collector = createFlightCollector({
     flights,
     updateNetwork: async ({ force = false } = {}) => {
-      if (force || flights.networkIsStale()) await flights.saveNetwork(await readNetwork({ dir: trackerDir, previous: flights.network() }));
+      if (force || flights.networkIsStale()) await flights.saveNetwork(await readNetwork({ previous: flights.network(), wizz: async () => parseWizzMap(await wizz.readMap()) }));
     },
   });
   // Wizz Air timetable: the working API version is found at start and remembered in the database.

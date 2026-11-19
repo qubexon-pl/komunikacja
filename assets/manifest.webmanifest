@@ -1,6 +1,6 @@
 {
-  "name": "ON/WARD",
-  "short_name": "ON/WARD",
+  "name": "podavo.voyage",
+  "short_name": "voyage",
   "description": "Plan a trip: buses, trains, flights and the car in one plan.",
   "start_url": "/plan",
   "scope": "/",

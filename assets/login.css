@@ -128,8 +128,8 @@ body { background: #F4F7FB; }
 .intro-bottom { color: #DDEEFF; }
 .ambient-two { background: radial-gradient(circle, #6EE7D640 0%, #6EE7D600 70%); }
 .form-tabs { background: #EEF3FA; }
-.brand-wordmark { display: block; width: 168px; height: auto; aspect-ratio: 460 / 120; }
-.mobile-brand .brand-wordmark { width: 150px; }
+.brand-wordmark { display: block; width: 230px; height: auto; aspect-ratio: 960 / 134; }
+.mobile-brand .brand-wordmark { width: 200px; }
 .login-lang { display: flex; justify-content: flex-end; margin-bottom: 14px; }
 .lang-switch { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: #EEF3FA; border: 1px solid var(--border); }
 .lang-switch button { min-width: 40px; min-height: 36px; padding: 0 8px; border: 0; border-radius: 999px; background: transparent; color: var(--ink); font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer; }

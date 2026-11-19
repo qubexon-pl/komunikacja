@@ -90,6 +90,74 @@ confirmDeleteAccountButton.addEventListener('click',async()=>{
   finally{ confirmDeleteAccountButton.disabled=false; }
 });
 const sessionUser=initializeUserMenu().catch(error=>{ console.error('Błąd sesji użytkownika',error); return null; });
+/* ---------- Konto Podavo: hasło (opcjonalne, wspólne dla aplikacji Podavo) ---------- */
+const passwordModal=bootstrap.Modal.getOrCreateInstance(document.getElementById('passwordModal'));
+const PW={has:false};
+function passwordMessage(text,kind='danger'){ const el=document.getElementById('passwordMessage'); el.textContent=text; el.className=text?`alert alert-${kind} mb-3`:'alert d-none mb-3'; }
+async function loadPasswordStatus(){
+  const status=document.getElementById('passwordStatus');
+  try{
+    const r=await fetch('/api/auth/password'); const d=await r.json();
+    if(!r.ok) throw new Error(d.error||'');
+    PW.has=!!d.hasPassword;
+    status.textContent=PW.has?L2(`Masz hasło${d.updatedAt?` (zmienione ${new Date(d.updatedAt).toLocaleDateString('pl-PL')})`:''}. Możesz je zmienić albo usunąć — wtedy logujesz się kodem z e-maila.`,`You have a password${d.updatedAt?` (changed ${new Date(d.updatedAt).toLocaleDateString('en-GB')})`:''}. You can change or remove it — then you sign in with an e-mail code.`)
+      :L2('Nie masz hasła — logujesz się kodem z e-maila. Ustaw hasło, jeśli wolisz logować się nim.','You have no password — you sign in with an e-mail code. Set one if you prefer signing in with it.');
+  }catch(e){ status.textContent=L2('Nie udało się sprawdzić hasła.','Could not check your password.'); }
+  document.getElementById('currentPasswordRow').hidden=!PW.has;
+  document.getElementById('removePasswordBtn').hidden=!PW.has;
+  document.getElementById('savePasswordBtn').textContent=PW.has?L2('Zmień hasło','Change password'):L2('Ustaw hasło','Set password');
+}
+document.getElementById('passwordBtn')?.addEventListener('click',()=>{
+  passwordMessage(''); for(const id of ['currentPassword','newPasswordApp']) document.getElementById(id).value='';
+  document.getElementById('passwordUsername').value=store('onward.user')?.email||'';
+  document.getElementById('passwordStatus').textContent=L2('Sprawdzam…','Checking…');
+  passwordModal.show(); loadPasswordStatus();
+});
+async function sendPassword(method, body){
+  const r=await fetch('/api/auth/password',{method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||L2('Nie udało się zapisać.','Could not save.')); return d;
+}
+document.getElementById('passwordFormApp')?.addEventListener('submit',async e=>{
+  e.preventDefault();
+  const btn=document.getElementById('savePasswordBtn'), password=document.getElementById('newPasswordApp').value;
+  if(password.length<8){ passwordMessage(L2('Hasło musi mieć co najmniej 8 znaków.','The password must have at least 8 characters.')); return; }
+  btn.disabled=true;
+  try{ await sendPassword('PUT',{password, currentPassword:document.getElementById('currentPassword').value||undefined}); await loadPasswordStatus();
+    document.getElementById('newPasswordApp').value=''; document.getElementById('currentPassword').value='';
+    passwordMessage(L2('Zapisano. Inne urządzenia zostały wylogowane.','Saved. Your other devices were signed out.'),'success'); }
+  catch(err){ passwordMessage(err.message); } finally{ btn.disabled=false; }
+});
+document.getElementById('removePasswordBtn')?.addEventListener('click',async()=>{
+  const current=document.getElementById('currentPassword').value;
+  if(!current){ passwordMessage(L2('Wpisz obecne hasło, aby je usunąć.','Enter your current password to remove it.')); return; }
+  if(!(await askConfirm(L2('Usunąć hasło?','Remove the password?'),{detail:L2('Będziesz logować się kodem z e-maila.','You will sign in with an e-mail code.'), ok:L2('Usuń hasło','Remove password'), danger:true}))) return;
+  try{ await sendPassword('DELETE',{currentPassword:current}); await loadPasswordStatus(); document.getElementById('currentPassword').value=''; passwordMessage(L2('Hasło usunięte.','Password removed.'),'success'); }
+  catch(err){ passwordMessage(err.message); }
+});
+
+/* ---------- Wylogowanie po godzinie bez aktywności (jak w Podavo): tylko na komputerze z myszką, wspólne dla kart ---------- */
+const IDLE={key:'podavo-voyage-last-activity', limit:60*60000, warn:2*60000, warned:false, timer:null};
+const idleDesktop=()=>matchMedia('(hover: hover) and (pointer: fine)').matches && !(window.ONWARD&&window.ONWARD.native);
+const lastActivity=()=>{ try{ return +localStorage.getItem(IDLE.key)||0; }catch(e){ return 0; } };
+function markActivity(){ const now=Date.now(); if(now-lastActivity()>15000){ try{ localStorage.setItem(IDLE.key,String(now)); }catch(e){} } IDLE.warned=false; }
+async function idleSignOut(){
+  clearInterval(IDLE.timer);
+  try{ await fetch('/api/auth/logout',{method:'POST'}); }catch(e){}
+  store('onward.user', null);
+  location.assign('/login?powod=bezczynnosc&returnTo='+encodeURIComponent(location.pathname));
+}
+function checkIdle(){
+  const idle=Date.now()-(lastActivity()||Date.now());
+  if(idle>=IDLE.limit){ idleSignOut(); return; }
+  if(idle>=IDLE.limit-IDLE.warn && !IDLE.warned){ IDLE.warned=true; toast(L2('Za 2 minuty wylogujemy Cię z powodu braku aktywności. Rusz myszką, aby zostać.','You will be signed out in 2 minutes for inactivity. Move the mouse to stay.')); }
+}
+sessionUser.then(user=>{
+  if(!user || !idleDesktop()) return;
+  if(lastActivity() && Date.now()-lastActivity()>=IDLE.limit){ idleSignOut(); return; } // otwarta ponownie po ponad godzinie
+  markActivity();
+  for(const ev of ['mousemove','mousedown','keydown','wheel','scroll','touchstart']) addEventListener(ev, markActivity, {passive:true});
+  IDLE.timer=setInterval(checkIdle, 30000);
+});
 /* ============================================================
    Konfiguracja
    ============================================================ */
@@ -379,7 +447,7 @@ const S = {
   tripUpdates:new Map(),
   alerts:[],
   feedTs:null, lastOk:null, lastErr:null,
-  filter:'all', query:'', agency:'podroz', planView:{picked:{}, sort:'best'},
+  filter:'all', query:'', agency:'podroz', planView:{picked:{}, sort:'leave'},
   selected:null, follow:false, routeLayer:null,
   prevPos:new Map()
 };
@@ -1219,7 +1287,7 @@ document.getElementById('settingsForm').addEventListener('submit', e=>{
    Filtry, motyw, przyciski mapy
    ============================================================ */
 /* ---------- Podstrony: autobusy, PKS, pociągi ---------- */
-const APP_NAME='W drogę';
+const APP_NAME='podavo.voyage';
 const VIEWS={
   podroz:{path:'/plan', tab:'Zaplanuj podróż', title:'Zaplanuj podróż', lead:'Wpisz, skąd i dokąd jedziesz. Porównamy autobusy miejskie i podmiejskie, pociągi, samoloty i samochód.', plan:'Dokąd jedziesz?', map:'Trasa na mapie', search:''},
   ztm:{path:'/buses', tab:'Autobusy', title:'Autobusy miejskie', lead:'Znajdź połączenie autobusem miejskim. Mapę autobusów na żywo otworzysz przyciskiem poniżej, a rozkład z menu.', plan:'Skąd i dokąd autobusem?', search:'Szukaj linii, kierunku lub nr pojazdu…'},
@@ -2185,7 +2253,7 @@ function walkMinutes(km){ return km*WALK_FACTOR/WALK_KMH*60; }
 function routeButton(route){ S.planRoutes.push(route); return `<button class="btn-ghost" data-route="${S.planRoutes.length-1}">Na mapie</button>`; }
 /* ---------- Podróż bez samolotu: krok 1 wybór połączenia (tam i ewentualnie powrót), krok 2 zapis ---------- */
 // Kreator działa przy jednym etapie bez lotu; przy kilku etapach zostaje dawny zapis gwiazdką.
-function groundWizard(P){ return !!P && !P.by; }
+function groundWizard(P){ return !!P; } // także przy godzinie „na miejscu o”: wybór połączenia, zapis dopiero na końcu
 function groundPicked(P, key, dir){ return groundWizard(P) && (dir==='back'?P.groundBack:P.groundPick)?.key===key; }
 function groundPickBtn(P, kind, obj, key, dir, ends={}){
   if(!groundWizard(P)) return '';
@@ -2201,8 +2269,8 @@ function groundSnap(P, x){
     title=`${obj.access?transitName(obj.access)+' + pociąg':'Pociąg'} ${railParts(obj).map(p=>p.t.label).join(' › ')}`; steps=trainSteps(obj,origin,dest); leave=obj.leave; arrive=obj.doorArr; icon='train';
     const t=railFare(railParts(obj)); cost=t!=null?t+[obj.access,obj.egress].filter(Boolean).map(transitParts).reduce((a,p)=>a+(p.bus||0)+(p.pks||0),0):null;
   } else if(kind==='car'){
-    const d=P.driving; km=d?d.km:P.km*ROAD_FACTOR; minutes=d?d.minutes:km/CAR_KMH*60; leave=plainStart(P,minutes); arrive=leave!=null?leave+minutes*60:null; title='Samochód'; icon='car'; cost=fuelCost(km);
-    steps=[withMap(step('car',`Jedź samochodem: ${P.from} → ${P.to}`,`${fmtKm(km)} · ok. ${fmtDuration(minutes)} · paliwo ok. ${fuelCost(km)} zł`),P.origin.points[0],P.dest.points[0])];
+    const d=P.driving; km=d?d.km:P.km*ROAD_FACTOR; minutes=d?d.minutes:km/CAR_KMH*60; leave=dir==='back'?null:plainStart(P,minutes); arrive=leave!=null?leave+minutes*60:null; title='Samochód'; icon='car'; cost=fuelCost(km);
+    steps=[withMap(step('car',`Jedź samochodem: ${origin?.label||P.from} → ${dest?.label||P.to}`,`${fmtKm(km)} · ok. ${fmtDuration(minutes)} · paliwo ok. ${fuelCost(km)} zł`),origin?.points?.[0]||P.origin.points[0],dest?.points?.[0]||P.dest.points[0])];
   } else {
     km=P.km*WALK_FACTOR; minutes=walkMinutes(P.km); leave=plainStart(P,minutes); arrive=leave!=null?leave+minutes*60:null; title='Pieszo'; icon='person-walking'; cost=0;
     steps=[step('person-walking',`Idź pieszo: ${P.from} → ${P.to}`,`ok. ${fmtKm(km)} · ${fmtDuration(minutes)}`)];
@@ -2228,7 +2296,7 @@ function groundNext(P){
     return `<div class="ground-next ${all?'ready':''}"><span>${all?'<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano połączenia na wszystkich etapach.':`<i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie na każdym etapie (${picked} z ${st.length}): ${st.map((x,k)=>`<b class="${x.groundPick?'ok':''}">${k+1}. ${esc(x.to)}</b>`).join(' · ')}`}</span>${all?`<button type="button" class="btn-grad" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
   }
   const g=P.groundPick, b=P.groundBack;
-  if(!g) return `<div class="ground-next"><span><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie przyciskiem „Wybierz”, aby zapisać je jako swoją podróż albo w ulubionych.</span></div>`;
+  if(!g) return `<div class="ground-next"><span><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie przyciskiem „Wybierz”, aby przejść dalej. Podróż zapiszesz na końcu.</span></div>`;
   return `<div class="ground-next ready"><span><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano: <b>${esc(g.title)}</b> · ${esc(groundWhen(g))}${b?` · powrót: <b>${esc(b.title)}</b> ${esc(groundWhen(b))}`:P.round?' · powrót możesz wybrać poniżej':''}</span><button type="button" class="btn-grad" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>`;
 }
 function groundLegCard(g, label){
@@ -2248,7 +2316,7 @@ function savedNote(P){
 function groundSaveAll(J){
   const st=J.stages, P0=st[0], n=Math.max(1,P0.people||1), multi=st.length>1, legs=st.map(P=>P.groundPick), back=multi?null:P0.groundBack;
   const all=[...legs, back].filter(Boolean), total=all.reduce((a,x)=>a+(x.kind==='car'?(x.cost||0):(x.cost||0)*n),0), unknown=all.some(x=>x.cost==null);
-  const cards=legs.map((g,k)=>groundLegCard(g, multi?`Etap ${k+1}`:'Tam')+(multi&&k<st.length-1&&st[k].stay?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(st[k].to)}: postój ${fmtStay(st[k].stay)}</div>`:'')).join('')+(back?groundLegCard(back,'Powrót'):'');
+  const cards=legs.map((g,k)=>groundLegCard(g, multi?`Etap ${k+1}`:'Tam')+(multi&&k<st.length-1&&st[k].stay?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(st[k].to)}: postój ${fmtStay(st[k].stay)}</div>`:'')).join('')+(back?groundLegCard(back,'Powrót'):!multi&&P0.round?'<div class="empty-note tp-noreturn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> Nie wybrano powrotu — możesz zapisać podróż bez niego albo wrócić i wybrać połączenie powrotne.</div>':'');
   return `<div class="plan-head"><span>${[P0.from, ...st.map(P=>P.to)].map(esc).join(' <span class="txt-red">→</span> ')}</span></div>`+groundStepBar(P0)+cards+(S.multi&&S.multi.cur!=='save'?multiLegBar(P0,'ground'):
     `<div class="cs-save"><div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz plan w ulubionych albo jako swoją podróż.${all.length?` <small>Koszt: ${unknown?'od ':'ok. '}${zl(total)}${n>1?` za ${peopleText(n)}`:''}</small>`:''}</div>
       ${tripTitleField(P0)}
@@ -2270,7 +2338,7 @@ function saveGroundTrip(J, status, title){
     ...wx('location-dot','Na miejscu',last.to,dest,arrDay(legs[legs.length-1]),legs[legs.length-1].arrive), ...(back?wx('rotate-left','Powrót',last.to,dest,back.day,back.leave):[])];
   const item={type:'trip', view:'podroz', id, tid:before?.tid||newTid(), status, from:P0.from, to:last.to, ...(stops.length?{stops:stops.map(x=>x.label)}:{}), title:(title||'').trim().slice(0,80),
     name:legs.map(g=>g.title).join(' + ').slice(0,120), detail:`${groundWhen(legs[0])}${legs.length>1?` · ${legs.length} etapy`:''}${back?` · powrót ${fmtDay(back.day)}`:''}`,
-    trip:{ground:{out:legs[0], legs, back:back||null}, home, dest, stops, people:Math.max(1,P0.people||1), weather, savedAt:new Date().toISOString(), ...(before?.trip?.hotel?{hotel:before.trip.hotel}:{})}};
+    trip:{ground:{out:legs[0], legs, back:back||null, roundBack:last.round?.back||null}, home, dest, stops, people:Math.max(1,P0.people||1), weather, savedAt:new Date().toISOString(), ...(before?.trip?.hotel?{hotel:before.trip.hotel}:{})}};
   FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && (x.id===id || (before && x.tid===before.tid)))), item].slice(-50);
   P0.savedOk=null;
   saveFavorites().then(ok=>{ if(ok!==false && P0.saved===item.tid){ P0.savedOk=item.tid; runPlan(false); } }).catch(e=>console.warn('Nie zapisano podróży', e));
@@ -2330,7 +2398,7 @@ function transitCard(o, P, origin=P.origin, dest=P.dest){
         <div class="pc-legs">${walkStep(o.walkFromM,`Idź na przystanek ${esc(l0.from)}`)}${legsH}${walkStep(o.walkToM,`Z przystanku ${esc(last.to)} dojdź do celu`)}</div>
       </div>
     </div>
-    <div class="pc-actions">${leaveBox(o.dep)}${groundPickBtn(P,'transit',o,key,dir)}${cardToggle(P,key)}<div class="pc-detail pc-buttons">${routeButton({kind:'transit',o,origin,dest})}${l0.L&&l0.L.v?`<button class="btn-ghost" data-bus="${esc(l0.L.v.id)}">Autobus</button>`:''}${groundWizard(P)?'':saveTrip(P,key,`${transitName(o)} ${o.legs.map(l=>l.short).join(' › ')}`,`${fmtClock(o.dep)} → ${fmtClock(o.arr)} · ${dur} min`)}</div></div>
+    <div class="pc-actions">${leaveBox(o.dep)}${groundPickBtn(P,'transit',o,key,dir)}${cardToggle(P,key)}<div class="pc-detail pc-buttons">${routeButton({kind:'transit',o,origin,dest})}${l0.L&&l0.L.v?`<button class="btn-ghost" data-bus="${esc(l0.L.v.id)}">Autobus</button>`:''}</div></div>
   </div>`;
 }
 // Pociągi tej podróży: jeden przy połączeniu bezpośrednim, więcej przy przesiadkach.
@@ -2373,16 +2441,16 @@ function trainCard(r, P, origin, dest){
         <div class="pc-legs">${stepsHtml(trainSteps(r,origin,dest))}</div>
       </div>
     </div>
-    <div class="pc-actions">${leaveBox(start)}${groundPickBtn(P,'train',r,key,dir,{origin,dest})}${cardToggle(P,key)}<div class="pc-detail pc-buttons">${routeButton({kind:'train',r,origin,dest})}${TR.trains.includes(t)?`<button class="btn-ghost" data-train="${esc(t.key)}">Szczegóły</button>`:''}${groundWizard(P)?'':saveTrip(P,'r:'+railParts(r).map(p=>p.t.label).join('>')+':'+from+':'+to,label+' '+railParts(r).map(p=>p.t.label).join(' › '),`${fmtClock(leave)} → ${fmtClock(doorArr)} · ${from} → ${to}`)}</div></div>
+    <div class="pc-actions">${leaveBox(start)}${groundPickBtn(P,'train',r,key,dir,{origin,dest})}${cardToggle(P,key)}<div class="pc-detail pc-buttons">${routeButton({kind:'train',r,origin,dest})}${TR.trains.includes(t)?`<button class="btn-ghost" data-train="${esc(t.key)}">Szczegóły</button>`:''}</div></div>
   </div>`;
 }
 // Pieszo i samochodem wyglądają jak pozostałe wyniki: trasa po lewej, koszt i przyciski po prawej.
-function plainTrip(dep, P, min, middle){
+function plainTrip(dep, P, min, middle, fromLabel=P.from||P.origin.label, toLabel=P.to||P.dest.label){
   const arr=dep!=null?dep+min*60:null;
   return `<div class="pc-trip">
-    <div class="pc-end"><b>${dep!=null?fmtClock(dep):'—'}</b><span>${esc(P.from||P.origin.label)}</span></div>
+    <div class="pc-end"><b>${dep!=null?fmtClock(dep):'—'}</b><span>${esc(fromLabel)}</span></div>
     <div class="pc-span"><span>${fmtDuration(min)}</span><i class="pc-track"></i><span>${middle}</span></div>
-    <div class="pc-end pc-end-to"><b>${arr!=null?fmtClock(arr):'—'}</b><span>${esc(P.to||P.dest.label)}</span></div></div>`;
+    <div class="pc-end pc-end-to"><b>${arr!=null?fmtClock(arr):'—'}</b><span>${esc(toLabel)}</span></div></div>`;
 }
 const plainStart=(P,min)=>P.by?P.by-min*60:(P.at??(P.date?null:nowSec()));
 function walkCard(P){
@@ -2392,18 +2460,20 @@ function walkCard(P){
       ${plainTrip(plainStart(P,min), P, min, `ok. ${fmtKm(km)}`)}
       <div class="pc-lines"><span class="leg-line" style="background:${MODE_COLOR.walk}"><i class="fa-solid fa-person-walking" aria-hidden="true"></i></span><span class="pc-sum">Pieszo · czas szacunkowy</span></div>
     </div>
-    <div class="pc-actions"><div class="pc-box"><small>koszt</small><b>0 zł</b></div>${routeButton({kind:'walk',origin:P.origin,dest:P.dest,sub:`ok. ${fmtKm(km)} · ${fmtDuration(min)}`})}${groundWizard(P)?groundPickBtn(P,'walk',null,'walk','out'):saveTrip(P,'walk','Pieszo',`ok. ${fmtKm(km)} · ${fmtDuration(min)}`)}</div>
+    <div class="pc-actions"><div class="pc-box"><small>koszt</small><b>0 zł</b></div>${routeButton({kind:'walk',origin:P.origin,dest:P.dest,sub:`ok. ${fmtKm(km)} · ${fmtDuration(min)}`})}${groundPickBtn(P,'walk',null,'walk','out')}</div>
   </div>`;
 }
-function carCard(P){
+// Samochód tam albo z powrotem (dir 'back': z celu do domu, wyjazd o dowolnej porze dnia powrotu).
+function carCard(P, dir='out'){
   const d=P.driving, km=d?d.km:(P.km==null?null:P.km*ROAD_FACTOR), min=d?d.minutes:(km==null?null:km/CAR_KMH*60);
   if(km==null) return '<div class="empty-note">Nie udało się ustalić odległości między tymi miejscami.</div>';
-  return `<div class="plan-card res-like open ${groundPicked(P,'car','out')?'picked':''}">
+  const back=dir==='back', origin=back?P.dest:P.origin, dest=back?(P.home||P.origin):P.dest;
+  return `<div class="plan-card res-like open ${groundPicked(P,'car',dir)?'picked':''}">
     <div class="pc-main">
-      ${plainTrip(plainStart(P,min), P, min, `${fmtKm(km)}${d?'':' · szacunkowo'}`)}
-      <div class="pc-lines">${seqIcon('car',MODE_COLOR.car)}<span class="pc-sum">Samochód · ${esc(fuelNote())}</span></div>
+      ${plainTrip(back?null:plainStart(P,min), P, min, `${fmtKm(km)}${d?'':' · szacunkowo'}`, origin.label, dest.label)}
+      <div class="pc-lines">${seqIcon('car',MODE_COLOR.car)}<span class="pc-sum">Samochód · ${esc(fuelNote())}${back?' · wyjazd o dowolnej porze':''}</span></div>
     </div>
-    <div class="pc-actions"><div class="pc-box"><small>paliwo</small><b>ok. ${fuelCost(km)} zł</b></div>${gmapsButton(P.origin.points[0],P.dest.points[0])}${routeButton({kind:'car',origin:P.origin,dest:P.dest,sub:`${fmtKm(km)} · ok. ${fmtDuration(min)}`})}${groundWizard(P)?groundPickBtn(P,'car',null,'car','out'):saveTrip(P,'car','Samochód',`${fmtKm(km)} · ${fmtDuration(min)}`)}</div>
+    <div class="pc-actions"><div class="pc-box"><small>paliwo</small><b>ok. ${fuelCost(km)} zł</b></div>${gmapsButton(origin.points[0],dest.points[0])}${routeButton({kind:'car',origin,dest,sub:`${fmtKm(km)} · ok. ${fmtDuration(min)}`})}${groundPickBtn(P,'car',null,'car',dir,{origin,dest})}</div>
   </div>`;
 }
 /* ---------- Kolory środków transportu, koszty dojazdu i nawigacja ---------- */
@@ -2631,6 +2701,42 @@ function flightSteps(P, f){
     f.fromAirportKm>=1 && step('flag-checkered',`Z lotniska do celu: ${P.to}`,`ok. ${fmtKm(f.fromAirportKm)}`),
   ].filter(Boolean);
 }
+// Poza Rzeszowem (np. z Barcelony na lotnisko BCN) nie ma naszych autobusów ani rozkładu PKP. Wtedy bierzemy te same linie,
+// którymi jedzie się z tego lotniska do centrum (z bazy i rozkładów: R2 Nord, Aerobus, taksówka…), w drugą stronę:
+// czas i cena jak w tamtą stronę, wyjście liczone tak, by zdążyć na odprawę.
+const XFER_TO_ICON={rail:'train', metro:'train', tram:'train', bus:'bus', ferry:'ferry', taxi:'car'};
+const XFER_TO_MODE={rail:'train', metro:'train', tram:'train', bus:'bus', ferry:'bus', taxi:'car'};
+async function xferToAirport(P, f, deadline){
+  const a=P.origin.points[0]; if(!a || !f.from) return [];
+  const key=f.from+'|'+a.map(x=>(+x).toFixed(3)).join(',');
+  P.xferTo=P.xferTo||new Map();
+  if(!P.xferTo.has(key)){
+    let d=null;
+    try{
+      const time=(f.departure||`${f.day}T12:00`).slice(0,16);
+      const r=await fetch('/api/airport-transfers/options?'+new URLSearchParams({code:f.from, time, lat:a[0], lon:a[1], label:P.from||''}));
+      if(r.ok) d=await r.json();
+    }catch(e){ console.warn('Dojazd na lotnisko (linie lotniskowe)', e); }
+    P.xferTo.set(key, d?.options||[]);
+  }
+  const back=f.ret&&!f.ret.placeholder?2:1, out=[];
+  for(const o of P.xferTo.get(key)){
+    const mode=XFER_TO_MODE[o.kind]||'bus', icon=XFER_TO_ICON[o.kind]||'bus';
+    if(!P.allowed.has(mode) && !(mode==='bus' && P.allowed.has('pks'))) continue;
+    if(o.minutes==null) continue;
+    const title=o.name||[o.line, o.agency].filter(Boolean).join(' · ')||(o.kind==='taxi'?'Taksówka':'Linia lotniskowa');
+    const one=o.fare?.pln!=null?Math.round(o.fare.pln):null, cost=one==null?null:one*back, buffer=o.kind==='taxi'?5:15;
+    const leave=deadline-(o.minutes+buffer)*60;
+    const where=o.kind==='taxi'?L2('z miejsca startu','from your start'):o.alight?L2(`wsiądź w okolicy: ${o.alight}`,`board near: ${o.alight}`):'';
+    const sub=[L2(`ok. ${fmtDuration(o.minutes)}`,`about ${fmtDuration(o.minutes)}`), o.fare?.text||'', where, o.kind==='taxi'?'':L2('rozkład w stronę lotniska sprawdź u przewoźnika','check the timetable towards the airport with the operator')].filter(Boolean).join(' · ');
+    const chip=seqIcon(icon, MODE_COLOR[mode]||MODE_COLOR.other);
+    out.push({id:'x-'+o.id, title, xferLine:true, route:{kind:'car', origin:P.origin, dest:{label:f.fromLabel, points:[[f.airport.lat,f.airport.lon]]}},
+      steps:[step(icon,`Na lotnisko ${f.fromLabel}: ${title}`,sub)], seq:[chip],
+      leave, atAirport:deadline, minutes:o.minutes+buffer, cost, parts:{[mode]:cost??0},
+      back:back>1?{seq:[chip], steps:[step(icon,`Z lotniska ${f.ret.toLabel}: ${title}`,`ok. ${fmtDuration(o.minutes)}${o.fare?.text?' · '+o.fare.text:''}`)]}:null});
+  }
+  return out;
+}
 async function buildAccess(P, f){
   const {base,at}=fareStart(f), deadline=at!=null?at-CHECKIN_MIN*60:base+10*3600, point=[f.airport.lat,f.airport.lon], options=[];
   const stops=nearbyStops({points:[point]}).filter(x=>x.dist<=800);
@@ -2642,6 +2748,8 @@ async function buildAccess(P, f){
     if(back){ rail.back=await railHome(P,back); rail.cost=rail.cost==null||rail.back?.cost==null?null:rail.cost+rail.back.cost; rail.parts=mergeParts(rail.parts, rail.back?.parts||{}); }
     options.push(rail);
   }
+  // Nie ma naszego autobusu ani pociągu (start za granicą): linie lotniskowe z bazy, w stronę lotniska.
+  if(!options.length){ try{ options.push(...await xferToAirport(P,f,deadline)); }catch(e){ console.warn('Dojazd na lotnisko', e); } }
   const car=P.allowed.has('car') ? await carToAirport(P,f) : null;
   if(car){
     if(at!=null) car.leave=deadline-car.minutes*60;
@@ -3417,9 +3525,13 @@ function cityPanel(){
   el.querySelector('[data-cp-live]').addEventListener('change', e=>{ CITY.live=e.target.checked; if(CITY.live) loadVehicles(true); else clearVehicles(); });
   el.querySelector('.cp-form').addEventListener('submit', e=>{ e.preventDefault(); cityPlan(); });
   el.querySelector('.cp-form').addEventListener('input', e=>{ if(e.target.name==='from'||e.target.name==='to') CITY.ends[e.target.name]=null; });
+  // Podpowiedzi adresów w tym mieście (z tolerancją literówek); wybrana podpowiedź to od razu punkt na mapie.
+  for(const which of ['from','to']){ const input=el.querySelector('.cp-form').elements[which]; attachSuggest(input, {streets:true, local:()=>[], near:()=>{ const c=CITY.want?.centre; return c?.lat!=null?[c.lat,c.lon]:null; }, onPick:it=>{ if(it.point){ CITY.ends[which]={at:it.point, label:it.label}; drawEnds(); } }}); }
   el.addEventListener('click', e=>{
     const pk=e.target.closest('[data-cp-pick]'); if(pk){ CITY.pick=pk.dataset.cpPick; el.classList.add('picking'); setCityStatus(`Kliknij na mapie miejsce „${CITY.pick==='from'?'Skąd':'Dokąd'}”.`); return; }
     if(e.target.closest('[data-cp-swap]')){ const f=el.querySelector('.cp-form'), a=f.from.value; f.from.value=f.to.value; f.to.value=a; [CITY.ends.from,CITY.ends.to]=[CITY.ends.to,CITY.ends.from]; drawEnds(); return; }
+    const sv=e.target.closest('[data-cp-save]'); if(sv){ saveLocalTrip(+sv.dataset.cpSave); return; }
+    if(e.target.closest('[data-cp-save-walk]')){ saveLocalTrip('walk'); return; }
     const it=e.target.closest('[data-cp-trip]'); if(it){ const t=CITY.trips?.[+it.dataset.cpTrip]; if(t){ el.querySelectorAll('.cp-trip').forEach(x=>x.classList.toggle('on',x===it.closest('.cp-trip'))); drawShape(t.shape); } }
   });
   return el;
@@ -3474,9 +3586,19 @@ async function placeOf(which){
   if(known && known.label===text) return known.at;
   if(text.length<2) return null;
   const city=CITY.want?.city||'';
-  const r=await fetch('/api/geocode?'+new URLSearchParams({q:city&&!text.toLowerCase().includes(city.toLowerCase())?`${text}, ${city}`:text, scope:'world'})).then(r=>r.ok?r.json():null).catch(()=>null);
-  const p=r?.places?.[0]; if(!p?.points?.length) return null;
-  CITY.ends[which]={at:p.points[0], label:text}; drawEnds(); return p.points[0];
+  const q=city&&!text.toLowerCase().includes(city.toLowerCase())?`${text}, ${city}`:text;
+  const lookup=scope=>fetch('/api/geocode?'+new URLSearchParams({q, ...(scope?{scope}:{})})).then(r=>r.ok?r.json():null).catch(()=>null);
+  // W Polsce najpierw dokładny adres w kraju (z numerem domu), potem świat; za granicą odwrotnie.
+  const order=CITY.zone==='Europe/Warsaw'?['','world']:['world',''];
+  let at=null;
+  for(const scope of order){ at=(await lookup(scope))?.places?.[0]?.points?.[0]||null; if(at) break; }
+  if(!at){ // literówka w nazwie ulicy: podpowiedzi tolerują drobne błędy
+    const c=CITY.want?.centre, near=c?.lat!=null?'&near='+c.lat.toFixed(4)+','+c.lon.toFixed(4):'';
+    const sg=await fetch('/api/streets?q='+encodeURIComponent(text)+near).then(r=>r.ok?r.json():null).catch(()=>null);
+    at=sg?.places?.find(x=>x.point)?.point||null;
+  }
+  if(!at) return null;
+  CITY.ends[which]={at, label:text}; drawEnds(); return at;
 }
 async function cityPlan(){
   const el=CITY.el, out=el.querySelector('.cp-results'), f=el.querySelector('.cp-form');
@@ -3484,12 +3606,26 @@ async function cityPlan(){
   const [a,b]=[await placeOf('from'), await placeOf('to')];
   if(!a||!b){ out.innerHTML=`<div class="empty-note">Nie znaleźliśmy miejsca „${esc(!a?f.from.value:f.to.value)}”. Wpisz inaczej albo wskaż je na mapie.</div>`; return; }
   const q={from:`${a[0]},${a[1]}`, to:`${b[0]},${b[1]}`, zone:CITY.zone, time:f.when.value||''}; if(f.arrive.checked) q.arriveBy='1';
-  const d=await fetch('/api/transit/plan?'+new URLSearchParams(q)).then(r=>r.json()).catch(()=>null);
+  let d=await fetch('/api/transit/plan?'+new URLSearchParams(q)).then(r=>r.json()).catch(()=>null);
   if(!d || d.error){ out.innerHTML=`<div class="empty-note">${esc(d?.error||'Planer jest chwilowo niedostępny.')}</div>`; return; }
+  // Rozkłady miast są publikowane na kilka tygodni naprzód: dalszy dzień liczymy z tego samego dnia tygodnia w najbliższym tygodniu.
+  let proxy='';
+  const want=(q.time||'').slice(0,10), today=localNow(CITY.zone).slice(0,10);
+  if(!d.trips.length && want>today){
+    const wd=new Date(want+'T12:00:00Z').getUTCDay(), base=new Date(today+'T12:00:00Z'); let k=1; while(new Date(base.getTime()+k*86400000).getUTCDay()!==wd) k++;
+    const day=new Date(base.getTime()+k*86400000).toISOString().slice(0,10);
+    if(day<want){ const d2=await fetch('/api/transit/plan?'+new URLSearchParams({...q, time:day+q.time.slice(10)})).then(r=>r.json()).catch(()=>null);
+      if(d2?.trips?.length){ proxy=day; d={...d2, trips:d2.trips.map(t=>({...t, dep:{...t.dep, day:want}, arr:{...t.arr, day:want}, proxy:day}))}; } }
+  }
   CITY.trips=d.trips;
-  if(!d.trips.length){ out.innerHTML=`<div class="empty-note">${stateIll(assetPaths.noResults)}Brak połączeń w otwartych rozkładach${d.walk?` — pieszo ok. ${fmtDuration(d.walk.minutes)}`:''}.</div>`; if(d.walk) drawShape(d.walk.shape); return; }
+  // Pieszo: czas z planera (gdy podał) albo szacunek z odległości, z trasą w Google Maps i zapisem do planu.
+  const walkMin=d.walk?.minutes ?? Math.max(1, Math.round(hav(a,b)*WALK_FACTOR/1000/WALK_KMH*60));
+  CITY.walk={minutes:walkMin, estimated:!d.walk};
+  const walkHtml=`<div class="cp-walk"><div><b><i class="fa-solid fa-person-walking" aria-hidden="true"></i> Pieszo ok. ${fmtDuration(walkMin)}</b><small>${d.walk?'trasa piesza':'szacunek z odległości'} · ${fmtKm(hav(a,b)*WALK_FACTOR/1000)}</small></div>
+    <div class="cp-walk-btns">${linkBtn(gDir(a,b,'walking'),'diamond-turn-right','Wskazówki (Google Maps)')}${CITY.want?.canSave?'<button type="button" class="btn-ghost cp-save" data-cp-save-walk><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj do planu</button>':''}</div></div>`;
+  if(!d.trips.length){ out.innerHTML=walkHtml+`<div class="empty-note">${stateIll(assetPaths.noResults)}Brak połączeń komunikacją w otwartych rozkładach.</div>`; if(d.walk) drawShape(d.walk.shape); return; }
   const fastest=Math.min(...d.trips.map(t=>t.minutes)), fewest=Math.min(...d.trips.map(t=>t.transfers));
-  out.innerHTML=(d.walk&&d.walk.minutes<=25?`<div class="cs-hint"><i class="fa-solid fa-person-walking" aria-hidden="true"></i> Pieszo ok. ${fmtDuration(d.walk.minutes)}</div>`:'')+d.trips.map((t,i)=>`<div class="cp-trip ${i?'':'on'}"><button type="button" class="cp-trip-head" data-cp-trip="${i}"><b>${esc(t.dep.clock)} → ${esc(t.arr.clock)}</b><span>${fmtDuration(t.minutes)}${t.transfers?` · ${t.transfers} ${t.transfers===1?'przesiadka':'przesiadki'}`:' · bez przesiadek'}${t.walkMin?` · ${t.walkMin} min pieszo`:''}</span>${i===d.trips.findIndex(x=>x.minutes===fastest)?'<span class="cs-badge fast">Najszybciej</span>':''}${i===d.trips.findIndex(x=>x.transfers===fewest&&x.minutes!==fastest)?'<span class="cs-badge direct">Najmniej przesiadek</span>':''}<span class="cp-lines">${t.steps.filter(s=>s.kind!=='walk').map(lineChip).join('')}</span></button><details><summary>Szczegóły</summary>${csSteps(t.steps)}</details></div>`).join('')+`<small class="cs-src">Transitous · godziny lokalne (${esc(CITY.zone)})</small>`;
+  out.innerHTML=(proxy?`<div class="cs-hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <span>Rozkład na ${esc(fmtDay(want))} nie jest jeszcze opublikowany — pokazujemy połączenia z ${esc(fmtDay(proxy))} (ten sam dzień tygodnia).</span></div>`:'')+walkHtml+d.trips.map((t,i)=>`<div class="cp-trip ${i?'':'on'}"><button type="button" class="cp-trip-head" data-cp-trip="${i}"><b>${esc(t.dep.clock)} → ${esc(t.arr.clock)}</b><span>${fmtDuration(t.minutes)}${t.transfers?` · ${t.transfers} ${t.transfers===1?'przesiadka':'przesiadki'}`:' · bez przesiadek'}${t.walkMin?` · ${t.walkMin} min pieszo`:''}</span>${i===d.trips.findIndex(x=>x.minutes===fastest)?'<span class="cs-badge fast">Najszybciej</span>':''}${i===d.trips.findIndex(x=>x.transfers===fewest&&x.minutes!==fastest)?'<span class="cs-badge direct">Najmniej przesiadek</span>':''}<span class="cp-lines">${t.steps.filter(s=>s.kind!=='walk').map(lineChip).join('')}</span></button>${CITY.want?.canSave?`<button type="button" class="btn-ghost cp-save" data-cp-save="${i}"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj do planu</button>`:''}<details><summary>Szczegóły</summary>${csSteps(t.steps)}</details></div>`).join('')+`<small class="cs-src">Transitous · godziny lokalne (${esc(CITY.zone)})</small>`;
   drawShape(d.trips[0].shape);
 }
 /* Pojazdy: serwer podaje, gdzie każdy będzie przez najbliższe 3 minuty; przeglądarka przesuwa kropki co sekundę. */
@@ -3556,10 +3692,30 @@ function renderStage(P, R, paged){
   if(modes.includes('car')) sections.push(tripSection(flightsNeeded?'Samochód (dla porównania)':'Samochód', carCard(P), 'car'));
   if(!sections.length) sections.push(`<div class="empty-note">${stateIll(assetPaths.noResults)}${P.by?`Wybranymi środkami nie dojedziesz na ${fmtClock(P.by)}. Zmień godzinę albo zaznacz więcej środków transportu.`:'Brak połączeń wybranymi środkami transportu. Zaznacz więcej opcji.'}</div>`);
   if(flightsNeeded && (P.flightStep||1)>=2 && !(groundWizard(P)&&P.groundPick)){ const only=sections.filter(x=>x.includes('data-sec="plane"')); sections.length=0; sections.push(...only); }
-  if(P.round && !flightsNeeded) sections.push(tripSection(`Powrót ${fmtDay(P.round.back)} od ${fmtClock(backAt)}`, back.length||railBack.length?back.map(o=>transitCard(o,P,P.dest,home)).join('')+railBack.map(r=>trainCard(r,P,P.dest,home)).join(''):'<div class="empty-note">Brak połączeń komunikacją w dniu powrotu. Wróć tą samą trasą.</div>', 'rotate-left'));
+  if(P.round && !flightsNeeded) sections.push(tripSection(`Powrót ${fmtDay(P.round.back)} od ${fmtClock(backAt)}`, (back.length||railBack.length?back.map(o=>transitCard(o,P,P.dest,home)).join('')+railBack.map(r=>trainCard(r,P,P.dest,home)).join(''):modes.includes('car')?'':'<div class="empty-note">Brak połączeń komunikacją w dniu powrotu. Wróć tą samą trasą.</div>')+backPager(P,back,railBack)+(modes.includes('car')?carCard(P,'back'):''), 'rotate-left'));
   return `<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span>${favButton({type:'route',view:'podroz',from:P.from,to:P.to},'Zapisz trasę')}<span class="text-soft">${P.km==null?'':'<span>w linii prostej '+fmtKm(P.km)+'</span> · '}<span>${stageTime(P)}</span>${P.round?` · powrót od ${fmtDay(P.round.back)}`:''}</span></div>`+(groundWizard(P)&&P.single?groundStepBar(P):'')+`<div class="stage-top">${tripWeather(P)}${best?`<div class="trip-best">${esc(bestText(best,P,R))}</div>`:''}${stageEstimate(P,R)}</div>`+sections.join('')+(groundWizard(P)&&P.single?groundNext(P):'');
 }
-function stationsNear(place){ return place.points.length ? nearbyStops({points:place.points},'kolej') : []; }
+// Ile pociągów zatrzymuje się na stacji (z rozkładu całego kraju) — żeby wybierać dworce, z których coś jeździ.
+function railStopCounts(){
+  if(TR.stopCounts?.src===TR.trains) return TR.stopCounts.map;
+  const map=new Map();
+  for(const t of TR.trains) for(const x of t.stops){ const n=railName(x.id); map.set(n,(map.get(n)||0)+1); }
+  TR.stopCounts={src:TR.trains, map}; return map;
+}
+// Najbliższe stacje w promieniu 30 km z listy całego kraju, plus największy węzeł w okolicy:
+// z małej wsi lepiej dojechać autobusem do dworca, z którego jeżdżą dalekie pociągi.
+function stationsNear(place){
+  if(!place.points.length) return [];
+  const counts=railStopCounts(), seen=new Map();
+  const add=(name,pt)=>{ if(seen.has(name)||!pt) return; const dist=Math.round(Math.min(...place.points.map(p=>hav(p,pt)))); if(dist<=30000) seen.set(name,{name,dist}); };
+  for(const s of Object.values(RAIL_ST)) add(s[0],[s[1],s[2]]);
+  for(const [name,pt] of RAIL_BY_NAME) add(name,pt);
+  let list=[...seen.values()]; const served=list.filter(x=>counts.get(x.name)>0); if(served.length) list=served;
+  list.sort((a,b)=>a.dist-b.dist);
+  const near=list.slice(0,3), hub=[...list].sort((a,b)=>(counts.get(b.name)||0)-(counts.get(a.name)||0))[0];
+  if(hub && !near.includes(hub)) near.push(hub);
+  return near;
+}
 function placeCity(place){ return place.place?.locality || place.label; }
 function isStreet(place){ return !!place.place && !place.station && place.place.label.split(',')[0]!==placeCity(place); }
 const isMainStation=name=>/ Główn[ya]$/.test(name);
@@ -3568,11 +3724,22 @@ function railTargets(place){
   if(place.station) return [{name:place.station, dist:null}];
   const a=place.points[0], distTo=name=>{ const p=stopPoint(name); return a&&p?Math.round(hav(a,p)):null; };
   const city=placeCity(place).toLowerCase();
-  const inCity=railStationNames().filter(n=>{ const l=n.toLowerCase(); return l===city || l.startsWith(city+' '); });
+  const counts=railStopCounts(), served=name=>counts.get(name)||0;
+  // Duże miasto ma dziesiątki stacji (Warszawa ~60); bierzemy te, na których zatrzymuje się najwięcej pociągów, a nie pierwsze alfabetycznie.
+  let inCity=railStationNames().filter(n=>{ const l=n.toLowerCase(); return l===city || l.startsWith(city+' '); });
+  if(inCity.some(served)) inCity=inCity.filter(served);
   const names=inCity.length ? inCity : stationsNear(place).map(x=>x.name);
   const home=distTo(HOME_STATION); if(home!=null && home<=30000 && !names.includes(HOME_STATION)) names.push(HOME_STATION);
   const wholeCity=inCity.length && !isStreet(place); // cel to samo miasto, więc dworzec jest już na miejscu
-  return names.map(name=>({name, dist:wholeCity?null:distTo(name)})).sort((x,y)=>isMainStation(y.name)-isMainStation(x.name) || (x.dist??0)-(y.dist??0)).slice(0,6);
+  const ranked=names.map(name=>({name, dist:wholeCity?null:distTo(name)}));
+  ranked.sort(wholeCity
+    ? (x,y)=>served(y.name)-served(x.name) || isMainStation(y.name)-isMainStation(x.name) // „Warszawa Główna” to mała stacja
+    : (x,y)=>isMainStation(y.name)-isMainStation(x.name) || (x.dist??0)-(y.dist??0));
+  if(!wholeCity && ranked.length>6){ // na ulicy: najbliższe stacje, ale zawsze też największy węzeł
+    const top=ranked.slice(0,5), hub=[...ranked].sort((x,y)=>served(y.name)-served(x.name))[0];
+    return top.includes(hub)?ranked.slice(0,6):[...top,hub];
+  }
+  return ranked.slice(0, wholeCity?60:6); // całe miasto: każdy dworzec z pociągami (Centralna nie musi być w pierwszej szóstce)
 }
 function stopsAtStation(station){
   const point=stopPoint(station); if(!point) return [];
@@ -3614,8 +3781,8 @@ function planRail(P, at, origin, dest, by){
       if(!found.has(r.t.key)) addRoute(r,s,r.t.key);
     }
   }
-  // Gdy bezpośrednich jest mało, szukamy połączeń z przesiadką.
-  if(found.size<RAIL_ENOUGH_DIRECT){
+  // Połączenia z przesiadką (np. przez Kraków) szukamy zawsze — zostają te, których nie wyprzedza inne połączenie.
+  {
     const stations=new Map(from.flatMap(s=>stationIds([s.name]).map(id=>[id,s]))), targets=new Set(stationIds(target.names));
     for(const parts of changeJourneys(P, trains, stations, targets, at, leadOf, by)){
       const first=parts[0], last=parts[parts.length-1], name=railName(first.a.id), toName=railName(last.b.id), key=parts.map(x=>x.t.key).join('>');
@@ -3628,12 +3795,12 @@ function planRail(P, at, origin, dest, by){
   const list=(served.length?served:all).sort((a,b)=>a.dep-b.dep);
   return by ? list.slice(-RAIL_LIST) : list.slice(0,RAIL_LIST);
 }
-const RAIL_LIST=8; // tyle pociągów na stronie; kolejne pod „Późniejsze”
+const RAIL_LIST=8, RAIL_DAY_OPTIONS=16; // tyle pociągów na stronie; kolejne pod „Późniejsze”
 function changeJourneys(P, trains, stations, targets, at, leadOf, by){
   const starts=from=>new Map([...stations].map(([id,s])=>[id,from+leadOf(s)]));
   const key=`change|${[...stations.keys()].join()}|${[...targets].join()}|${by||Math.floor(at/300)}`;
   return railLink(P, key, ()=>{
-    if(!by) return railJourneys(trains, starts(at), targets, at+RAIL_SEARCH_HOURS*3600);
+    if(!by) return railJourneys(trains, starts(at), targets, at+RAIL_SEARCH_HOURS*3600, RAIL_DAY_OPTIONS);
     for(const hours of [1,2,3,4,6,8,10,14]){
       const fit=railJourneys(trains, starts(Math.max(by-hours*3600,at)), targets, by).filter(parts=>parts[parts.length-1].arr<=by);
       if(fit.length) return fit;
@@ -3659,10 +3826,12 @@ function planTransit(P, origin, dest, at, by){
   return railLink(P, `by|${origin.label}|${dest.label}|${by}`, ()=>transitBy(origin,dest,by,at,tripAllowed(P)));
 }
 function planStage(P){
-  const at=P.by ? Math.max(nowSec(),P.by-RAIL_SEARCH_HOURS*3600) : P.at||nowSec(), home=P.home||P.origin, ground=!wantsFlights(P), trains=GT.loaded && P.allowed.has('train');
+  const at=P.by ? Math.max(nowSec(),P.by-RAIL_BY_HOURS*3600,P.date?dateMid(P.date):0) : P.at||nowSec(), home=P.home||P.origin, ground=!wantsFlights(P), trains=GT.loaded && P.allowed.has('train');
   P.railPending=false;
-  const transit=planTransit(P,P.origin,P.dest,at,P.by);
-  const found=trains?planRail(P,at,P.origin,P.dest,P.by):[], rail=railWorthIt(transit.length?found.filter(r=>r.access || !(r.startDist>RAIL_WALK_M)):found, transit);
+  // Wybrany dzień wyjazdu: lista (i „Późniejsze”) kończy się o północy, nie przechodzi po cichu na następny dzień.
+  const outDay=P.single && P.date && !P.by ? P.date : '', onDay=(ts,d)=>!d || dayOfTs(ts)===d;
+  const transit=planTransit(P,P.origin,P.dest,at,P.by).filter(o=>onDay(o.dep-o.walkFrom,outDay));
+  const found=trains?planRail(P,at,P.origin,P.dest,P.by).filter(r=>onDay(r.leave,outDay)):[], rail=railWorthIt(transit.length?found.filter(r=>r.access || !(r.startDist>RAIL_WALK_M)):found, transit);
   const flights=wantsFlights(P) ? P.flights?.options||[] : [];
   const modes=tripModes(P.km, {transit:transit.length>0, rail:rail.length>0, flights:flights.length>0}, P.allowed);
   const span=sec=>P.by?{leave:P.by-sec, arrive:P.by}:{leave:at, arrive:at+sec};
@@ -3671,8 +3840,9 @@ function planStage(P){
   const rank={}; for(const m of ['walk','transit','rail']) if(options[m]) rank[m]=P.by?-options[m].leave:options[m].arrive;
   const best=modes.length?bestMode(P.km,modes,rank):null, chosen=options[best]||null;
   const carMin=P.driving?P.driving.minutes:(P.km||0)*ROAD_FACTOR/CAR_KMH*60; // bez rozkładu kolejny etap liczymy od czasu jazdy
-  const arrival=chosen||span(carMin*60), backAt=P.round?returnStart(P.round,arrival.arrive):null; // nie wracamy, zanim dojedziemy
-  const back=P.round && ground ? planTransit(P,P.dest,home,backAt) : [], railBack=P.round && ground && trains ? planRail(P,backAt,P.dest,home) : [];
+  const arrival=chosen||span(carMin*60), backAt=P.round?Math.max(returnStart(P.round,arrival.arrive), P.round.from||0):null; // nie wracamy, zanim dojedziemy
+  const backDay=P.round?.back||'';
+  const back=P.round && ground ? planTransit(P,P.dest,home,backAt).filter(o=>onDay(o.dep-o.walkFrom,backDay)) : [], railBack=P.round && ground && trains ? planRail(P,backAt,P.dest,home).filter(r=>onDay(r.leave,backDay)) : [];
   return {transit,rail,back,railBack,flights,modes,best,chosen:arrival,backAt};
 }
 // Etapy liczymy od startu, a przy godzinie na miejscu od celu do początku podróży.
@@ -3826,7 +3996,7 @@ const PLAN_FILTERS=[
   {key:'arr', title:'Godziny przyjazdu', of:f=>[dayPart(fmtClock(f.arrive))], order:DAY_PARTS.map(p=>p.value), label:partLabel},
   {key:'kind', title:'Środki transportu', of:f=>f.kinds, order:['bus','pks','train'], label:v=>KIND_NAMES[v]},
 ];
-const PLAN_ORDER={leave:(x,y)=>x.leave-y.leave, arrive:(x,y)=>x.arrive-y.arrive, time:(x,y)=>(x.arrive-x.leave)-(y.arrive-y.leave), changes:(x,y)=>x.changes-y.changes||x.arrive-y.arrive};
+const PLAN_ORDER={best:(x,y)=>x.leave-y.leave, leave:(x,y)=>x.leave-y.leave, arrive:(x,y)=>x.arrive-y.arrive, time:(x,y)=>(x.arrive-x.leave)-(y.arrive-y.leave), changes:(x,y)=>x.changes-y.changes||x.arrive-y.arrive};
 function cardFacts(card, i){ const d=card.dataset; return {card, i, leave:+d.leave, arrive:+d.arrive, changes:+d.changes, kinds:d.kind.split(' ')}; }
 function planPrices(){ const P=S.plan?.stages.find(x=>wantsFlights(x) && x.flights?.days); return P?new Map(P.flights.days.map(d=>[d.day,d.cheapest])):null; }
 // Ceny dnia osobno dla Ryanaira i Wizz Air, do dwóch wierszy paska dni.
@@ -4460,7 +4630,7 @@ function favCard(f){
 const longDay=(d, opts)=>new Date(d+'T12:00:00Z').toLocaleDateString(document.documentElement.lang==='en'?'en-GB':'pl-PL',{timeZone:'UTC', ...opts});
 // Daty podróży bez samolotu: dzień wyjazdu i (jeśli jest) powrotu.
 function groundDates(f){ const m=f.trip?.multi?f.trip.legs:null; if(m?.length){ const last=m[m.length-1].arrDay||m[m.length-1].day; return {day:m[0].day, back:last>m[0].day?last:'', ground:true}; }
-  const g=f.trip?.ground; if(!g?.out) return null; const last=(g.legs||[g.out]).at(-1)?.day||''; return {day:g.out.day, back:g.back?.day||(last>g.out.day?last:''), ground:true}; }
+  const g=f.trip?.ground; if(!g?.out) return null; const last=(g.legs||[g.out]).at(-1)?.day||''; return {day:g.out.day, back:g.back?.day||g.roundBack||(last>g.out.day?last:''), ground:true, ...(g.roundBack&&!g.back?{noReturn:true}:{})}; }
 function tripTimeline(list, {booked=false}={}){
   const today=ymdOf(0), dated=[], rest=[];
   for(const f of list){ const fl=f.type==='trip'?(savedFlight(f)||groundDates(f)):null; (fl?.day?dated:rest).push({f, fl}); }
@@ -4481,7 +4651,7 @@ function tripTimeline(list, {booked=false}={}){
           <span class="tl-side">${f.shared||SHARED.mine[f.tid]?.length?`<span class="tl-badge-shared" title="${esc(f.shared?L2('Udostępnił(a)','Shared by')+': '+f.shared.ownerName:L2('Udostępniona','Shared with')+': '+SHARED.mine[f.tid].join(', '))}"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępniona','Shared')}</span>`:''}<span class="tl-when ${now?'now':''}">${when}</span>${booked&&!f.shared&&f.tid&&FAV.user&&!gone?`<button type="button" class="tl-share" data-trip-share="${esc(f.tid)}" title="${L2('Udostępnij podróż znajomemu','Share the trip with a friend')}"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępnij','Share')}${SHARED.mine[f.tid]?.length?` <small>${SHARED.mine[f.tid].length}</small>`:''}</button>`:''}</span>
           ${f.shared?'':`<button class="fav-card-remove" type="button" data-fav-remove="${key}" title="${booked?'Usuń podróż':'Usuń z ulubionych'}" aria-label="${booked?'Usuń podróż':'Usuń z ulubionych'}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`}</div>
         ${f.shared?'':SHARED.mine[f.tid]?.length?`<span class="tl-shared"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępniona','Shared with')}: ${esc(SHARED.mine[f.tid].join(', '))}</span>`:''}
-        <div class="tl-sub"><span>${esc(routeText(f))}</span>${f.name?` · <span>${esc(f.name)}</span>`:''}${f.trip?.xfer?` · <span>${f.trip.xfer.skip?'odbiór z lotniska':esc(f.trip.xfer.name)}</span>`:''}</div>
+        <div class="tl-sub"><span>${esc(routeText(f))}</span>${f.name?` · <span>${esc(f.name)}</span>`:''}${f.trip?.xfer?` · <span>${f.trip.xfer.skip?'odbiór z lotniska':esc(f.trip.xfer.name)}</span>`:''}${fl.noReturn?` · <span class="tl-noreturn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> Nie wybrano powrotu</span>`:''}</div>
         ${gone||booked||fl.ground?'':savedPriceHtml(favKey(f), fl, f.flight?.price)}
       </div></div>`;
   };
@@ -4497,7 +4667,9 @@ function tripTimeline(list, {booked=false}={}){
 // Liczniki w prawym górnym rogu przycisków „Moje podróże” i „Ulubione”.
 function navCounts(){
   const set=(id,n,label)=>{ const el=document.getElementById(id); if(!el) return; el.hidden=!n; el.textContent=n>99?'99+':String(n); el.setAttribute('aria-label',`${n} ${label}`); };
-  set('myTripsCount', FAV.items.filter(f=>f.type==='trip' && f.status==='booked').length, 'podróży');
+  // Tylko nadchodzące i trwające podróże; minione zostają na liście, ale nie w liczniku.
+  const upcoming=f=>{ const fl=savedFlight(f)||groundDates(f), end=fl?.back||fl?.day; return !end || end>=ymdOf(0); };
+  set('myTripsCount', FAV.items.filter(f=>f.type==='trip' && f.status==='booked' && upcoming(f)).length, 'podróży');
   set('favCount', FAV.items.filter(f=>f.status!=='booked').length, 'ulubionych');
   document.querySelectorAll('[data-count-of]').forEach(b=>{ const src=document.getElementById(b.dataset.countOf); b.hidden=!src||src.hidden; b.textContent=src?.textContent||''; });
 }
@@ -4539,7 +4711,7 @@ function hashText(t){ let h=5381; for(let i=0;i<t.length;i++) h=((h<<5)+h+t.char
 const tidOf=f=>f.tid||('k'+hashText(favKey(f))).padEnd(6,'0');
 const newTid=()=>(Math.random().toString(36).slice(2)+Date.now().toString(36)).slice(0,12);
 function findTrip(id){ return id?FAV.items.find(f=>f.type==='trip' && tidOf(f)===id)||sharedTrip(id)||null:null; }
-function openTrip(id, opts={}){ TRIPV.id=id; TRIPV.city=false; TRIPV.step='go'; TRIPV.map=false; PEOPLE.invite=!!opts.invite; PEOPLE.open=!!opts.invite; PEOPLE.adding=!!opts.invite; goPage('podroz','trip'); }
+function openTrip(id, opts={}){ TRIPV.id=id; TRIPV.city=false; TRIPV.cityAt=undefined; TRIPV.step='go'; TRIPV.map=false; PEOPLE.invite=!!opts.invite; PEOPLE.open=!!opts.invite; PEOPLE.adding=!!opts.invite; goPage('podroz','trip'); }
 // Jak podróż wyglądała w chwili zapisu: loty, dojazd na lotnisko, wybrany dojazd do centrum, cel i lotnisko docelowe.
 function tripSnapshot(P, f, o, d){
   const p=P.dest?.points?.[0], pt=Array.isArray(p)?{lat:p[0], lon:p[1]}:p, t=XFER.get(f.to);
@@ -4986,20 +5158,23 @@ function renderTripPage(){
     stopVehicles(); return;
   }
   if(T.ground||T.multi){
-    page.innerHTML=`<div class="tp">${head}${T.multi?multiTripBody(T):groundTripBody(T)}
+    // Tak jak przy samolocie: nocleg w miejscu docelowym i komunikacja w mieście — zmienia się tylko środek transportu.
+    const dest=T.dest?.label||f.to;
+    const cityBox=cityExploreBox(f,T); // plan zwiedzania w każdym mieście podróży
+    page.innerHTML=`<div class="tp">${head}${groundFlow(T)}
+      ${groundStepPanel(T,f)}
       <div class="plan-extra tp-extra">${costCard(groundCosts(T))}${tripMapBox()}</div>
-      ${T.weather?.length?weatherTimeline(T.weather, tripWeatherRefresh):''}
-      ${f.tid && booked && when==='minęła'?'<section class="tp-photos" id="tripPhotos" aria-live="polite"></section>':''}</div>`;
+      ${cityBox}${f.tid && booked && when==='minęła'?'<section class="tp-photos" id="tripPhotos" aria-live="polite"></section>':''}</div>`;
     if(TRIPV.map) mountTripMap(f,T);
     if(f.tid && FAV.user && SHARED.ok){ if(PEOPLE.key!==`${tripOwner(f)}|${f.tid}`) PEOPLE.data=null; watchPeople(f,T); } else clearInterval(PEOPLE.timer);
     if(f.tid && window.TripPhotos) window.TripPhotos.mount(document.getElementById('tripPhotos'), f.tid);
-    stopVehicles(); return;
+    mountTripCity(f,T,day,back);
+    return;
   }
   const city=T.centre?.label||T.airport?.city||f.to, old=!T.access?.steps;
   const n=T.people||1;
   const price=booked?(T.total!=null?`<div class="tp-total">Loty razem: <b>${T.total*(T.people||1)} zł</b>${(T.people||1)>1?` <small>(${T.people} × ${T.total} zł)</small>`:''}</div>`:''):(fl?savedPriceHtml(favKey(f), fl, f.flight?.price):'');
-  const cityBox=booked?`<section class="tp-city"><div class="tp-city-head"><div><h4><i class="fa-solid fa-train-subway" aria-hidden="true"></i> Komunikacja: ${esc(city)}</h4><small>Metro, tramwaje, autobusy i pociągi na mapie oraz planer przejazdów po mieście.</small></div>
-      <button type="button" class="${TRIPV.city?'btn-ghost':'btn-grad'}" data-tp-city aria-expanded="${TRIPV.city}"><i class="fa-solid fa-${TRIPV.city?'chevron-up':'map-location-dot'}" aria-hidden="true"></i> ${TRIPV.city?'Ukryj':'Zaplanuj przejazd po mieście'}</button></div>${TRIPV.city?'<div class="city-slot"></div>':''}</section>`:'';
+  const cityBox=cityExploreBox(f,T);
   page.innerHTML=`<div class="tp">${head}${tripFlow(T)}
     ${old?'<div class="fl-mismatch" role="status"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <span>Ta podróż została zapisana wcześniej, bez kroków dojazdu i miejsc na mapie. Otwórz ją w planerze („Edytuj w planerze”) i zapisz ponownie na ostatnim kroku, aby zobaczyć wszystkie szczegóły.</span></div>':''}
     ${tripStepPanel(T,f,price)}
@@ -5008,21 +5183,157 @@ function renderTripPage(){
   if(TRIPV.map) mountTripMap(f,T);
   if(f.tid && FAV.user && SHARED.ok){ if(PEOPLE.key!==`${tripOwner(f)}|${f.tid}`) PEOPLE.data=null; watchPeople(f,T); } else clearInterval(PEOPLE.timer);
   if(f.tid && window.TripPhotos) window.TripPhotos.mount(document.getElementById('tripPhotos'), f.tid);
-  if(booked && TRIPV.city && T.airport?.zone){
-    CITY.want={code:`${T.airport.code}:${tidOf(f)}`, city, zone:T.airport.zone, centre:T.centre||(T.dest?.lat!=null?T.dest:null)||(T.airport.lat!=null?{lat:T.airport.lat, lon:T.airport.lon}:null), airport:null,
-      home:T.hotel?.lat!=null?{lat:T.hotel.lat, lon:T.hotel.lon, label:T.hotel.name}:T.dest?.lat!=null&&T.centre&&(T.dest.lat!==T.centre.lat)?{lat:T.dest.lat, lon:T.dest.lon, label:T.dest.label}:null, day, back:back||null};
-    mountCity();
-  } else stopVehicles();
+  mountTripCity(f,T,day,back);
 }
-// Podróż bez samolotu na stronie podróży: tam i powrót krok po kroku, z mapą i wskazówkami Google.
-function groundTripBody(T){
-  const P=x=>x?.lat!=null?[x.lat,x.lon]:null, home=P(T.home), dest=P(T.dest), legs=T.ground.legs||[T.ground.out];
+/* ---------- Plan zwiedzania: w każdym mieście docelowym podróży (w jedną stronę, w obie i w etapach)
+   zapisane przejazdy po mieście — miejsce, wybrane połączenie komunikacją, godzina — dodawane po kolei. ---------- */
+// Miasta podróży, w których można się poruszać: przy samolocie miasto przylotu, bez samolotu każdy przystanek i cel.
+function tripCities(T, f){
+  const pt=x=>x?.lat!=null?{lat:x.lat, lon:x.lon}:null, hotel=T.hotel?.lat!=null?{lat:T.hotel.lat, lon:T.hotel.lon, label:T.hotel.name}:null;
+  if(T.airport && !T.ground && !T.multi){
+    const centre=pt(T.centre)||pt(T.dest)||pt(T.airport); if(!centre || !T.airport.zone) return [];
+    return [{label:T.centre?.label||T.airport.city||f.to, centre, zone:T.airport.zone, code:T.airport.code,
+      home:hotel||(T.dest?.lat!=null&&T.centre&&T.dest.lat!==T.centre.lat?{lat:T.dest.lat, lon:T.dest.lon, label:T.dest.label}:null)}];
+  }
+  // Bez samolotu jedziemy po Polsce; miasto osiągnięte lotem w podróży w etapach ma strefę swojego lotniska.
+  const zoneOf=label=>(T.legs||[]).find(L=>L.kind==='flight' && L.to===label)?.snap?.airport?.zone || 'Europe/Warsaw';
+  const stops=(T.stops||[]).filter(x=>x.lat!=null).map(x=>({label:x.label, centre:pt(x), zone:zoneOf(x.label), home:null}));
+  const dest=pt(T.dest)?[{label:T.dest.label||f.to, centre:pt(T.dest), zone:zoneOf(T.dest.label||f.to), home:hotel}]:[];
+  return [...stops, ...dest];
+}
+const localKey=c=>c.label;
+// Kolejność planu ustala podróżny (strzałki); „Sortuj wg godziny” przywraca kolejność czasową.
+// Plan trzymamy jako listę {city, items}: nazwa miasta („Warszawa Centralna”, „Kraków”) jest wartością, nie nazwą pola,
+// bo serwer zapisuje tylko proste nazwy pól. Starszy zapis (obiekt miasto → lista) dalej się wczytuje.
+const LOCAL_MAX=20; // tyle punktów na miasto (limit długości list przy zapisie)
+function localGroups(T){ const L=T?.local; return Array.isArray(L)?L.filter(x=>x?.city&&Array.isArray(x.items)):Object.entries(L||{}).filter(([,v])=>Array.isArray(v)).map(([city,items])=>({city, items})); }
+function localItems(T, key){ return (localGroups(T).find(x=>x.city===key)?.items||[]).slice(); }
+function allLocalItems(T){ return localGroups(T).flatMap(x=>x.items); }
+function withLocal(trip, key, items){ const groups=localGroups(trip).filter(x=>x.city!==key); if(items.length) groups.push({city:key, items:items.slice(-LOCAL_MAX)}); return {...trip, local:groups}; }
+function saveLocal(f, key, items){ f.trip=withLocal(f.trip, key, items); saveFavorites().catch(e=>console.warn('Nie zapisano planu zwiedzania', e)); renderTripPage(); }
+function localKeyOf(T, id){ return localGroups(T).find(x=>x.items.some(y=>y.id===id))?.city; }
+function localList(T, c){ return localItems(T, localKey(c)); }
+function localItemHtml(x, canEdit, i=0, n=1){
+  const move=canEdit&&n>1?`<span class="lp-move"><button type="button" class="btn-ghost" data-lp-move="${esc(x.id)}" data-dir="-1" ${i===0?'disabled':''} aria-label="Przesuń wyżej" title="Przesuń wyżej"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button><button type="button" class="btn-ghost" data-lp-move="${esc(x.id)}" data-dir="1" ${i===n-1?'disabled':''} aria-label="Przesuń niżej" title="Przesuń niżej"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button></span>`:'';
+  const rides=(x.steps||[]).filter(s=>s.kind!=='walk');
+  return `<li class="lp-item"><div class="lp-main"><b>${esc(x.from)} <span class="txt-red">→</span> ${esc(x.to)}</b>
+      <small>${x.day?longDay(x.day,{weekday:'short', day:'numeric', month:'short'})+' · ':''}${esc(x.dep)} → ${esc(x.arr)} · ${fmtDuration(x.minutes)}${x.transfers?` · ${x.transfers} ${x.transfers===1?'przesiadka':'przesiadki'}`:' · bez przesiadek'}${x.proxy?` · <span class="lp-proxy">wg rozkładu z ${esc(fmtDay(x.proxy))}</span>`:''}</small>
+      <span class="cp-lines">${rides.length?rides.map(lineChip).join(''):'<span class="cs-chip walk"><i class="fa-solid fa-person-walking" aria-hidden="true"></i> pieszo</span>'}</span>
+      <details><summary>Szczegóły</summary>${csSteps(x.steps||[])}</details></div>
+    <div class="lp-actions">${move}${linkBtn(x.a&&x.b?gDir(x.a,x.b,x.walk?'walking':'transit'):'','diamond-turn-right','Google Maps')}<button type="button" class="btn-ghost" data-lp-show="${esc(x.id)}"><i class="fa-solid fa-map" aria-hidden="true"></i> Na mapie</button>${canEdit?`<button type="button" class="btn-ghost" data-lp-remove="${esc(x.id)}" aria-label="Usuń z planu"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>`:''}</div></li>`;
+}
+// Sekcja „Komunikacja i plan zwiedzania” na stronie podróży: wybór miasta, zapisane przejazdy i planer po mieście.
+function cityExploreBox(f, T){
+  const cities=tripCities(T,f); if(!cities.length) return '';
+  const at=Math.min(TRIPV.cityAt??cities.length-1, cities.length-1), c=cities[at], list=localList(T,c), edit=!f.shared;
+  const tabs=cities.length>1?`<div class="lp-tabs" role="tablist">${cities.map((x,i)=>`<button type="button" role="tab" class="lp-tab ${i===at?'on':''}" aria-selected="${i===at}" data-lp-city="${i}">${esc(x.label)}${localItems(T,localKey(x)).length?` <small>${localItems(T,localKey(x)).length}</small>`:''}</button>`).join('')}</div>`:'';
+  return `<section class="tp-city"><div class="tp-city-head"><div><h4><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> Plan zwiedzania: ${esc(c.label)}</h4><small>Wyszukaj miejsce, wybierz najlepsze połączenie i dodaj je do planu — potem kolejne.</small></div>
+      <button type="button" class="${TRIPV.city?'btn-ghost':'btn-grad'}" data-tp-city aria-expanded="${!!TRIPV.city}"><i class="fa-solid fa-${TRIPV.city?'chevron-up':'magnifying-glass-location'}" aria-hidden="true"></i> ${TRIPV.city?'Ukryj wyszukiwanie':'Szukaj miejsc i połączeń'}</button></div>
+    ${tabs}${list.length?`${edit&&list.length>1?`<div class="lp-tools"><button type="button" class="btn-ghost" data-lp-sort="${esc(localKey(c))}"><i class="fa-solid fa-clock" aria-hidden="true"></i> Sortuj wg godziny</button></div>`:''}<ol class="lp-list">${list.map((x,i)=>localItemHtml(x,edit,i,list.length)).join('')}</ol>`:'<div class="empty-note lp-empty">Plan jest pusty. Kliknij „Szukaj miejsc i połączeń”, znajdź trasę i dodaj ją przyciskiem „Dodaj do planu”.</div>'}
+    ${TRIPV.city?'<div class="city-slot"></div>':''}</section>`;
+}
+function mountTripCity(f, T, day, back){
+  const cities=tripCities(T,f);
+  if(!TRIPV.city || !cities.length){ stopVehicles(); return; }
+  const c=cities[Math.min(TRIPV.cityAt??cities.length-1, cities.length-1)];
+  CITY.want={code:`${c.code||'city'}:${tidOf(f)}:${c.label}`, tid:tidOf(f), city:c.label, local:localKey(c), canSave:!f.shared, zone:c.zone, centre:c.centre, airport:null, home:c.home, day, back:back||null};
+  mountCity();
+}
+function saveLocalTrip(i){
+  const W=CITY.want, form=CITY.el.querySelector('.cp-form'), f=W?.tid?findTrip(W.tid):null;
+  let t=CITY.trips?.[i];
+  if(i==='walk' && CITY.walk){ // pieszo: wyjście o godzinie z formularza
+    const when=form.when.value||'', dep=when.slice(11,16)||'', m=CITY.walk.minutes, end=dep?(([h,mm])=>{ const x=h*60+mm+m; return String(Math.floor(x/60)%24).padStart(2,'0')+':'+String(x%60).padStart(2,'0'); })(dep.split(':').map(Number)):'';
+    t={walk:true, dep:{day:when.slice(0,10), clock:dep}, arr:{day:when.slice(0,10), clock:end}, minutes:m, transfers:0, walkMin:m, steps:[{kind:'walk', line:'', from:form.from.value.trim(), to:form.to.value.trim(), dep, arr:end, minutes:m}]};
+  }
+  if(!t || !f?.trip || f.shared) return;
+  const item={id:Date.now().toString(36)+Math.random().toString(36).slice(2,5), from:form.from.value.trim(), to:form.to.value.trim(), a:CITY.ends.from?.at||null, b:CITY.ends.to?.at||null,
+    day:t.dep.day||'', dep:t.dep.clock, arr:t.arr.clock, minutes:t.minutes, transfers:t.transfers, walkMin:t.walkMin||0, steps:(t.steps||[]).slice(0,12), ...(t.proxy?{proxy:t.proxy}:{}), ...(t.walk?{walk:true}:{}), savedAt:new Date().toISOString()};
+  const before=localItems(f.trip, W.local);
+  if(before.length>=LOCAL_MAX){ toast(`W planie zwiedzania jednego miasta mieści się ${LOCAL_MAX} punktów — usuń któryś, aby dodać nowy.`); return; }
+  saveLocal(f, W.local, [...before, item]);
+  toast(`Dodano do planu zwiedzania: ${item.from} → ${item.to}`);
+}
+// Zamiana miejscami z sąsiadem (dir -1 wyżej, 1 niżej).
+function moveLocalTrip(f, id, dir){
+  const key=localKeyOf(f.trip,id); if(key==null) return;
+  const list=localItems(f.trip,key), i=list.findIndex(x=>x.id===id), j=i+dir; if(j<0 || j>=list.length) return;
+  [list[i], list[j]]=[list[j], list[i]]; saveLocal(f, key, list);
+  document.querySelector(`#tripPage [data-lp-move="${CSS.escape(id)}"][data-dir="${dir}"]:not([disabled])`)?.focus(); // klawiatura zostaje przy przesuwanym punkcie
+}
+function sortLocalTrips(f, key){ saveLocal(f, key, localItems(f.trip,key).sort((a,b)=>`${a.day} ${a.dep}`.localeCompare(`${b.day} ${b.dep}`))); }
+function removeLocalTrip(f, id){ const key=localKeyOf(f.trip,id); if(key!=null) saveLocal(f, key, localItems(f.trip,key).filter(x=>x.id!==id)); }
+// Zapisany przejazd z powrotem w planerze: oba punkty i godzina, od razu szukamy połączeń.
+function showLocalTrip(f, id){
+  const T=f.trip, x=allLocalItems(T).find(y=>y.id===id); if(!x) return;
+  if(!TRIPV.city){ TRIPV.city=true; renderTripPage(); }
+  const form=CITY.el?.querySelector('.cp-form'); if(!form) return;
+  if(x.day && x.dep) form.when.value=`${x.day}T${x.dep}`;
+  if(x.a) setEnd('from', x.a, x.from, true); else form.from.value=x.from;
+  if(x.b) setEnd('to', x.b, x.to, true); else form.to.value=x.to;
+  cityPlan(); CITY.el.scrollIntoView({behavior:'smooth', block:'start'});
+}
+// Podróż pociągiem, autobusem, samochodem albo w etapach: te same kroki co z samolotem
+// (wyjazd, przyjazd, dojazd do hotelu, nocleg, powrót, w domu) — zmienia się tylko środek transportu.
+const GSTEP_MAP={go:'ground', arr:'centre', xfer:'hotel', hotel:'hotel', ret:'ground', home:'home'};
+// Stacja lub przystanek wsiadania i wysiadania z kroków przejazdu („Pociąg IC 3539: Rzeszów Główny → Warszawa Wschodnia”).
+function rideEnds(g){
+  const r=(g?.steps||[]).filter(x=>['train','bus','bus-simple'].includes(x.icon) && String(x.text||'').includes('→'));
+  return {from:r.length?r[0].text.split('→')[0].split(': ').pop().trim():g?.from||'', to:r.length?r[r.length-1].text.split('→').pop().trim():g?.to||''};
+}
+// Wspólny widok: pierwszy i ostatni odcinek tam, powrót (jeśli jest).
+function groundView(T){
+  if(T.multi){
+    const L0=T.legs[0], Ln=T.legs[T.legs.length-1], at=L=>L.kind==='flight'
+      ? {day:L.day, leave:L.snap?.out?.dep||'', arrive:L.snap?.out?.arr||'', arrDay:L.arrDay||L.day, icon:'plane', from:L.snap?.out?.fromLabel||L.from, to:L.snap?.out?.toLabel||L.to}
+      : {day:L.day, leave:L.g?.leave!=null?fmtClock(L.g.leave):'', arrive:L.g?.arrive!=null?fmtClock(L.g.arrive):'', arrDay:L.g?.arrive!=null?dayOfTs(L.g.arrive):L.day, icon:L.icon||L.g?.icon||'route', from:rideEnds(L.g).from||L.from, to:rideEnds(L.g).to||L.to};
+    return {go:at(L0), arr:at(Ln), back:null, roundBack:null, title:T.legs.map(L=>L.title).join(' › ')};
+  }
+  const legs=T.ground.legs||[T.ground.out], g0=legs[0], gn=legs[legs.length-1], b=T.ground.back;
+  const at=g=>({day:g.day, leave:g.leave!=null?fmtClock(g.leave):'', arrive:g.arrive!=null?fmtClock(g.arrive):'', arrDay:g.arrive!=null?dayOfTs(g.arrive):g.day, icon:g.icon||'route', from:rideEnds(g).from, to:rideEnds(g).to});
+  return {go:at(g0), arr:at(gn), back:b?at(b):null, backG:b||null, roundBack:T.ground.roundBack||null, title:legs.map(g=>g.title).join(' › '), lastKind:gn.kind};
+}
+function groundFlow(T){
+  const V=groundView(T), cur=TRIPV.step||'go', home=ptOf(T.home), dest=ptOf(T.dest), h=T.hotel;
+  const pt=(key,icon,label,time,place,wx,cls='')=>`<button type="button" class="tp-point ${cls} ${key===cur?'on':''}" data-tp-step="${key}" aria-pressed="${key===cur}"><i class="fa-solid fa-${icon}" aria-hidden="true"></i><small>${label}</small><b>${esc(time||'—')}</b><span>${esc(place||'')}</span>${wx||''}</button>`;
+  const pts=[
+    pt('go','house','Wyjazd',`${fmtDay(V.go.day)} ${V.go.leave}`.trim(),T.home?.label,wxChip(home,V.go.day)),
+    pt('arr',V.arr.icon,'Przyjazd',V.arr.arrive,V.arr.to,wxChip(dest,V.arr.arrDay)),
+    pt('xfer','diamond-turn-right','Do hotelu',h?'trasa':'—',h?h.name:'najpierw wybierz hotel','',h?'':'soft'),
+    h?pt('hotel','hotel','Nocleg',h.checkin?`${fmtDay(h.checkin)}–${fmtDay(h.checkout)}`:'hotel',h.name,''):pt('hotel','bed','Nocleg','dodaj hotel','szukaj lub wpisz','','soft')];
+  if(V.back){ pts.push(pt('ret',V.back.icon,'Powrót',`${fmtDay(V.back.day)} ${V.back.leave}`.trim(),V.back.from,wxChip(dest,V.back.day))); pts.push(pt('home','house','W domu',V.back.arrive,T.home?.label,wxChip(home,V.back.arrDay))); }
+  else if(V.roundBack) pts.push(pt('ret','rotate-left','Powrót',fmtDay(V.roundBack),'nie wybrano połączenia','','soft'));
+  return `<nav class="tp-flow" aria-label="Przebieg podróży">${pts.join('<span class="tp-conn" aria-hidden="true"></span>')}</nav>`;
+}
+function groundStepPanel(T, f){
+  const V=groundView(T), step=TRIPV.step||'go', home=ptOf(T.home), dest=ptOf(T.dest), h=T.hotel, hp=ptOf(h);
+  const box=(icon,title,body)=>`<section class="tp-sec tp-panel"><h4><i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${title}</h4><div class="tp-sec-body">${body}</div></section>`;
   const mode=k=>k==='car'?'driving':k==='walk'?'walking':'transit';
-  const leg=(g,label,a,b)=>g?`<section class="tp-card tp-ground"><div class="tp-ground-head"><h4><i class="fa-solid fa-${esc(g.icon)}" aria-hidden="true"></i> ${label}: ${esc(g.title)}</h4><span class="tp-icons">${home&&dest?iconMap('ground','Trasa na mapie'):''}${iconLink(gDir(a,b,mode(g.kind)),'diamond-turn-right','Wskazówki (Google Maps)')}</span></div>
-    <small class="text-soft">${esc(g.from)} → ${esc(g.to)} · ${longDay(g.day,{weekday:'short', day:'numeric', month:'long'})}${g.leave!=null?` · wyjście ${fmtClock(g.leave)}`:''}${g.arrive!=null?` · na miejscu ${fmtClock(g.arrive)}`:''}${g.minutes?` · ${fmtDuration(g.minutes)}`:''}${g.km?` · ${fmtKm(g.km)}`:''}</small>
-    ${stepsHtml(g.steps||[])}</section>`:'';
-  const stop=k=>{ const x=T.stops?.[k]; return x?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(x.label)}${x.stay?`: postój ${fmtStay(x.stay)}`:''}</div>`:''; };
-  return legs.map((g,k)=>leg(g, legs.length>1?`Etap ${k+1}`:'Tam', g.a||(k?legs[k-1].b:home), g.b||(k===legs.length-1?dest:null))+(k<legs.length-1?stop(k):'')).join('')+leg(T.ground.back,'Powrót',dest,home);
+  const next=(key,text)=>`<div class="tp-where"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Dalej: <span>${text}</span> <button type="button" class="btn-ghost tp-next" data-tp-step="${key}">Zobacz <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>`;
+  const legBody=(g,a,b)=>`<div class="tp-line"><div><b>${esc(g.title)}</b><small>${esc(g.from)} → ${esc(g.to)} · ${longDay(g.day,{weekday:'short', day:'numeric', month:'long'})}${g.leave!=null?` · wyjście ${fmtClock(g.leave)}`:''}${g.arrive!=null?` · na miejscu ${fmtClock(g.arrive)}`:''}${g.minutes?` · ${fmtDuration(g.minutes)}`:''}${g.km?` · ${fmtKm(g.km)}`:''}</small></div>
+      <span class="tp-icons">${home&&dest?iconMap('ground','Trasa na mapie'):''}${iconLink(gDir(a,b,mode(g.kind)),'diamond-turn-right','Wskazówki (Google Maps)')}</span></div>${stepsHtml(g.steps||[])}`;
+  if(step==='go'){
+    if(T.multi) return box('route','Tam', multiTripBody(T)+next('arr','przyjazd'));
+    const legs=T.ground.legs||[T.ground.out];
+    const stop=k=>{ const x=T.stops?.[k]; return x?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(x.label)}${x.stay?`: postój ${fmtStay(x.stay)}`:''}</div>`:''; };
+    return box(V.go.icon, legs.length>1?'Tam':`Tam: ${esc(legs[0].title)}`, legs.map((g,k)=>(legs.length>1?`<h5 class="tp-leg-sub">Etap ${k+1}</h5>`:'')+legBody(g, g.a||(k?legs[k-1].b:home), g.b||(k===legs.length-1?dest:null))+(k<legs.length-1?stop(k):'')).join('')+next('arr','przyjazd'));
+  }
+  if(step==='arr') return box('location-dot',`Przyjazd: ${esc(V.arr.to)}`, `<div class="tp-line"><div><b>${esc(V.arr.arrive||'—')} · ${longDay(V.arr.arrDay,{weekday:'short', day:'numeric', month:'long'})}</b><small>${esc(V.arr.to)}</small></div><span class="tp-icons">${dest?iconMap('centre','Na mapie'):''}${iconLink(gPlace(null,V.arr.to),'diamond-turn-right','Google Maps')}</span></div>
+      <div class="tp-where">${wxChip(dest,V.arr.arrDay)} <small>pogoda w dniu przyjazdu</small></div>${next('xfer','dojazd do hotelu')}`);
+  if(step==='xfer'){
+    const to=hp?hp.join(','):h?`${h.name}, ${h.address||T.dest?.label||''}`:'';
+    const href=h?`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(V.arr.to)}&destination=${encodeURIComponent(to)}&travelmode=${V.lastKind==='car'?'driving':'transit'}`:'';
+    return box('diamond-turn-right','Dojazd do hotelu', h?`<div class="tp-line"><div><b>${esc(V.arr.to)} → ${esc(h.name)}</b><small>${V.arr.arrive?`przyjazd ${esc(V.arr.arrive)}`:''}${h.address?` · ${esc(h.address)}`:''}</small></div><span class="tp-icons">${hp?iconMap('hotel','Hotel na mapie'):''}${iconLink(href,'diamond-turn-right','Wskazówki (Google Maps)')}</span></div>${next('hotel','nocleg')}`
+      :`<div class="empty-note">Wybierz nocleg, a pokażemy tu drogę do hotelu.</div>${next('hotel','wybierz nocleg')}`);
+  }
+  if(step==='hotel') return box('hotel','Nocleg', hotelSection(f,T)+(V.back||V.roundBack?next('ret','powrót'):''));
+  if(step==='ret'){
+    if(V.backG) return box(V.back.icon,`Powrót: ${esc(V.backG.title)}`, legBody(V.backG,dest,home)+next('home','w domu'));
+    if(V.roundBack) return box('rotate-left',`Powrót: ${longDay(V.roundBack,{weekday:'short', day:'numeric', month:'long'})}`, '<div class="empty-note tp-noreturn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> Nie wybrano połączenia powrotnego. Kliknij „Edytuj w planerze”, aby je wybrać.</div>');
+  }
+  if(step==='home' && V.back) return box('house','W domu', `<div class="tp-line"><div><b>${esc(V.back.to)} → ${esc(T.home?.label||f.from)}</b><small>przyjazd ${esc(V.back.arrive||'—')} · ${longDay(V.back.arrDay,{weekday:'short', day:'numeric', month:'long'})}</small></div><span class="tp-icons">${home?iconMap('home','Na mapie'):''}${iconLink(gDir(null,home,'transit'),'diamond-turn-right','Wskazówki (Google Maps)')}</span></div>
+      <div class="tp-where">${wxChip(home,V.back.arrDay)} <small>pogoda w dniu powrotu</small></div>`);
+  TRIPV.step='go'; return groundStepPanel(T,f);
 }
 // Podróż w etapach na stronie podróży: każdy etap ze swoim środkiem transportu, lot razem z dojazdem na lotnisko i z lotniska.
 function multiTripBody(T){
@@ -5075,8 +5386,11 @@ const mapBtn=(key,label='Na mapie')=>`<button type="button" class="btn-ghost" da
 const HOT=new Map();
 function hotelQuery(T){
   const c=T.centre?.lat!=null?T.centre:T.dest?.lat!=null?T.dest:T.airport;
-  const checkin=(T.out?.arrDay)||T.out?.day, checkout=T.ret?.day||(checkin?addDays(checkin,1):'');
-  return c?.lat!=null&&checkin?{lat:c.lat, lon:c.lon, checkin, checkout:checkout>checkin?checkout:addDays(checkin,1), adults:T.people||1, city:T.airport?.city||T.centre?.label||''}:null;
+  // Pociąg, autobus lub samochód: zameldowanie w dniu dotarcia na miejsce, wymeldowanie w dniu powrotu.
+  const legs=T.ground?(T.ground.legs||[T.ground.out]):T.multi?T.legs:[], last=legs[legs.length-1];
+  const reached=last?(last.arrive!=null?dayOfTs(last.arrive):last.arrDay||last.g?.arrive!=null&&dayOfTs(last.g.arrive)||last.day):'';
+  const checkin=(T.out?.arrDay)||T.out?.day||reached, back=T.ret?.day||T.ground?.back?.day||'', checkout=back||(checkin?addDays(checkin,1):'');
+  return c?.lat!=null&&checkin?{lat:c.lat, lon:c.lon, checkin, checkout:checkout>checkin?checkout:addDays(checkin,1), adults:T.people||1, city:T.airport?.city||T.centre?.label||T.dest?.label||''}:null;
 }
 function hotelCard(h, actions){
   return `<div class="hotel-card">${h.photo?`<img src="${esc(h.photo)}" alt="" loading="lazy">`:'<span class="hotel-noimg"><i class="fa-solid fa-hotel" aria-hidden="true"></i></span>'}<div class="hotel-body">
@@ -5093,17 +5407,18 @@ function hotelSection(f, T){
       <small class="text-soft">${h.checkin?`Pobyt ${fmtDay(h.checkin)} – ${fmtDay(h.checkout)}`:''}${h.manual?' · dodany ręcznie':' · cena z Booking.com przy dodaniu'}</small></div>`;
   }
   if(!q) return '<div class="empty-note">Brak miejsca lub dat podróży do szukania hotelu.</div>';
-  let body='';
-  if(!st) body=`<button type="button" class="btn-grad" data-tp-hotel-search><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj hotelu w ${esc(q.city||'mieście')} · ${fmtDay(q.checkin)} – ${fmtDay(q.checkout)}</button>`;
+  let body='', search='';
+  if(!st) search=`<button type="button" class="btn-grad" data-tp-hotel-search><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj hotelu w ${esc(q.city||'mieście')} · ${fmtDay(q.checkin)} – ${fmtDay(q.checkout)}</button>`;
   else if(st.loading) body=searching('Szukam hoteli na Booking.com…');
   else if(st.error) body=`<div class="empty-note">${esc(st.error)}</div>`;
   else if(st.configured===false) body=`<div class="empty-note">Wyszukiwarka hoteli w aplikacji czeka na klucz Booking.com (BOOKING_API_KEY i BOOKING_AFFILIATE_ID na serwerze). Do tego czasu szukaj na Booking.com i dodaj wybrany hotel poniżej.</div>`;
   else if(!st.hotels?.length) body='<div class="empty-note">Booking.com nie znalazł wolnych pokoi w okolicy w tych dniach.</div>';
   else body=`${st.sandbox?'<small class="text-soft">Dane z piaskownicy Booking.com (sandbox) — testowe.</small>':''}<div class="hotel-list">${st.hotels.map(x=>hotelCard(x, `<button type="button" class="btn-grad" data-tp-hotel-add="${esc(x.id)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj do podróży</button>${x.url?linkBtn(x.url,'arrow-up-right-from-square','Booking.com'):''}`)).join('')}</div>`;
   const link=st?.bookingUrl||`https://www.booking.com/searchresults.html?${new URLSearchParams({ss:q.city, checkin:q.checkin, checkout:q.checkout, group_adults:'1', no_rooms:'1', group_children:'0'})}`;
-  return `${body}<div class="acc-links">${linkBtn(link,'arrow-up-right-from-square','Szukaj na Booking.com')}</div>
+  // Wyszukiwanie, Booking.com i „dodaj ręcznie” w jednym wierszu; wyniki i formularz pod nim.
+  return `${body}<div class="hotel-bar">${search}${linkBtn(link,'arrow-up-right-from-square','Szukaj na Booking.com')}
     <details class="hotel-manual"${TRIPV.manual?' open':''}><summary>Mam już hotel — dodaj go ręcznie</summary>
-      <form class="hotel-form" data-tp-hotel-form><input name="hname" placeholder="Nazwa hotelu" required maxlength="120"><input name="address" placeholder="Adres (pokażemy go na mapie)" maxlength="160"><input name="price" type="number" min="0" step="1" placeholder="Cena za pobyt (zł)"><input name="url" type="url" placeholder="Link do rezerwacji (opcjonalnie)" maxlength="300"><button class="btn-grad" type="submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj hotel</button></form></details>`;
+      <form class="hotel-form" data-tp-hotel-form><input name="hname" placeholder="Nazwa hotelu" required maxlength="120"><input name="address" placeholder="Adres (pokażemy go na mapie)" maxlength="160"><input name="price" type="number" min="0" step="1" placeholder="Cena za pobyt (zł)"><input name="url" type="url" placeholder="Link do rezerwacji (opcjonalnie)" maxlength="300"><button class="btn-grad" type="submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj hotel</button></form></details></div>`;
 }
 async function searchHotels(f){
   const T=f.trip, q=hotelQuery(T); if(!q) return;
@@ -5274,8 +5589,13 @@ document.getElementById('tripPage').addEventListener('click', e=>{
   if(e.target.closest('[data-tp-plan]')){ openInPlanner(f); return; }
   if(e.target.closest('[data-tp-share]')){ openPeople(f); return; }
   if(e.target.closest('[data-tp-remove]')){ askConfirm(L2('Usunąć tę podróż?','Delete this trip?'), {detail:f.title||`${f.from} → ${f.to}`, ok:L2('Usuń podróż','Delete trip'), danger:true}).then(ok=>{ if(!ok) return; const booked=f.status==='booked'; FAV.items=FAV.items.filter(x=>x!==f); saveFavorites().catch(err=>console.warn('Nie zapisano', err)); renderFavorites(); syncStars(); goPage('podroz', booked?'moje':'ulubione', 'podroz'); }); return; }
+  const lc=e.target.closest('[data-lp-city]'); if(lc){ TRIPV.cityAt=+lc.dataset.lpCity; renderTripPage(); return; }
+  const lr=e.target.closest('[data-lp-remove]'); if(lr){ removeLocalTrip(f, lr.dataset.lpRemove); return; }
+  const lm=e.target.closest('[data-lp-move]'); if(lm){ moveLocalTrip(f, lm.dataset.lpMove, +lm.dataset.dir); return; }
+  const lo=e.target.closest('[data-lp-sort]'); if(lo){ sortLocalTrips(f, lo.dataset.lpSort); return; }
+  const ls=e.target.closest('[data-lp-show]'); if(ls){ showLocalTrip(f, ls.dataset.lpShow); return; }
   if(e.target.closest('[data-tp-city]')){ TRIPV.city=!TRIPV.city; renderTripPage(); if(TRIPV.city) setTimeout(()=>document.querySelector('#tripPage .city-panel')?.scrollIntoView({behavior:'smooth', block:'start'}),80); return; }
-  const ts=e.target.closest('[data-tp-step]'); if(ts){ TRIPV.step=ts.dataset.tpStep; renderTripPage(); showOnTripMap(STEP_MAP[TRIPV.step], false); return; }
+  const ts=e.target.closest('[data-tp-step]'); if(ts){ TRIPV.step=ts.dataset.tpStep; renderTripPage(); const TT=findTrip(TRIPV.id)?.trip; showOnTripMap((TT?.ground||TT?.multi?GSTEP_MAP:STEP_MAP)[TRIPV.step], false); return; }
   const tm=e.target.closest('[data-tp-map]'); if(tm){ showOnTripMap(tm.dataset.tpMap, true, true); return; }
   if(e.target.closest('[data-tp-map-hide]')){ hideTripPageMap(); return; }
   if(e.target.closest('[data-tp-map-show]')){ showTripPageMap(); setTimeout(()=>TRIPMAP.el?.scrollIntoView({behavior:'smooth', block:'center'}),50); return; }
@@ -5325,6 +5645,7 @@ function openInPlanner(f){
     plDate.value=fl.day; if(fl.back) plBack.value=fl.back; plTime.value='';
     S.restore=savedPlan(f);
   }
+  const g=f.trip?.ground; S.restoreGround=g?{legs:g.legs||[g.out], back:g.back||null}:null; // wybrane połączenia wracają do planera
   document.getElementById('planForm').requestSubmit();
 }
 function openSavedItem(f, kind){
@@ -5388,6 +5709,13 @@ function pagerHtml(p, withNow){
     <button class="btn-ghost" type="button" data-page="${p.page+1}" ${p.page>=p.pages?'disabled':''}>Następna →</button>
     ${withNow?'<button class="btn-ghost" type="button" data-page-now>Teraz</button>':''}</div>`;
 }
+// Powrót ma własne strony: „Późniejsze” przesuwa tylko listę powrotów.
+function backPager(P, back, railBack){
+  const deps=[...back.map(o=>o.dep), ...railBack.map(r=>r.leave)], last=deps.length?Math.max(...deps):null, hist=P.round.history||[];
+  P.round.lastDep=last;
+  if(last==null && !hist.length) return '';
+  return `<div class="pager">${hist.length?'<button class="btn-ghost" type="button" data-back-page="prev">← Wcześniejsze</button>':''}${last!=null?'<button class="btn-ghost" type="button" data-back-page="next">Późniejsze →</button>':''}</div>`;
+}
 function planPager(P, results){
   const last=results[results.length-1]; P.lastDep=last?last.dep:null;
   if(!last && !P.history.length) return '';
@@ -5448,13 +5776,14 @@ function stopMatches(q){
   return names.filter(n=>n.toLowerCase().includes(needle)).sort((a,b)=>b.toLowerCase().startsWith(needle)-a.toLowerCase().startsWith(needle) || natSort(a,b)).slice(0,5);
 }
 function setBusy(input, on){
-  const box=input.closest('.pl-inp'); let spin=box.querySelector('.pl-spin');
+  const box=input.closest('.pl-inp'); if(!box) return; // np. pola planera po mieście: bez kółka
+  let spin=box.querySelector('.pl-spin');
   if(on && !spin){ spin=document.createElement('span'); spin.className='mini-spin pl-spin'; spin.setAttribute('role','status'); spin.setAttribute('aria-label','Szukam adresu…'); spin.title='Szukam adresu…'; input.after(spin); }
   if(!on && spin) spin.remove();
 }
-function attachSuggest(input, {streets, onPick, local:suggest}){
+function attachSuggest(input, {streets, onPick, local:suggest, near}){ // near(): [lat,lon] — podpowiedzi z okolic innego miasta
   const box=document.createElement('ul'); box.className='suggest-list'; box.id=input.id+'List'; box.setAttribute('role','listbox'); box.hidden=true;
-  input.closest('.pl-field').appendChild(box);
+  (input.closest('.pl-field')||input.closest('.cp-field')||input.parentElement).appendChild(box);
   input.setAttribute('role','combobox'); input.setAttribute('aria-autocomplete','list'); input.setAttribute('aria-controls',box.id); input.setAttribute('aria-expanded','false'); input.autocomplete='off';
   let items=[], active=-1, timer=null, req=0;
   const close=()=>{ clearTimeout(timer); req++; setBusy(input,false); box.hidden=true; active=-1; input.setAttribute('aria-expanded','false'); input.removeAttribute('aria-activedescendant'); };
@@ -5479,10 +5808,10 @@ function attachSuggest(input, {streets, onPick, local:suggest}){
     setBusy(input,true);
     timer=setTimeout(async()=>{
       try{
-        const r=await fetch('/api/streets?q='+encodeURIComponent(q)); if(!r.ok) return;
-        const {suggestions}=await r.json();
+        const at=near?.(), r=await fetch('/api/streets?q='+encodeURIComponent(q)+(at?'&near='+at.map(x=>(+x).toFixed(4)).join(','):'')); if(!r.ok) return;
+        const {suggestions, places}=await r.json();
         if(my!==req) return;
-        items=[...suggestions.map(label=>({label, kind:'miejsce'})), ...local.slice(0,3)]; active=-1; draw();
+        items=[...suggestions.map((label,i)=>({label, kind:'miejsce', point:places?.[i]?.point||null})), ...local.slice(0,3)]; active=-1; draw();
       }catch(e){ console.warn('Podpowiedzi ulic', e); }
       finally{ if(my===req) setBusy(input,false); }
     }, 250);
@@ -5599,7 +5928,7 @@ let planReq=0;
 function tripStart(){
   const today=ymdOf(0), date=plDate.value && plDate.value>today ? plDate.value : '', arriving=plWhen.value==='arr';
   if(!date && !plTime.value) return {at:null, date:''};
-  const [h,m]=(plTime.value||'08:00').split(':').map(Number);
+  const [h,m]=(plTime.value||(date?'00:00':'08:00')).split(':').map(Number); // sama data: wszystkie połączenia tego dnia
   const off=date ? Math.round((Date.parse(date)-Date.parse(today))/86400000) : 0;
   let at=dayInfo(off).base+h*3600+m*60;
   if(!date && at<nowSec()-(arriving?0:3600)) at+=86400;
@@ -5673,6 +6002,8 @@ document.getElementById('planForm').addEventListener('submit', async e=>{
     const last=stages[stages.length-1];
     stages[0].at=at; last.round=round; last.home=places[0];
     S.plan={stages, by}; store(planKey(view), {from:places[0].label,to:last.to});
+    const RG=S.restoreGround; S.restoreGround=null;
+    if(RG && RG.legs.length===stages.length){ stages.forEach((P,k)=>{ P.groundPick=RG.legs[k]||null; }); if(RG.back && last.round) last.groundBack=RG.back; }
     for(const P of stages) if(wantsFlights(P)) loadTripFlights(P);
     runPlan(true);
   }finally{ if(req===planReq){ go.disabled=false; go.classList.remove('busy'); refreshStopList(); } }
@@ -5727,7 +6058,7 @@ function readReturn(){
   const start=plDate.value||ymdOf(0);
   if(!plBack.value || plBack.value<start) return {error:'Data powrotu nie może być wcześniejsza niż data wyjazdu.'};
   const off=Math.round((Date.parse(plBack.value)-Date.parse(ymdOf(0)))/86400000);
-  return {back:plBack.value, at:dayInfo(off).base+8*3600};
+  return {back:plBack.value, at:dayInfo(off).base}; // cały dzień powrotu, od północy
 }
 [plRound,plDate].forEach(e=>e.addEventListener('change', syncReturn));
 /* ---------- Kalendarze ON/WARD: biały, granatowe nagłówki, wybrany dzień niebieski, zakres jasnoniebieski,
@@ -5974,6 +6305,10 @@ document.getElementById('planResults').addEventListener('click', e=>{
   const jl=e.target.closest('[data-jl]'); if(jl){ const P=stageOf(jl), set=P.jlOpen||(P.jlOpen=new Set()); if(set.has(jl.dataset.jl)) set.delete(jl.dataset.jl); else set.add(jl.dataset.jl); runPlan(false); return; }
   const fp=e.target.closest('[data-page]'); if(fp){ stageOf(fp).flightPage=+fp.dataset.page; runPlan(false); return; }
   const tr=e.target.closest('[data-train]'); if(tr){ openTrain(tr.dataset.train); return; }
+  const bp=e.target.closest('[data-back-page]');
+  if(bp){ const P=stageOf(bp); if(!P?.round) return; const R=P.round; R.history=R.history||[];
+    if(bp.dataset.backPage==='next'){ R.history.push(R.from||0); R.from=R.lastDep+60; } else R.from=R.history.pop()||0;
+    runPlan(false); return; }
   const pp=e.target.closest('[data-plan-page]');
   if(pp){ const P=stageOf(pp); if(pp.dataset.planPage==='next'){ P.history.push(P.at); P.at=P.lastDep+60; } else P.at=P.history.pop(); runPlan(false); return; }
   const pl=e.target.closest('[data-place]'); if(pl){ const r=S.placeOptions; S.placeChoice[r.field]={q:r.q, place:r.choose[+pl.dataset.place], approximate:r.approximate}; document.getElementById('planForm').requestSubmit(); return; }
@@ -6283,7 +6618,7 @@ async function loadRailStations(){
   catch(e){ console.warn('Stacje kolejowe', e); }
 }
 const RAIL_IDS = Object.keys(RAIL_ST).filter(k=>RAIL_ST[k][3]).map(Number);
-const RAIL_SEARCH_HOURS = 14;
+const RAIL_SEARCH_HOURS = 24, RAIL_BY_HOURS = 14; // cała doba odjazdów, kolejne strony pod „Późniejsze”
 const HOME_STATION_ID = 82669;
 const TR = {mode:'off', trains:[], days:new Map(), shifted:new Map(), names:new Map(), carriers:new Map(), err:null, ts:null, timer:null, station:HOME_STATION_ID, query:'', tab:'dep', sel:null, busy:false};
 const TRAIN_STATUS = {S:'jeszcze nie wyruszył', P:'w trasie', C:'zakończył bieg', X:'odwołany', Q:'częściowo odwołany'};
@@ -6688,7 +7023,7 @@ function planTrainRoutes(origin, dest, at, trains, by){
     const walkFrom=origin.walk.get(from)||0, walkTo=dest.walk.get(to)||0;
     for(const r of planTrainTrips(from, to, at+walkFrom, candidates, by)){
       const cur=best.get(r.t.key);
-      if(!cur || walkFrom+walkTo<cur.walkFrom+cur.walkTo) best.set(r.t.key, Object.assign(r,{from,to,walkFrom,walkTo}));
+      if(!cur || walkFrom+walkTo<cur.walkFrom+cur.walkTo || (walkFrom+walkTo===cur.walkFrom+cur.walkTo && r.arr<cur.arr)) best.set(r.t.key, Object.assign(r,{from,to,walkFrom,walkTo}));
     }
   }
   const list=[...best.values()].sort((x,y)=>x.dep-y.dep);

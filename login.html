@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#173B70">
-  <title>Logowanie · W drogę</title>
+  <title>Logowanie · podavo.voyage</title>
 <link rel="icon" type="image/svg+xml" href="/assets/onward/logos/mark-transparent.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/onward/png/favicon-32.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/assets/onward/png/favicon-64.png">
@@ -23,7 +23,7 @@
 <body>
   <main class="login-layout">
     <section class="login-intro" aria-labelledby="brand-title">
-      <a class="brand" href="/login"><img class="brand-wordmark" src="/assets/onward/logos/wordmark-on-dark.svg" alt="ON/WARD" width="168" height="44"><span class="brand-tag">Planuj · porównuj · podróżuj</span></a>
+      <a class="brand" href="/login"><img class="brand-wordmark" src="/assets/onward/logos/wordmark-on-dark.svg" alt="podavo.voyage" width="230" height="32"><span class="brand-tag">Planuj · porównuj · podróżuj</span></a>
       <div class="intro-copy">
         <span class="eyebrow"><i></i> MIASTO W RUCHU</span>
         <h1 id="brand-title">Każda podróż zaczyna się od dobrego planu.</h1>
@@ -37,7 +37,7 @@
     <section class="login-side" aria-labelledby="form-title">
       <div class="login-card">
         <div class="login-lang"><div class="lang-switch" role="group" aria-label="Zmień język"><button type="button" data-lang="pl" lang="pl" aria-pressed="true">PL</button><button type="button" data-lang="en" lang="en" aria-pressed="false">EN</button></div></div>
-        <div class="mobile-brand"><img class="brand-wordmark" src="/assets/onward/logos/wordmark-on-light.svg" alt="ON/WARD" width="150" height="39"></div>
+        <div class="mobile-brand"><img class="brand-wordmark" src="/assets/onward/logos/wordmark-on-light.svg" alt="podavo.voyage" width="200" height="28"></div>
         <div class="card-heading">
           <span class="eyebrow">WITAJ Z POWROTEM</span>
           <h2 id="form-title">Zaloguj się</h2>
@@ -50,61 +50,45 @@
           <span aria-hidden="true">→</span>
         </button>
         <p class="provider-note" id="googleNote" hidden>Logowanie przez Google wymaga skonfigurowania danych OAuth przez właściciela aplikacji.</p>
-        <p class="provider-note" id="emailNote" hidden>Rejestracja i odzyskiwanie hasła wymagają skonfigurowanej usługi e-mail.</p>
+        <p class="provider-note" id="emailNote" hidden>Kody logowania wymagają skonfigurowanej usługi e-mail. Do tego czasu zaloguj się hasłem albo przez Google.</p>
         <div class="divider"><span>lub przez e-mail</span></div>
 
-        <div class="form-tabs" role="tablist" aria-label="Rodzaj logowania">
-          <button class="tab active" id="loginTab" type="button" role="tab" aria-selected="true">Logowanie</button>
-          <button class="tab" id="registerTab" type="button" role="tab" aria-selected="false">Utwórz konto</button>
+        <div class="form-tabs" role="tablist" aria-label="Sposób logowania">
+          <button class="tab active" id="codeTab" type="button" role="tab" aria-selected="true">Kod na e-mail</button>
+          <button class="tab" id="passwordTab" type="button" role="tab" aria-selected="false">Mam hasło</button>
         </div>
 
         <div class="form-message" id="formMessage" role="alert" aria-live="polite"></div>
 
-        <form id="loginForm" class="auth-form">
-          <label for="loginEmail">Adres e-mail</label>
-          <input id="loginEmail" name="email" type="email" autocomplete="email" placeholder="ty@przyklad.pl" required maxlength="320">
-          <div class="label-row"><label for="loginPassword">Hasło</label></div>
-          <input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="Wpisz swoje hasło" required maxlength="256">
-          <button class="text-link" id="forgotPasswordButton" type="button">Nie pamiętasz hasła?</button>
-          <button class="submit-button" type="submit">Zaloguj się <span aria-hidden="true">→</span></button>
+        <form id="codeForm" class="auth-form">
+          <div id="codeEmailStep">
+            <label for="codeEmail">Adres e-mail</label>
+            <input id="codeEmail" name="email" type="email" autocomplete="email" placeholder="ty@przyklad.pl" required maxlength="254">
+            <button class="submit-button" id="sendCodeButton" type="submit">Wyślij kod <span aria-hidden="true">→</span></button>
+            <p class="step-copy">Nie masz jeszcze konta? Pierwszy kod je utworzy — jedno konto Podavo działa we wszystkich aplikacjach Podavo.</p>
+          </div>
+          <div id="codeStep" hidden>
+            <p class="step-copy" id="codeSentTo">Wysłaliśmy 6-cyfrowy kod na Twój adres e-mail.</p>
+            <label for="loginCode">Kod z e-maila</label>
+            <input id="loginCode" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000">
+            <button class="submit-button" id="verifyCodeButton" type="submit">Zaloguj się <span aria-hidden="true">→</span></button>
+            <button class="text-link" id="resendCodeButton" type="button">Wyślij nowy kod</button>
+            <button class="text-link" id="changeEmailButton" type="button">Zmień adres e-mail</button>
+          </div>
         </form>
 
-        <form id="registerForm" class="auth-form" hidden>
-          <div id="registrationDetails">
-          <label for="registerName">Imię i nazwisko</label>
-          <input id="registerName" name="displayName" autocomplete="name" placeholder="Jak mamy się do Ciebie zwracać?" required maxlength="100">
-          <label for="registerEmail">Adres e-mail</label>
-          <input id="registerEmail" name="email" type="email" autocomplete="email" placeholder="ty@przyklad.pl" required maxlength="320">
-          <label for="registerPassword">Hasło <span class="hint">min. 12 znaków</span></label>
-          <input id="registerPassword" name="password" type="password" autocomplete="new-password" placeholder="Utwórz bezpieczne hasło" required minlength="12" maxlength="256">
-            <button class="submit-button" id="startRegistrationButton" type="submit">Wyślij kod <span aria-hidden="true">→</span></button>
-          </div>
-          <div id="verificationStep" hidden>
-            <p class="step-copy">Wysłaliśmy 6-cyfrowy kod na podany adres e-mail. Wklej go poniżej, aby potwierdzić adres i utworzyć konto.</p>
-            <label for="verificationCode">Kod z e-maila</label>
-            <input id="verificationCode" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000">
-            <button class="submit-button" id="registerSubmit" type="submit">Potwierdź e-mail <span aria-hidden="true">→</span></button>
-            <button class="text-link" id="resendVerificationButton" type="button">Wyślij nowy kod</button>
-            <button class="text-link" id="editRegistrationButton" type="button">Popraw dane rejestracji</button>
-          </div>
-        </form>
-        <form id="forgotPasswordForm" class="auth-form" hidden>
-          <label for="resetEmail">Adres e-mail</label>
-          <input id="resetEmail" name="email" type="email" autocomplete="email" placeholder="ty@przyklad.pl" required maxlength="320">
-          <div id="passwordResetStep" hidden>
-            <p class="step-copy">Jeśli dla tego adresu istnieje konto z hasłem, otrzymasz kod. Wpisz go wraz z nowym hasłem.</p>
-            <label for="resetCode">Kod z e-maila</label>
-            <input id="resetCode" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000">
-            <label for="newPassword">Nowe hasło <span class="hint">min. 12 znaków</span></label>
-            <input id="newPassword" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256">
-          </div>
-          <button class="submit-button" id="resetSubmitButton" type="submit">Wyślij kod <span aria-hidden="true">→</span></button>
-          <button class="text-link" id="backToLoginButton" type="button">Wróć do logowania</button>
+        <form id="passwordForm" class="auth-form" hidden>
+          <label for="loginEmail">Adres e-mail</label>
+          <input id="loginEmail" name="email" type="email" autocomplete="email" placeholder="ty@przyklad.pl" required maxlength="254">
+          <div class="label-row"><label for="loginPassword">Hasło</label></div>
+          <input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="Wpisz swoje hasło" required maxlength="128">
+          <button class="submit-button" type="submit">Zaloguj się <span aria-hidden="true">→</span></button>
+          <p class="step-copy">Nie pamiętasz hasła albo go nie masz? Zaloguj się kodem z e-maila — hasło ustawisz potem w menu konta.</p>
         </form>
         <a class="browse-link" href="/">Przeglądaj bez logowania <span aria-hidden="true">→</span></a>
-        <p class="privacy-note">Twoje dane są bezpieczne. Hasło jest przechowywane wyłącznie w postaci bezpiecznego skrótu.</p>
+        <p class="privacy-note">Jedno konto Podavo — podavo.voyage i pozostałe aplikacje Podavo. Hasło, jeśli je ustawisz, przechowujemy wyłącznie jako bezpieczny skrót.</p>
       </div>
-      <footer>W/DROGĘ <span>·</span> PODRÓŻUJ PO SWOJEMU</footer>
+      <footer>PODAVO.VOYAGE <span>·</span> PODRÓŻUJ PO SWOJEMU</footer>
     </section>
   </main>
 </body>

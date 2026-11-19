@@ -1,12 +1,9 @@
 "use strict";
 
-const path = require("node:path");
 
 const RYANAIR_URL = "https://www.ryanair.com/api/views/locate";
-const WIZZ_HOME = "https://www.wizzair.com/pl-pl";
 const USER_AGENT = "komunikacja-rzeszow/1.0 (https://github.com/qubexon-pl/komunikacja)";
 const REQUEST_GAP_MS = 300;
-const WIZZ_WAIT_MS = 15000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -47,20 +44,6 @@ async function readRyanair({ fetchSource = fetch, gapMs = REQUEST_GAP_MS } = {})
   return { airports, routes };
 }
 
-// Wizz has no open route list; its home page loads this map, so the same browser profile as the tracker reads it there.
-async function readWizz(dir) {
-  const { chromium } = require(path.join(dir, "node_modules", "playwright"));
-  const context = await chromium.launchPersistentContext(path.join(dir, "data", "wizz-profile"), { headless: false, locale: "pl-PL", viewport: { width: 1366, height: 850 } });
-  try {
-    const page = context.pages()[0] ?? (await context.newPage());
-    const response = page.waitForResponse((item) => item.url().includes("/Api/asset/map"), { timeout: WIZZ_WAIT_MS * 2 });
-    await page.goto(WIZZ_HOME, { waitUntil: "domcontentloaded", timeout: 60000 });
-    return parseWizzMap(await (await response).json());
-  } finally {
-    await context.close();
-  }
-}
-
 function mergeNetwork(sources) {
   const airports = new Map();
   const routes = new Map();
@@ -87,8 +70,8 @@ function fromPrevious(previous, airline) {
 }
 
 // One airline failing must not erase its routes, so the previous list stands in for it.
-// Wizz Air is not read with a browser any more (it blocks automated browsers), so its last known routes stay.
-async function readNetwork({ dir, previous = null, ryanair = readRyanair, wizz = async () => fromPrevious(previous, "WIZZ") }) {
+// Both lists come from the airlines' APIs (no browser); without a Wizz Air reader the last known Wizz routes stay.
+async function readNetwork({ previous = null, ryanair = readRyanair, wizz = async () => fromPrevious(previous, "WIZZ") }) {
   const read = async (airline, load) => {
     try {
       return await load();
@@ -98,8 +81,8 @@ async function readNetwork({ dir, previous = null, ryanair = readRyanair, wizz =
     }
   };
   const RYANAIR = await read("RYANAIR", () => ryanair());
-  const WIZZ = await read("WIZZ", () => wizz(dir));
+  const WIZZ = await read("WIZZ", () => wizz());
   return { ...mergeNetwork({ RYANAIR, WIZZ }), updatedAt: new Date().toISOString() };
 }
 
-module.exports = { mergeNetwork, parseWizzMap, readNetwork, readRyanair, readWizz, ryanairAirports };
+module.exports = { mergeNetwork, parseWizzMap, readNetwork, readRyanair, ryanairAirports };

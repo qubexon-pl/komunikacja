@@ -134,3 +134,23 @@ test("with no flight on the chosen days, the timetable is read in 30-day steps u
   assert.deepEqual(sent, [[day(10), day(39)], [day(40), day(69)], [day(70), day(99)]]); // stops at the step with a flight
   assert.deepEqual(stored().map((f) => [f.departure, f.pricePln]), [[`${day(75)}T19:35`, 259]]);
 });
+
+test("the Wizz Air route list comes from its API with the app's own name, and a refusal pauses it for an hour", async () => {
+  const calls = [];
+  let status = 200;
+  const wizz = createWizzTimetable({ flights: createFlightStore({ database: { readFares: async () => [], replaceFares: async () => {} }, now: () => new Date(NOW) }),
+    toPln: async (a) => a, now: () => NOW, gapMs: 0, version: "29.24.0", fetchSource: async (url, init) => {
+      calls.push({ url, method: init.method || "GET", headers: init.headers });
+      return { ok: status === 200, status, json: async () => ({ cities: [{ iata: "KTW", shortName: "Katowice", connections: [{ iata: "BCN", isDirectFlight: true }] }, { iata: "BCN", shortName: "Barcelona", connections: [] }] }) };
+    } });
+  const map = await wizz.readMap();
+  assert.equal(calls[0].url, "https://be.wizzair.com/29.24.0/Api/asset/map?languageCode=pl-pl");
+  assert.equal(calls[0].method, "GET");
+  assert.deepEqual(Object.keys(calls[0].headers).sort(), ["Accept", "User-Agent"]); // no copied browser headers, cookies or tokens
+  assert.match(calls[0].headers["User-Agent"], /^komunikacja-rzeszow\//);
+  assert.equal(map.cities.length, 2);
+  status = 429;
+  await assert.rejects(wizz.readMap(), /paused/);
+  await assert.rejects(wizz.readMap(), /paused/);
+  assert.equal(calls.length, 2); // the second refusal-time request was never sent
+});

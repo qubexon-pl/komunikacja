@@ -271,3 +271,29 @@ test("a street written with its city is found outside the Rzeszów area", async 
   const { places } = await geocode("Floriańska 10, Kraków");
   assert.deepEqual(places.map((place) => place.label), ["Floriańska 10, Kraków"]);
 });
+
+test("a city named as typed comes before a hamlet of the same name near Rzeszów", async () => {
+  const geocode = createGeocoder({
+    minGapMs: 0,
+    fetchSource: async (url) => response(url.searchParams.get("bounded") === "1"
+      ? [{ lat: "49.77", lon: "22.13", category: "place", name: "Warszawa", address: { hamlet: "Hłudno" } }]
+      : [{ lat: "52.23", lon: "21.01", category: "boundary", name: "Warszawa", address: { city: "Warszawa" } }]),
+  });
+  const { places } = await geocode("Warszawa");
+  assert.deepEqual(places.map((place) => place.label), ["Warszawa", "Warszawa, Hłudno"]);
+});
+
+test("suggestions forgive a small typo, return the map point and can be biased to another city", async () => {
+  let asked;
+  const feature = (street, housenumber, city, lon, lat) => ({ geometry: { coordinates: [lon, lat] }, properties: { type: "house", street, housenumber, city, countrycode: "PL" } });
+  const suggest = createStreetSuggester({
+    minGapMs: 0,
+    fetchSource: async (url) => { asked = url; return { ok: true, json: async () => ({ features: [feature("Siedmiogrodzka", "9", "Warszawa", 20.969884, 52.230751), feature("Hetmańska", "9", "Rzeszów", 22.01, 50.03)] }) }; },
+  });
+  const places = await suggest.places("Siedmogrodzka 9", [52.2297, 21.0122]);
+  assert.deepEqual(places, [{ label: "Siedmiogrodzka 9, Warszawa", point: [52.230751, 20.969884] }]);
+  assert.equal(asked.searchParams.get("lat"), "52.2297");
+  assert.deepEqual(await suggest("Siedmogrodzka 9", [52.2297, 21.0122]), ["Siedmiogrodzka 9, Warszawa"]);
+  await suggest("Hetmańska");
+  assert.equal(asked.searchParams.get("lat"), "50.0378", "without a city the suggestions stay around Rzeszów");
+});

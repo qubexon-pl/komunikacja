@@ -23,12 +23,6 @@ def _utc(seconds: int) -> datetime:
 
 class Repository(Protocol):  # what the routes need; tests provide an in-memory version
     def user_by_session(self, session_hash: str) -> dict | None: ...
-    def create_session(self, user_id: str, session_hash: str, ttl: int) -> None: ...
-    def delete_session(self, session_hash: str) -> None: ...
-    def local_login(self, email: str) -> tuple[dict, str] | None: ...
-    def save_oauth_state(self, state_hash: str, verifier: str, return_to: str, ttl: int) -> None: ...
-    def consume_oauth_state(self, state_hash: str) -> dict | None: ...
-    def google_user(self, subject: str, email: str, name: str, is_admin: bool) -> dict: ...
     def favorites(self, user_id: str) -> list: ...
     def save_favorites(self, user_id: str, favorites: list) -> None: ...
     def preferences(self, user_id: str) -> dict: ...
@@ -54,77 +48,25 @@ def _photo(row: Any) -> dict:
 
 
 class SqlRepository:
-    def __init__(self, db: Database):
-        self.db = db
+    def __init__(self, db: Database, mdm: Database | None = None):
+        self.db, self.mdm = db, mdm
 
     def user_by_session(self, session_hash: str) -> dict | None:
-        with self.db.connection() as c:
-            row = c.cursor().execute(
-                """SELECT u.user_id, u.email, u.display_name, u.is_admin FROM dbo.AuthSession s
-                   INNER JOIN dbo.AppUser u ON u.user_id = s.user_id
-                   WHERE s.session_hash = ? AND s.expires_at > SYSUTCDATETIME();""", session_hash).fetchone()
-            return _user(row) if row else None
-
-    def create_session(self, user_id: str, session_hash: str, ttl: int) -> None:
-        with self.db.connection() as c:
-            c.cursor().execute(
-                """DELETE FROM dbo.AuthSession WHERE expires_at < SYSUTCDATETIME();
-                   INSERT INTO dbo.AuthSession (session_hash, user_id, expires_at) VALUES (?, ?, ?);""",
-                session_hash, user_id, _utc(ttl))
-
-    def delete_session(self, session_hash: str) -> None:
-        with self.db.connection() as c:
-            c.cursor().execute("DELETE FROM dbo.AuthSession WHERE session_hash = ?;", session_hash)
-
-    def local_login(self, email: str) -> tuple[dict, str] | None:
-        with self.db.connection() as c:
-            row = c.cursor().execute(
-                """SELECT u.user_id, u.email, u.display_name, u.is_admin, c.password_hash FROM dbo.AppUser u
-                   INNER JOIN dbo.LocalCredential c ON c.user_id = u.user_id WHERE u.email = ?;""", email).fetchone()
-            return (_user(row), row.password_hash) if row else None
-
-    def save_oauth_state(self, state_hash: str, verifier: str, return_to: str, ttl: int) -> None:
-        with self.db.connection() as c:
-            c.cursor().execute(
-                """DELETE FROM dbo.OAuthState WHERE expires_at < SYSUTCDATETIME();
-                   INSERT INTO dbo.OAuthState (state_hash, provider, code_verifier, return_to, expires_at) VALUES (?, N'google', ?, ?, ?);""",
-                state_hash, verifier, return_to, _utc(ttl))
-
-    def consume_oauth_state(self, state_hash: str) -> dict | None:
-        with self.db.connection() as c:
-            row = c.cursor().execute(
-                """DELETE FROM dbo.OAuthState OUTPUT deleted.code_verifier, deleted.return_to
-                   WHERE state_hash = ? AND expires_at > SYSUTCDATETIME();""", state_hash).fetchone()
-            return {"codeVerifier": row.code_verifier, "returnTo": row.return_to} if row else None
-
-    def google_user(self, subject: str, email: str, name: str, is_admin: bool) -> dict:
-        """The app user linked to this Google account; a new one on first sign-in. App user ids stay independent of Google."""
-        find = """SELECT u.user_id, u.email, u.display_name, u.is_admin FROM dbo.ExternalIdentity i
-                  INNER JOIN dbo.AppUser u ON u.user_id = i.user_id WHERE i.provider = N'google' AND i.provider_subject = ?;"""
-        with self.db.connection() as c:
-            row = c.cursor().execute(find, subject).fetchone()
-            if row:
-                return _user(row)
+        """Sessions are the Podavo family's (podavo-mdm, made by the Node server's sign-in); the person is this app's
+        member row with the account's GUID as user_id (Node keeps it current at every sign-in)."""
         try:
-            with self.db.connection() as c:
-                cur = c.cursor()
-                if cur.execute("SELECT 1 FROM dbo.AppUser WITH (UPDLOCK, HOLDLOCK) WHERE email = ?;", email).fetchone():
-                    raise Conflict()
-                user_id = str(uuid.uuid4())
-                cur.execute("INSERT INTO dbo.AppUser (user_id, email, display_name, is_admin) VALUES (?, ?, ?, ?);",
-                            user_id, email, name, 1 if is_admin else 0)
-                cur.execute("INSERT INTO dbo.ExternalIdentity (provider, provider_subject, user_id) VALUES (N'google', ?, ?);", subject, user_id)
-                return {"id": user_id, "email": email, "displayName": name, "isAdmin": is_admin}
-        except Conflict:
-            raise
-        except Exception as error:  # two first sign-ins at once: the other one created the link
-            if "2601" in str(error) or "2627" in str(error):
-                with self.db.connection() as c:
-                    row = c.cursor().execute(find, subject).fetchone()
-                    if row:
-                        return _user(row)
-                raise Conflict() from error
-            raise
+            key = bytes.fromhex(session_hash)
+        except ValueError:
+            return None
+        with self.mdm.connection() as c:
+            found = c.cursor().execute(
+                """SELECT a.AccountGuid, a.Email, a.Name FROM mdm.Session s JOIN mdm.Account a ON a.AccountId = s.AccountId
+                   WHERE s.TokenHash = ? AND s.AppCode = 'voyage' AND s.ExpiresAt > SYSUTCDATETIME();""", key).fetchone()
+        if not found:
+            return None
+        with self.db.connection() as c:
+            row = c.cursor().execute("SELECT user_id, email, display_name, is_admin FROM dbo.AppUser WHERE user_id = ?;", found.AccountGuid).fetchone()
+        return _user(row) if row else {"id": str(found.AccountGuid).lower(), "email": found.Email, "displayName": found.Name, "isAdmin": False}
 
     def _json(self, table: str, column: str, user_id: str, default: Any) -> Any:
         with self.db.connection() as c:

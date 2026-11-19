@@ -166,7 +166,7 @@ function createPriceAlerts({ db, flights, collector = null, sendEmail = null, no
         if (price !== alert.lastPrice) await db.checked(alert.id, price);
         if (shouldNotify(alert, price) && sendEmail && alert.email) {
           try {
-            await sendEmail({ to: alert.email, subject: `Cena lotu ${alert.from} → ${alert.to}: ${price} zł — W drogę`, text: noticeText(alert, found, appUrl) });
+            await sendEmail({ to: alert.email, subject: `Cena lotu ${alert.from} → ${alert.to}: ${price} zł — podavo.voyage`, text: noticeText(alert, found, appUrl) });
             await db.notified(alert.id, price);
             notified += 1;
           } catch (error) {

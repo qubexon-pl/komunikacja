@@ -1,5 +1,7 @@
 from datetime import date, timedelta
 
+from conftest import sign_in
+
 NATIVE = {"Origin": "capacitor://localhost"}
 
 
@@ -7,12 +9,12 @@ def bearer(token):
     return {"Authorization": f"Bearer {token}", **NATIVE}
 
 
-def login(client, email="ania@example.com", password="correct horse battery"):
-    return client.post("/api/auth/login", json={"email": email, "password": password}, headers={**NATIVE, "X-Auth-Mode": "token"}).json()
+def login(client, email="ania@example.com"):
+    return sign_in(client, email, "Ania")
 
 
 def owner_with_trip(client, days_ahead=3):
-    owner = client.post("/api/auth/google/native", json={"idToken": "good"}, headers=NATIVE).json()  # user "Nowy"
+    owner = sign_in(client)  # user "Nowy"
     day = (date.today() + timedelta(days=days_ahead)).isoformat()
     back = (date.today() + timedelta(days=days_ahead + 2)).isoformat()
     trip = {"type": "trip", "view": "podroz", "id": "f:1", "from": "Rzeszów", "to": "Sztokholm", "name": "Lot", "tid": "trip0001", "status": "booked",
@@ -71,9 +73,9 @@ def test_location_is_visible_only_after_that_person_switches_it_on_and_disappear
     client.put(f"{url}/location-sharing", json={"enabled": False}, headers=bearer(ft))
     assert client.get(f"{url}/locations", headers=bearer(t)).json()["locations"] == []
     # people outside the trip see nothing
-    stranger = client.post("/api/auth/login", json={"email": "ania@example.com", "password": "correct horse battery"}, headers={**NATIVE, "X-Auth-Mode": "token"})
+    stranger = sign_in(client, "ania@example.com")
     client.delete(f"{url}/members/{friend['user']['id']}", headers=bearer(t))
-    assert client.get(f"{url}/locations", headers=bearer(stranger.json()["token"])).status_code == 404
+    assert client.get(f"{url}/locations", headers=bearer(stranger["token"])).status_code == 404
 
 
 def test_an_old_position_is_not_shown_as_current_and_a_finished_trip_cannot_start_sharing(client):

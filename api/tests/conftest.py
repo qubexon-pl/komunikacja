@@ -176,7 +176,7 @@ def node_calls():
 def client(tmp_path, node_calls):
     def node(request: httpx.Request) -> httpx.Response:
         node_calls.append(request)
-        if request.url.path == "/api/auth/verify-email":
+        if request.url.path == "/api/auth/verify":
             return httpx.Response(201, json={"user": {"id": "n1"}}, headers={"set-cookie": "rzbus_session=" + "A" * 43 + "; Path=/; HttpOnly"})
         if request.url.path == "/api/auth/config":
             return httpx.Response(200, json={"googleEnabled": False, "emailEnabled": True})
@@ -186,15 +186,24 @@ def client(tmp_path, node_calls):
                               "GOOGLE_NATIVE_CLIENT_IDS": "ios-client,android-client", "ADMIN_EMAILS": "boss@example.com"})
     repo = MemoryRepo()
 
-    def verify(token, audiences):
-        claims = {"good": {"sub": "g-123", "email": "nowy@example.com", "email_verified": True, "name": "Nowy", "aud": "ios-client"},
-                  "taken": {"sub": "g-999", "email": "ania@example.com", "email_verified": True, "aud": "web-client"},
-                  "unverified": {"sub": "g-5", "email": "x@example.com", "email_verified": False, "aud": "web-client"}}.get(token)
-        if not claims or claims["aud"] not in audiences:
-            raise ValueError("bad token")
-        return claims
-
-    app = create_app(settings, repo=repo, storage=LocalStorage(str(tmp_path)), verify_google_token=verify, upstream=httpx.MockTransport(node))
+    app = create_app(settings, repo=repo, storage=LocalStorage(str(tmp_path)), upstream=httpx.MockTransport(node))
     with TestClient(app, base_url=ORIGIN) as c:
         c.repo = repo
         yield c
+
+
+def sign_in(client, email="nowy@example.com", name="Nowy"):
+    """A session as the Node server's sign-in creates it (podavo-mdm); FastAPI only reads sessions."""
+    import secrets
+    import uuid as _uuid
+
+    from app.security import token_hash
+
+    repo = client.repo
+    user = next((u for u in repo.users.values() if u["email"] == email), None)
+    if user is None:
+        uid = str(_uuid.uuid4())
+        user = repo.users[uid] = {"id": uid, "email": email, "displayName": name, "isAdmin": False}
+    token = secrets.token_urlsafe(32)
+    repo.sessions[token_hash(token)] = user["id"]
+    return {"token": token, "user": user}

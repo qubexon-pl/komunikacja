@@ -1,4 +1,4 @@
-"""ON/WARD API front: FastAPI serves sign-in, the user's own data and photos directly from Azure SQL / ADLS, and passes
+"""podavo.voyage API front: FastAPI serves sign-in, the user's own data and photos directly from Azure SQL / ADLS, and passes
 every other request (pages, timetables, live buses, trains, flights, weather…) to the Node server until each of those
 modules is moved here. Web, Android and iOS all call these same endpoints.
 
@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
-from . import routes_auth, routes_trips, routes_user
+from . import routes_trips, routes_user
 from .config import Settings, load_settings
 from .deps import RateLimit, caller_of
 from .security import SESSION_COOKIE, valid_token
@@ -24,7 +24,7 @@ HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authoriza
               "host", "content-length"}
 
 
-def create_app(settings: Settings | None = None, repo=None, storage=None, verify_google_token=None, upstream: httpx.AsyncBaseTransport | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, repo=None, storage=None, upstream: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     settings = settings or load_settings()
 
     @asynccontextmanager
@@ -34,20 +34,18 @@ def create_app(settings: Settings | None = None, repo=None, storage=None, verify
         yield
         await app.state.http.aclose()
 
-    app = FastAPI(title="ON/WARD API", version="1.0.0", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url="/api/openapi.json")
+    app = FastAPI(title="podavo.voyage API", version="1.0.0", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url="/api/openapi.json")
     app.state.settings = settings
     if repo is None:
         from .db import Database
         from .repo import SqlRepository
 
-        repo = SqlRepository(Database(settings))
+        repo = SqlRepository(Database(settings), Database(settings, settings.mdm_sql_server, settings.mdm_sql_database))
     if storage is None:
         from .storage import create_storage
 
         storage = create_storage(settings)
     app.state.repo, app.state.storage = repo, storage
-    app.state.verify_google_token = verify_google_token or routes_auth.verify_google_id_token
-    app.state.auth_attempts = RateLimit(limit=10, window=15 * 60)  # sign-in attempts per address
     app.state.upload_chunks = RateLimit(limit=600, window=60 * 60)  # photo chunks per user
     app.state.trip_invites = RateLimit(limit=30, window=60 * 60)  # adding people also tells whether an e-mail has an account
     app.state.people_search = RateLimit(limit=120, window=60)  # suggestions while typing a name or e-mail
@@ -115,7 +113,8 @@ def create_app(settings: Settings | None = None, repo=None, storage=None, verify
         return {**base, "googleEnabled": settings.google_web_enabled, "googleNativeEnabled": bool(settings.google_audiences),
                 "googleClientId": settings.google_client_id or None}
 
-    app.include_router(routes_auth.router)
+    # Sign-in (e-mail code, password, Google on the web and on phones) is the Node server's, against podavo-mdm;
+    # its routes reach Node through to_node below, which hands the app its session as a token.
     app.include_router(routes_user.router)
     app.include_router(routes_trips.router)
 
@@ -181,4 +180,4 @@ try:  # importing for tests must not need Azure settings
     if not os.environ.get("ONWARD_TESTING"):
         app = _default_app()
 except RuntimeError as error:  # pragma: no cover - shown when uvicorn starts without configuration
-    raise SystemExit(f"ON/WARD API: {error}")
+    raise SystemExit(f"podavo.voyage API: {error}")

@@ -168,68 +168,62 @@ test("authentication endpoints enforce same-origin requests and set HttpOnly coo
   assert.match(accepted.headers.get("set-cookie"), /SameSite=Lax/);
 });
 
-test("registration sends an email code before creating a session", async (t) => {
+test("sign-in by e-mail code: the code request sets no session, the right code signs in", async (t) => {
   const calls = [];
   const baseUrl = await startServer(t, {}, {
-    startEmailVerification: async (values) => calls.push(["start", values]),
-    verifyEmail: async (values) => {
+    startEmailLogin: async (values) => { calls.push(["code", values]); return { email: values.email, resendIn: 60 }; },
+    verifyEmailLogin: async (values) => {
       calls.push(["verify", values]);
       return { user: { id: "user-2", email: values.email }, session: { token: "new-session" } };
     },
   });
   const headers = { "Content-Type": "application/json", Origin: baseUrl };
-  const registration = await fetch(`${baseUrl}/api/auth/register`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ email: "rider@example.com", displayName: "Rider", password: "a sufficiently long password" }),
-  });
-  assert.equal(registration.status, 202);
-  assert.deepEqual(await registration.json(), { codeSent: true });
-  assert.equal(registration.headers.get("set-cookie"), null);
+  const code = await fetch(`${baseUrl}/api/auth/code`, { method: "POST", headers, body: JSON.stringify({ email: "rider@example.com" }) });
+  assert.equal(code.status, 202);
+  assert.deepEqual(await code.json(), { email: "rider@example.com", resendIn: 60 });
+  assert.equal(code.headers.get("set-cookie"), null);
 
-  const verification = await fetch(`${baseUrl}/api/auth/verify-email`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ email: "rider@example.com", code: "123456" }),
-  });
-  assert.equal(verification.status, 201);
-  assert.match(verification.headers.get("set-cookie"), /HttpOnly/);
-  assert.deepEqual(calls, [
-    ["start", { email: "rider@example.com", displayName: "Rider", password: "a sufficiently long password" }],
-    ["verify", { email: "rider@example.com", code: "123456" }],
-  ]);
+  const verify = await fetch(`${baseUrl}/api/auth/verify`, { method: "POST", headers, body: JSON.stringify({ email: "rider@example.com", code: "123456" }) });
+  assert.equal(verify.status, 201);
+  assert.match(verify.headers.get("set-cookie"), /rzbus_session=new-session;.*HttpOnly/);
+  assert.equal((await verify.json()).user.id, "user-2");
+  assert.deepEqual(calls, [["code", { email: "rider@example.com" }], ["verify", { email: "rider@example.com", code: "123456" }]]);
+
+  // The old registration and reset steps are gone: the code replaces them.
+  for (const old of ["register", "verify-email", "forgot-password", "reset-password"]) {
+    assert.equal((await fetch(`${baseUrl}/api/auth/${old}`, { method: "POST", headers, body: "{}" })).status, 404);
+  }
 });
 
-test("password recovery uses a same-origin code request and confirms the new password", async (t) => {
+test("the phone app may sign in from its own origin only in token mode, never a web page elsewhere", async (t) => {
+  const baseUrl = await startServer(t, {}, { startEmailLogin: async (values) => ({ email: values.email, resendIn: 60 }) });
+  const send = (headers) => fetch(`${baseUrl}/api/auth/code`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify({ email: "a@example.com" }) });
+  assert.equal((await send({ Origin: "capacitor://localhost", "X-Auth-Mode": "token" })).status, 202);
+  assert.equal((await send({ Origin: "capacitor://localhost" })).status, 403);
+  assert.equal((await send({ Origin: "https://evil.example", "X-Auth-Mode": "token" })).status, 403);
+});
+
+test("the optional password is shown, set and removed only for the signed-in person", async (t) => {
   const calls = [];
   const baseUrl = await startServer(t, {}, {
-    startPasswordReset: async (email) => calls.push(["request", email]),
-    resetPassword: async (values) => calls.push(["reset", values]),
+    passwordStatus: async (user) => ({ hasPassword: false, user: user.id }),
+    setPassword: async (user, password, current, keep) => { calls.push(["set", user.id, password, current, keep]); return { hasPassword: true }; },
+    removePassword: async (user, current) => { calls.push(["remove", user.id, current]); return { hasPassword: false }; },
   });
-  const headers = { "Content-Type": "application/json", Origin: baseUrl };
-  const request = await fetch(`${baseUrl}/api/auth/forgot-password`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ email: "rider@example.com" }),
-  });
-  assert.equal(request.status, 200);
-  const reset = await fetch(`${baseUrl}/api/auth/reset-password`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ email: "rider@example.com", code: "123456", password: "a new sufficiently long password" }),
-  });
-  assert.equal(reset.status, 200);
-  assert.deepEqual(calls, [
-    ["request", "rider@example.com"],
-    ["reset", { email: "rider@example.com", code: "123456", password: "a new sufficiently long password" }],
-  ]);
+  assert.equal((await fetch(`${baseUrl}/api/auth/password`)).status, 401);
+  const headers = { "Content-Type": "application/json", Origin: baseUrl, Cookie: "rzbus_session=test-session" };
+  assert.deepEqual(await (await fetch(`${baseUrl}/api/auth/password`, { headers })).json(), { hasPassword: false, user: "user-1" });
+  assert.equal((await fetch(`${baseUrl}/api/auth/password`, { method: "PUT", headers: { ...headers, Origin: "https://evil.example" }, body: "{}" })).status, 403);
+  assert.equal((await fetch(`${baseUrl}/api/auth/password`, { method: "PUT", headers, body: JSON.stringify({ password: "a long new password" }) })).status, 200);
+  assert.equal((await fetch(`${baseUrl}/api/auth/password`, { method: "DELETE", headers, body: JSON.stringify({ currentPassword: "a long new password" }) })).status, 200);
+  assert.deepEqual(calls, [["set", "user-1", "a long new password", undefined, "test-session"], ["remove", "user-1", "a long new password"]]);
 });
 
 test("account deletion requires an authenticated same-origin confirmation", async (t) => {
   const calls = [];
   const baseUrl = await startServer(t, {}, {
-    startAccountDeletion: async (userId) => calls.push(["request", userId]),
-    confirmAccountDeletion: async (userId, code) => calls.push(["confirm", userId, code]),
+    startAccountDeletion: async (user) => calls.push(["request", user.id]),
+    confirmAccountDeletion: async (user, code) => calls.push(["confirm", user.id, code]),
   });
   const unauthorized = await fetch(`${baseUrl}/api/auth/account/delete`, {
     method: "POST",
@@ -291,6 +285,7 @@ test("street suggestions fail without exposing details", async (t) => {
       if (query === "awaria") throw new Error("down");
       return ["Lwowska, Rzeszów"];
     },
+    geocode: async () => { throw new Error("down too"); },
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => server.close());
@@ -303,6 +298,24 @@ test("street suggestions fail without exposing details", async (t) => {
   const failed = await fetch(`${base}?q=awaria`, { headers });
   assert.equal(failed.status, 502);
   assert.doesNotMatch(await failed.text(), /down/);
+});
+
+test("when street suggestions fail, the address search suggests exact addresses with their points", async (t) => {
+  const { createServer } = require("../src/server");
+  const server = createServer({
+    database: {},
+    auth: { resolveSession: async () => ({ id: "1" }) },
+    suggestStreets: async () => { throw new Error("The operation was aborted due to timeout"); },
+    geocode: async () => ({ places: [{ label: "Siedmiogrodzka 9, Warszawa", points: [[52.2307512, 20.9698838]] }], approximate: false }),
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/streets?q=Siedmiogrodzka%209`, { headers: { Cookie: "rzbus_session=ok" } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    suggestions: ["Siedmiogrodzka 9, Warszawa"],
+    places: [{ label: "Siedmiogrodzka 9, Warszawa", point: [52.2307512, 20.9698838] }],
+  });
 });
 
 test("public street search is limited per visitor", async (t) => {

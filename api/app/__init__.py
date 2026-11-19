@@ -1,1 +1,1 @@
-"""FastAPI front for the ON/WARD travel app (web, Android and iOS share these endpoints)."""
+"""FastAPI front for the podavo.voyage travel app (web, Android and iOS share these endpoints)."""

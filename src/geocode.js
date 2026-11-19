@@ -6,6 +6,8 @@ const USER_AGENT = "komunikacja-rzeszow/1.0 (https://github.com/qubexon-pl/komun
 const VIEWBOX = "21.45,50.30,22.55,49.75";
 const SUGGEST_GAP_MS = 250;
 const SUGGEST_LIMIT = 6;
+// Photon is sometimes slow to answer from corporate networks; a suggestion a little late beats none.
+const SUGGEST_TIMEOUT_MS = 10000;
 const MIN_REQUEST_GAP_MS = 1100;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_LIMIT = 500;
@@ -30,6 +32,13 @@ function localityOf(address = {}) {
 
 function rzeszowFirst(places) {
   return places.sort((a, b) => (b.locality === "Rzeszów") - (a.locality === "Rzeszów"));
+}
+
+// A town named exactly as typed goes first: "Warszawa" is the capital, not the hamlet "Warszawa" near Hłudno.
+function townFirst(places, query) {
+  const wanted = fold(query);
+  const isTown = (place) => fold(place.label) === wanted;
+  return [...places.filter(isTown), ...places.filter((place) => !isTown(place))];
 }
 
 // One street comes back as many segments; keep them together so distance is measured along the whole street.
@@ -103,7 +112,7 @@ function createGeocoder({ fetchSource = fetch, minGapMs = MIN_REQUEST_GAP_MS } =
       status.partial = true;
       return [];
     });
-    return rzeszowFirst([...near, ...far.filter((place) => !known.has(place.label.toLowerCase()))]);
+    return townFirst(rzeszowFirst([...near, ...far.filter((place) => !known.has(place.label.toLowerCase()))]), query);
   }
 
   return async function geocode(value, { world = false } = {}) {
@@ -139,64 +148,114 @@ function fold(value) {
   return String(value).toLowerCase().replace(/ł/g, "l").normalize("NFD").replace(/\p{M}/gu, "");
 }
 
+// Edit distance, for small typos in street names ("Siedmogrodzka" for "Siedmiogrodzka").
+function distance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const keep = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = keep;
+    }
+  }
+  return row[b.length];
+}
+
+// The typed word is in the name, or one of its words starts almost like it (one typo in 5+ letters, two in 8+).
+function nameMatches(name, word) {
+  const folded = fold(name);
+  if (folded.includes(word)) return true;
+  const allowed = word.length >= 8 ? 2 : word.length >= 5 ? 1 : 0;
+  return allowed > 0 && folded.split(/[\s-]+/).some((part) => distance(word, part.slice(0, word.length + 1)) <= allowed || distance(word, part.slice(0, word.length)) <= allowed);
+}
+
+const pointOf = (feature) => {
+  const [lon, lat] = feature?.geometry?.coordinates || [];
+  return Number.isFinite(lat) && Number.isFinite(lon) ? [Math.round(lat * 1e6) / 1e6, Math.round(lon * 1e6) / 1e6] : null;
+};
+
 // Photon also matches shops and bus stops by their own name, so the typed word must be in the street name.
-function toSuggestions(features, query) {
+function toPlaceSuggestions(features, query) {
   const word = fold(query).split(" ")[0];
   const streets = new Map();
   const houses = new Map();
   const cities = new Map();
   for (const feature of Array.isArray(features) ? features : []) {
     const { type, name, street, housenumber: houseNumber, city, country, countrycode: countryCode } = feature.properties || {};
+    const point = pointOf(feature);
     if (type === "city" && name && fold(name).includes(word)) {
       const label = country ? `${name}, ${country}` : name;
-      if (!cities.has(label.toLowerCase())) cities.set(label.toLowerCase(), label);
+      if (!cities.has(label.toLowerCase())) cities.set(label.toLowerCase(), { label, point });
       continue;
     }
     if (countryCode && countryCode !== "PL") continue;
     const roadName = type === "street" ? name : type === "house" && houseNumber ? street : "";
-    if (!roadName || !fold(roadName).includes(word)) continue;
+    if (!roadName || !nameMatches(roadName, word)) continue;
     const road = type === "house" ? `${roadName} ${houseNumber}` : roadName;
     const label = city ? `${road}, ${city}` : road;
     const group = type === "house" ? houses : streets;
-    if (!group.has(label.toLowerCase())) group.set(label.toLowerCase(), label);
+    if (!group.has(label.toLowerCase())) group.set(label.toLowerCase(), { label, point });
   }
-  return [...streets.values(), ...houses.values(), ...cities.values()].slice(0, SUGGEST_LIMIT);
+  // A city named exactly as typed is what was meant, so it comes before streets that only contain the word.
+  const wanted = fold(query);
+  const exactCities = [...cities.values()].filter((place) => fold(place.label.split(",")[0]) === wanted);
+  const otherCities = [...cities.values()].filter((place) => !exactCities.includes(place));
+  // With a house number typed, that exact house is what was meant.
+  const first = /\d/.test(query) ? [...houses.values(), ...streets.values()] : [...streets.values(), ...houses.values()];
+  return [...exactCities, ...first, ...otherCities].slice(0, SUGGEST_LIMIT);
 }
+
+function toSuggestions(features, query) {
+  return toPlaceSuggestions(features, query).map((place) => place.label);
+}
+
+const RZESZOW = [50.0378, 22.0049];
+const nearPoint = (near) => (Array.isArray(near) && near.every(Number.isFinite) && Math.abs(near[0]) <= 90 && Math.abs(near[1]) <= 180 ? near : null);
 
 function createStreetSuggester({ fetchSource = fetch, minGapMs = SUGGEST_GAP_MS } = {}) {
   const cache = new Map();
   let queue = Promise.resolve();
   let lastRequestAt = 0;
 
-  return async function suggest(value) {
+  // Suggestions with their map point; `near` biases them to another city (for example the trip's destination).
+  async function places(value, near = null) {
     const query = normalizeQuery(value);
     if (query.length < 2) return [];
-    const key = query.toLowerCase();
+    const bias = nearPoint(near) || RZESZOW;
+    const key = `${bias.map((x) => x.toFixed(2)).join(",")}|${query.toLowerCase()}`;
     const cached = cache.get(key);
-    if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.suggestions;
+    if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.places;
 
     const run = queue.then(async () => {
       const wait = lastRequestAt + minGapMs - Date.now();
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       lastRequestAt = Date.now();
       const url = new URL(SUGGEST_URL);
-      url.search = new URLSearchParams({ q: query, limit: "15", lat: "50.0378", lon: "22.0049", location_bias_scale: "0.5" }).toString();
+      url.search = new URLSearchParams({ q: query, limit: "15", lat: String(bias[0]), lon: String(bias[1]), location_bias_scale: "0.5" }).toString();
       url.searchParams.append("layer", "street");
       url.searchParams.append("layer", "house");
       url.searchParams.append("layer", "city");
       const response = await fetchSource(url, {
         headers: { "User-Agent": USER_AGENT },
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(SUGGEST_TIMEOUT_MS),
       });
       if (!response.ok) throw new Error(`Photon returned HTTP ${response.status}.`);
-      return toSuggestions((await response.json()).features, query);
+      return toPlaceSuggestions((await response.json()).features, query);
     });
     queue = run.catch(() => {});
-    const suggestions = await run;
+    const found = await run;
     if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value);
-    cache.set(key, { at: Date.now(), suggestions });
-    return suggestions;
-  };
+    cache.set(key, { at: Date.now(), places: found });
+    return found;
+  }
+
+  async function suggest(value, near = null) {
+    return (await places(value, near)).map((place) => place.label);
+  }
+  suggest.places = places;
+  return suggest;
 }
 
 module.exports = { createGeocoder, createStreetSuggester, normalizeQuery };

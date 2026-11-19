@@ -1,57 +1,35 @@
 import hashlib
 
-from conftest import ORIGIN, U1
+from conftest import ORIGIN, U1, sign_in
 
 WEB = {"Origin": ORIGIN}
 NATIVE = {"Origin": "capacitor://localhost"}
 JPEG = b"\xff\xd8\xff\xe0" + b"x" * 5000
 
 
-def native_login(client, id_token="good"):
-    r = client.post("/api/auth/google/native", json={"idToken": id_token}, headers=NATIVE)
-    return r
+class _Signed:
+    def __init__(self, data):
+        self.status_code, self._data = 200, data
+
+    def json(self):
+        return self._data
+
+
+def native_login(client, email="nowy@example.com"):
+    return _Signed(sign_in(client, email))
 
 
 def bearer(token):
     return {"Authorization": f"Bearer {token}", **NATIVE}
 
 
-def test_password_login_sets_an_httponly_cookie_for_the_web_and_returns_a_token_to_apps(client):
-    r = client.post("/api/auth/login", json={"email": "Ania@Example.com", "password": "correct horse battery"}, headers=WEB)
-    assert r.status_code == 200 and r.json()["user"]["email"] == "ania@example.com"
-    assert "token" not in r.json()
-    cookie = r.headers["set-cookie"]
-    assert "rzbus_session=" in cookie and "HttpOnly" in cookie and "Secure" in cookie and "samesite=lax" in cookie.lower()
-    assert client.get("/api/auth/me").json()["user"]["id"] == U1
-
-    app = client.post("/api/auth/login", json={"email": "ania@example.com", "password": "correct horse battery"},
-                      headers={**NATIVE, "X-Auth-Mode": "token"})
-    assert len(app.json()["token"]) == 43 and "set-cookie" not in app.headers
-
-
-def test_wrong_password_and_foreign_origin_are_refused(client):
-    assert client.post("/api/auth/login", json={"email": "ania@example.com", "password": "wrong password!!"}, headers=WEB).status_code == 401
-    assert client.post("/api/auth/login", json={"email": "ania@example.com", "password": "correct horse battery"},
-                       headers={"Origin": "https://evil.example"}).status_code == 403
-
-
-def test_native_google_sign_in_creates_an_app_user_with_its_own_id_and_rejects_bad_tokens(client):
-    r = native_login(client)
-    assert r.status_code == 200
-    body = r.json()
-    assert body["user"]["email"] == "nowy@example.com" and body["user"]["id"] != "g-123"
-    again = native_login(client).json()
-    assert again["user"]["id"] == body["user"]["id"] and again["token"] != body["token"]
-    assert client.get("/api/auth/me", headers=bearer(body["token"])).json()["user"]["email"] == "nowy@example.com"
-    assert native_login(client, "forged").status_code == 401
-    assert native_login(client, "unverified").status_code == 401
-    assert native_login(client, "taken").status_code == 409  # e-mail already used by a password account
-
-
-def test_logout_revokes_the_bearer_session(client):
-    token = native_login(client).json()["token"]
-    assert client.post("/api/auth/logout", headers=bearer(token)).json() == {"signedOut": True}
-    assert client.get("/api/auth/me", headers=bearer(token)).json()["user"] is None
+def test_sign_in_is_the_node_servers_and_a_podavo_session_is_accepted_here(client, node_calls):
+    for path in ("/api/auth/login", "/api/auth/code", "/api/auth/google/native", "/api/auth/logout"):
+        client.post(path, json={}, headers={**NATIVE, "X-Auth-Mode": "token"})
+        assert node_calls[-1].url.path == path  # FastAPI has no sign-in of its own any more
+    signed = sign_in(client, "ania@example.com")
+    assert client.get("/api/favorites", headers=bearer(signed["token"])).status_code == 200
+    assert client.get("/api/favorites", headers=bearer("x" * 43)).status_code == 401
 
 
 def test_favorites_are_cleaned_and_private_to_the_user(client):
@@ -66,7 +44,7 @@ def test_favorites_are_cleaned_and_private_to_the_user(client):
 
 
 def test_cookie_sessions_need_the_app_origin_for_changes(client):
-    client.post("/api/auth/login", json={"email": "ania@example.com", "password": "correct horse battery"}, headers=WEB)
+    client.cookies.set("rzbus_session", sign_in(client, "ania@example.com")["token"])
     assert client.put("/api/favorites", json={"favorites": []}, headers={"Origin": "https://evil.example"}).status_code == 403
     assert client.put("/api/favorites", json={"favorites": []}, headers=WEB).status_code == 200
 
@@ -97,8 +75,7 @@ def test_photo_upload_resumes_after_an_interruption_and_is_private(client):
     assert client.repo.photos_[pid]["sha256"] == hashlib.sha256(JPEG).hexdigest()
     file = client.get(f"/api/photos/{pid}/file", headers=bearer(token))
     assert file.content == JPEG and file.headers["content-type"] == "image/jpeg" and "private" in file.headers["cache-control"]
-    other = client.post("/api/auth/login", json={"email": "ania@example.com", "password": "correct horse battery"},
-                        headers={**NATIVE, "X-Auth-Mode": "token"}).json()["token"]
+    other = sign_in(client, "ania@example.com")["token"]
     assert client.get(f"/api/photos/{pid}/file", headers=bearer(other)).status_code == 404
     assert [p["id"] for p in client.get("/api/photos?tripId=trip0001", headers=bearer(token)).json()["photos"]] == [pid]
     assert client.delete(f"/api/photos/{pid}", headers=bearer(token)).json() == {"deleted": True}
@@ -135,10 +112,10 @@ def test_auth_config_adds_native_google_and_cors_allows_only_the_app_origins(cli
 
 
 def test_node_sign_in_steps_give_apps_the_session_in_the_body_not_a_cookie(client):
-    app = client.post("/api/auth/verify-email", json={"email": "a@b.pl", "code": "123456"}, headers={**NATIVE, "X-Auth-Mode": "token"})
+    app = client.post("/api/auth/verify", json={"email": "a@b.pl", "code": "123456"}, headers={**NATIVE, "X-Auth-Mode": "token"})
     assert app.status_code == 201 and app.json() == {"user": {"id": "n1"}, "token": "A" * 43}
     assert "set-cookie" not in app.headers
-    web = client.post("/api/auth/verify-email", json={}, headers=WEB)
+    web = client.post("/api/auth/verify", json={}, headers=WEB)
     assert "rzbus_session=" in web.headers["set-cookie"] and "token" not in web.json()
 
 

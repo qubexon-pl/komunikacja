@@ -33,7 +33,8 @@ test("email addresses are normalized before account lookup", () => {
 
 test("auth service can start without an email provider and reports it as disabled", () => {
   const auth = createAuthService({});
-  assert.equal(typeof auth.startEmailVerification, "function");
+  assert.equal(typeof auth.startEmailLogin, "function");
+  assert.equal(typeof auth.verifyEmailLogin, "function");
   assert.equal(isEmailConfigured({}), false);
   assert.equal(isEmailConfigured({
     SENDGRID_API_KEY: "test-key",

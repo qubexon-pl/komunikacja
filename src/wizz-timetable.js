@@ -284,7 +284,25 @@ function createWizzTimetable({ flights, toPln, fetchSource = fetch, version: ini
   // Called at server start, so the first trip search already knows the version.
   function start() { if (enabled) discover().catch((error) => console.error("Wizz Air:", error.message)); }
 
-  return { fillRange, findFirst, priceForTime, searchRoutes, start, status };
+  // Every Wizz Air airport with its direct connections (the route list): one GET on the same API, with the same
+  // User-Agent, gap and pause rules. Asked only when the stored route list is a week old.
+  async function readMap() {
+    if (!enabled) throw new Error("Wizz Air API is turned off (WIZZ_API=off).");
+    if (pausedUntil > now()) throw new Error("Wizz Air API is paused after a refusal.");
+    await loadVersion();
+    const wait = lastCall + gapMs - now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    lastCall = now();
+    const response = await fetchSource(`https://be.wizzair.com/${version}/Api/asset/map?languageCode=pl-pl`, {
+      headers: { Accept: "application/json", "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(30000),
+    });
+    if (response.status === 429 || response.status === 403) { pausedUntil = now() + PAUSE_MS; throw new Error(`Wizz Air refused the route map (HTTP ${response.status}); paused for an hour.`); }
+    if (response.status === 404) { discover(null, true).catch(() => {}); throw new Error("Wizz Air API version changed; the route map is asked again next time."); }
+    if (!response.ok) throw new Error(`Wizz Air route map: HTTP ${response.status}.`);
+    return response.json();
+  }
+
+  return { fillRange, findFirst, priceForTime, readMap, searchRoutes, start, status };
 }
 
 module.exports = { createWizzTimetable, nextVersions, shiftTime, timetableBody };

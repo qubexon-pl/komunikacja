@@ -363,7 +363,7 @@ test("a route flown by both airlines appears once with both", () => {
 
 test("an airline whose list fails keeps its previous routes", async () => {
   const previous = { airports: [], routes: [{ from: "RZE", to: "LTN", airlines: ["WIZZ"] }, { from: "RZE", to: "STN", airlines: ["RYANAIR"] }] };
-  const network = await readNetwork({ dir: "x", previous, ryanair: async () => ({ airports: [], routes: [{ from: "RZE", to: "DUB" }] }), wizz: async () => { throw new Error("blocked"); } });
+  const network = await readNetwork({ previous, ryanair: async () => ({ airports: [], routes: [{ from: "RZE", to: "DUB" }] }), wizz: async () => { throw new Error("blocked"); } });
   assert.deepEqual(network.routes.map((route) => [route.to, route.airlines]), [["DUB", ["RYANAIR"]], ["LTN", ["WIZZ"]]]);
 });
 
