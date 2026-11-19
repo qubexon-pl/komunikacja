@@ -10,7 +10,7 @@ const source = fs.readFileSync(path.resolve(__dirname, "../assets/app.js"), "utf
 const html = fs.readFileSync(path.resolve(__dirname, "../index.html"), "utf8");
 
 // The page switcher, run with stand-ins for everything it calls; any name it uses that is not listed here fails the test.
-function loadSubpage() {
+function loadSubpage({ city = null } = {}) {
   const page = { title: "", lead: "", banner: "", url: "" };
   const el = (id) => ({ set textContent(v) { if (id === "heroLead") page.lead = v; }, innerHTML: "" });
   const VIEWS = {
@@ -26,6 +26,7 @@ function loadSubpage() {
     pageUrl: (view, sub) => `${view}/${sub}`, findTrip: () => null, tripLead: () => "",
     syncNav() {}, renumberSections() {}, renderBoard() {}, renderTimetable() {}, renderFavorites() {}, renderMyTrips() {},
     renderTripPage() {}, stopVehicles() {}, setTimeout() {}, renderEditBadge() {},
+    txCity: () => city, txModes: (c) => c.modes.join(" · "), syncCityTx() { page.cityTx = true; },
   };
   const start = source.indexOf("function setSubpage(");
   vm.runInNewContext(source.slice(start, source.indexOf("\n}\n", start) + 3), context);
@@ -42,6 +43,15 @@ test("leaving the destinations page updates the title, banner and address on eve
     assert.equal(page.sub, sub);
     assert.equal(page.url, `${view}/${sub}`);
   }
+});
+
+test("another Polish city's transport page is named after the city and has stop departures instead of the Rzeszów timetable", () => {
+  const go = loadSubpage({ city: { id: "warszawa", name: "Warszawa", modes: ["metro", "tram", "bus"] } });
+  assert.equal(go("ztm", "").title, "Komunikacja: Warszawa");
+  assert.match(go("ztm", "").lead, /^Metro · tram · bus/);
+  assert.equal(go("ztm", "rozklad").title, "Komunikacja: Warszawa");
+  assert.equal(go("kolej", "").title, "Pociągi w Polsce"); // trains keep their own page
+  assert.equal(go("ztm", "").cityTx, true);
 });
 
 function loadTrainPlanner(trains) {

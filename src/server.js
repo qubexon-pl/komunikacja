@@ -20,6 +20,7 @@ if (typeof tls.setDefaultCACertificates === "function" && typeof tls.getCACertif
 const { createAirportTransfers } = require("./airport-transfers");
 const { createCityTransit } = require("./city-transit");
 const { createTransitous } = require("./transitous");
+const { publicCities } = require("./pl-cities");
 const { AGENCIES, createSnapshots, createSqlConfig, getSchedule, importedHash, readAirportFares, readAirportTransfers, readFlightFares, readFlightNetwork, readSchedule, readSetting, replaceAirportFares, replaceAirportTransfers, replaceFlightFares, appendFareHistory, replaceSchedule, saveFlightNetwork, saveSetting } = require("./database");
 const { MAX_WALK_TARGETS, PATH_URLS, createDrivingRouter, createPathRouter, createWalkTable, parsePoint } = require("./driving");
 const { createFlightCollector, trackerDatabase } = require("./flight-collector");
@@ -67,7 +68,7 @@ const MAX_FAVORITES_BYTES = 512 * 1024; // saved trips carry what they looked li
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, hotels: 30, rates: 30 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, hotels: 30, rates: 30 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -1044,12 +1045,12 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "pks-price" && segments.length === 2)
           || (segments[1] === "weather" && (segments.length === 2 || (segments.length === 3 && segments[2] === "now")))
           || (segments[1] === "airport-transfers" && (segments.length === 2 || (segments.length === 3 && ["connections", "options"].includes(segments[2]))))
-          || (segments[1] === "transit" && segments.length === 3 && ["plan", "vehicles"].includes(segments[2]))
+          || (segments[1] === "transit" && segments.length === 3 && ["plan", "vehicles", "cities", "stops", "departures"].includes(segments[2]))
           || (segments[1] === "hotels" && segments.length === 2)
           || (segments[1] === "rates" && segments.length === 2)
         ) ? (segments[1] === "feeds" ? "feeds"
           : segments[1] === "airport-transfers" ? (segments[2] === "options" ? "transfer-options" : segments[2] ? "transfer-trips" : "transfers")
-          : segments[1] === "transit" ? (segments[2] === "plan" ? "city-plan" : "vehicles")
+          : segments[1] === "transit" ? ({ plan: "city-plan", cities: "city-list", stops: "city-stops", departures: "departures" }[segments[2]] || "vehicles")
           : segments[1]) : null;
         if (publicRoute && !takePublicRequest(req, publicRoute)) {
           json(res, 429, { error: "Zbyt wiele zapytań. Spróbuj ponownie za chwilę." });
@@ -1129,6 +1130,21 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           } catch (error) {
             if (error.detail) console.warn("Booking.com:", error.message, error.detail);
             json(res, [400, 429].includes(error.status) ? error.status : 502, { error: error.message, hotels: [] });
+          }
+          return;
+        }
+        if (publicRoute === "city-list") {
+          json(res, 200, { cities: publicCities(), source: "Transitous" });
+          return;
+        }
+        if (publicRoute === "city-stops" || publicRoute === "departures") {
+          try {
+            const q = (name) => url.searchParams.get(name) || "";
+            json(res, 200, publicRoute === "city-stops"
+              ? await city.stops({ city: q("city"), q: q("q") })
+              : await city.departures({ stop: q("stop"), time: q("time") }));
+          } catch (error) {
+            json(res, error.status === 400 ? 400 : 502, { error: error.message, stops: [], departures: [] });
           }
           return;
         }
