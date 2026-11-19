@@ -17,6 +17,10 @@ let resendTimer = null;
 
 // In the Android/iOS app the pages are local files and Google sign-in is native (assets/app.native.js).
 const nativeApp = Boolean(window.ONWARD && window.ONWARD.native);
+// A new sign-in starts a new activity period. Without this, the time of the last activity from an earlier session
+// (more than an hour ago) makes the app sign the user out again right after they sign in (assets/app.js, IDLE).
+try { localStorage.removeItem("podavo-voyage-last-activity"); } catch {}
+
 function afterSignIn() {
   location.assign(nativeApp ? window.ONWARD.homeUrl() : safeReturnTo(returnTo));
 }
