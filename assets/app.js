@@ -3291,7 +3291,7 @@ function planSummaryCard(f, P){
   if(xo==='skip') points.push(point('car-side','Odbiór','ktoś odbiera z lotniska','z lotniska'));
   else if(xo) points.push(point(XMODE[xo.kind]?.[0]||'bus','Do centrum',xo.name||xo.line,xo.minutes!=null?`ok. ${fmtDuration(xo.minutes)}`:'—'));
   if(f.ret) points.push(point('plane-departure','Powrót',f.ret.fromLabel,`${fmtDay(f.ret.day)} ${clock(f.ret.departure)}`), point('plane-arrival','Lądowanie',f.ret.toLabel,arrivalOf(f.ret)||'—'));
-  const book=[f, f.ret].filter(x=>x?.bookingUrl).map((x,i)=>`<a class="btn-ghost fl-book" href="${esc(x.bookingUrl)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Sprawdź na ${x.airline==='RYANAIR'?'ryanair.com':x.airline==='WIZZ'?'wizzair.com':esc(airlineOf(x).name)}${f.ret?(i?' (powrót)':' (wylot)'):''}</a>`).join('');
+  const book=[f, f.ret].filter(x=>x?.bookingUrl).map((x,i)=>`<a class="btn-ghost fl-book" href="${esc(x.bookingUrl)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Sprawdź na ${x.airline==='RYANAIR'?'ryanair.com':x.airline==='WIZZ'?'wizzair.com':`Google Flights (${esc(airlineOf(x).name)})`}${f.ret?(i?' (powrót)':' (wylot)'):''}</a>`).join('');
   const details=open?`<div class="trip-open plan-details">
       <div class="fl-incl"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> W cenie: mała torba pod siedzenie</div>
       ${o?journeyLine(P,f,o):searching('Liczę dojazd na lotnisko…')}
