@@ -1751,6 +1751,11 @@ function resetPlanner(){
   syncReturn(); planBusy();
 }
 document.getElementById('plReset').addEventListener('click', ()=>{ resetPlanner(); plFrom.focus(); });
+document.addEventListener('click', e=>{
+  if(!e.target.closest('[data-plan-finish]')) return;
+  e.preventDefault(); goPage('podroz'); resetPlanner(); document.body.classList.remove('multi-form'); syncReturn();
+  window.scrollTo({top:0, behavior:'smooth'});
+});
 document.querySelectorAll('.brand, .view-tab[data-view="podroz"]').forEach(a=>a.addEventListener('click', e=>{
   if(e.ctrlKey||e.metaKey||e.shiftKey) return;
   e.preventDefault(); goPage('podroz'); resetPlanner();
@@ -2298,7 +2303,7 @@ function groundNext(P){
     return `<div class="ground-next ${all?'ready':''}"><span>${all?'<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano połączenia na wszystkich etapach.':`<i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie na każdym etapie (${picked} z ${st.length}): ${st.map((x,k)=>`<b class="${x.groundPick?'ok':''}">${k+1}. ${esc(x.to)}</b>`).join(' · ')}`}</span>${all?`<button type="button" class="btn-grad" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
   }
   const g=P.groundPick, b=P.groundBack;
-  if(!g) return `<div class="ground-next"><span><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie przyciskiem „Wybierz”, aby przejść dalej. Podróż zapiszesz na końcu.</span></div>`;
+  if(!g) return '';
   return `<div class="ground-next ready"><span><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano: <b>${esc(g.title)}</b> · ${esc(groundWhen(g))}${b?` · powrót: <b>${esc(b.title)}</b> ${esc(groundWhen(b))}`:P.round?' · powrót możesz wybrać poniżej':''}</span><button type="button" class="btn-grad" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>`;
 }
 function groundLegCard(g, label){
@@ -2311,9 +2316,10 @@ function tripTitleField(P){
   const value=P.tripTitle ?? (edited?.title||'');
   return `<label class="trip-title-field"><span><i class="fa-solid fa-pen" aria-hidden="true"></i> Nazwa podróży <small>(opcjonalnie)</small></span><input type="text" maxlength="80" data-trip-title value="${esc(value)}" placeholder="np. Wakacje w ${esc(P.to||'')}"></label>`;
 }
+// Po zapisie: link do zapisanej podróży i „Zakończ”, które czyści planer i wraca na stronę „Planuj”.
 function savedNote(P){
   const saved=P.saved && FAV.items.find(x=>x.type==='trip' && x.tid===P.saved);
-  return saved?`<div class="cs-saved" role="status">${P.savedOk===saved.tid?stateIll(assetPaths.tripSaved,200,117):''}<i class="fa-solid fa-circle-check" aria-hidden="true"></i> ${saved.status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano w ulubionych jako plan.'} <a href="/trip?id=${esc(saved.tid)}" data-trip-open="${esc(saved.tid)}">Zobacz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a></div>`:'';
+  return saved?`<div class="cs-saved" role="status">${P.savedOk===saved.tid?stateIll(assetPaths.tripSaved,200,117):''}<i class="fa-solid fa-circle-check" aria-hidden="true"></i> ${saved.status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano w ulubionych jako plan.'} <a href="/trip?id=${esc(saved.tid)}" data-trip-open="${esc(saved.tid)}">Zobacz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a><button type="button" class="btn-grad cs-finish" data-plan-finish><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i> Zakończ</button></div>`:'';
 }
 function groundSaveAll(J){
   const st=J.stages, P0=st[0], n=Math.max(1,P0.people||1), multi=st.length>1, legs=st.map(P=>P.groundPick), back=multi?null:P0.groundBack;
@@ -2809,14 +2815,14 @@ const eurSum=f=>{ const a=eurOf(f), b=f?.ret?eurOf(f.ret):0; return a!=null&&b!=
 const fmtEur=v=>v>=100?String(Math.round(v)):v.toFixed(2).replace('.',',');
 function eurPln(pln, eur){ const e=eur!=null?eur:(FX.eur&&pln!=null?pln/FX.eur:null); return `${e!=null?`<span class="fx-eur">${fmtEur(e)} €</span> <span class="fx-sep">·</span> `:''}<span class="fx-pln">${pln} zł</span>`; }
 // Porównanie dojazdów: kiedy wyjść, ile trwa droga na lotnisko i ile kosztuje razem z lotem.
-// Główne miejsca podróży na pionowej, kropkowanej linii. Szczegóły punktu pokazują się dopiero po jego kliknięciu,
-// a otwartych może być kilka naraz.
+// Główne miejsca podróży na pionowej, kropkowanej linii. Szczegóły wszystkich punktów są od razu rozwinięte
+// (to planowanie, więc nie trzeba klikać); kliknięcie punktu zwija albo rozwija jego szczegóły.
 function journeyLine(P, f, o, {only=''}={}){
-  const key=offerKey(f), open=P.jlOpen||(P.jlOpen=new Set()), clock=v=>v?v.slice(11,16):'';
+  const key=offerKey(f), closed=P.jlClosed||(P.jlClosed=new Set()), clock=v=>v?v.slice(11,16):'';
   const when=ts=>ts?`${dayOfTs(ts)!==f.day?fmtDay(dayOfTs(ts))+' ':''}${fmtClock(ts)}`:'';
   const panels=[];
   const item=(id, cls, mark, title, sub, detail)=>{
-    const on=open.has(key+'|'+id);
+    const on=!closed.has(key+'|'+id);
     if(on&&detail) panels.push(`<section class="jl-panel"><header><b>${esc(title)}</b>${sub?`<small>${esc(sub)}</small>`:''}<button type="button" class="jl-close" data-jl="${esc(key+'|'+id)}" aria-label="Zamknij"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></header>${detail}</section>`);
     return `<li class="${cls} ${on?'on':''}"><button type="button" class="jl-btn" data-jl="${esc(key+'|'+id)}" aria-expanded="${on}" ${detail?'':'disabled'}>${mark}<span class="jl-text"><b>${esc(title)}</b>${sub?`<small>${esc(sub)}</small>`:''}</span>${detail?`<i class="fa-solid fa-chevron-${on?'left':'right'} jl-caret" aria-hidden="true"></i>`:''}</button></li>`;
   };
@@ -2849,7 +2855,7 @@ function journeyLine(P, f, o, {only=''}={}){
   }
   const save='';
   if(only==='go') return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Dojazd na lotnisko krok po kroku</h4></div><div class="jl-steps">${o?.steps?.length?stepsHtml(o.steps):''}</div></div>`;
-  return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Przebieg podróży</h4>${save}</div><small class="text-soft">Kliknij punkt podróży, aby zobaczyć szczegóły. Możesz otworzyć kilka naraz.</small><div class="jl-wrap"><ol class="journey-line">${items.join('')}</ol><div class="jl-details">${panels.length?panels.join(''):'<div class="jl-empty"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Szczegóły wybranych punktów pojawią się tutaj.</div>'}</div></div></div>`;
+  return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Przebieg podróży</h4>${save}</div><small class="text-soft">Kliknij punkt podróży, aby zwinąć albo rozwinąć jego szczegóły.</small><div class="jl-wrap"><ol class="journey-line">${items.join('')}</ol><div class="jl-details">${panels.length?panels.join(''):'<div class="jl-empty"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Szczegóły wybranych punktów pojawią się tutaj.</div>'}</div></div></div>`;
 }
 function compareHtml(P, f, options, picked){
   const list=options.filter(o=>o.minutes!=null||o.cost!=null); if(!list.length) return '';
@@ -3489,7 +3495,7 @@ function tripSaveBar(P, f, d){
   const chosen=pick==='skip'?'ktoś mnie odbierze z lotniska':opt?`${opt.name||((XMODE[opt.kind]||XMODE.bus)[1]+' '+opt.line)}${opt.minutes!=null?` · ok. ${fmtDuration(opt.minutes)}`:''}${opt.fare?.pln!=null?` · ok. ${opt.fare.pln} zł`:''}`:'';
   const saved=P.saved && FAV.items.find(x=>x.type==='trip' && x.tid===P.saved);
   const ready=!!chosen;
-  const done=saved?`<div class="cs-saved" role="status">${P.savedOk===saved.tid?stateIll(assetPaths.tripSaved,200,117):''}<i class="fa-solid fa-circle-check" aria-hidden="true"></i> ${saved.status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano w ulubionych jako plan.'} <a href="/trip?id=${esc(saved.tid)}" data-trip-open="${esc(saved.tid)}">Zobacz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a></div>`:'';
+  const done=savedNote(P);
   return `<div class="cs-save">
     <div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz plan w ulubionych albo jako swoją podróż.</div>
     ${tripTitleField(P)}
@@ -5941,7 +5947,7 @@ function tripStart(){
 function viaRows(){ return [...document.querySelectorAll('#plStops .pl-stop')]; }
 function renumberVias(){
   viaRows().forEach((row,i)=>{ row.querySelector('.pl-via-label').textContent=S.agency==='podroz'?`Miejsce ${i+1}`:`Przystanek ${i+1}`; });
-  document.getElementById('plAddStop').disabled=viaRows().length>=MAX_VIAS;
+  const addStop=document.getElementById('plAddStop'); if(addStop) addStop.disabled=viaRows().length>=MAX_VIAS;
 }
 function addVia(){
   const id=++viaSeq, row=document.createElement('div');
@@ -6012,7 +6018,7 @@ document.getElementById('planForm').addEventListener('submit', async e=>{
 });
 const [plFrom,plTo,plTime,plWhen,plDate,plRound,plBack]=['plFrom','plTo','plTime','plWhen','plDate','plRound','plBack'].map(id=>document.getElementById(id));
 const MAX_VIAS=5; let viaSeq=0;
-document.getElementById('plAddStop').addEventListener('click', ()=>{ if(S.agency==='podroz') enterMultiForm({addStep:true}); else addVia(); });
+document.getElementById('plAddStop')?.addEventListener('click', ()=>{ if(S.agency==='podroz') enterMultiForm({addStep:true}); else addVia(); });
 document.getElementById('plStops').addEventListener('click', e=>{ const b=e.target.closest('[data-remove-via]'); if(b){ delete S.placeChoice[b.closest('.pl-stop').dataset.field]; b.closest('.pl-stop').remove(); renumberVias(); } });
 { const saved=store('rzbus.plan.modes'); if(Array.isArray(saved)) document.querySelectorAll('#plModes input').forEach(x=>{ x.checked=saved.includes(x.value); }); }
 // Liczba osób: koszty liczą się od nowa w tym samym planie (bez nowego wyszukiwania).
@@ -6304,7 +6310,7 @@ document.getElementById('planResults').addEventListener('click', e=>{
   const pf=e.target.closest('[data-pick-flight]'); if(pf){ const P=stageOf(pf); if(pf.dataset.pickFlight==='out') P.selOut=pf.dataset.key; else P.selRet=pf.dataset.key; P.flightStep=1; runPlan(false); return; }
   const rd=e.target.closest('[data-radius]'); if(rd){ const sel=document.getElementById('plRadius'); sel.value=rd.dataset.radius; store('rzbus.plan.radius', rd.dataset.radius); document.getElementById('planForm').requestSubmit(); return; }
   const ap=e.target.closest('[data-acc-pick]'); if(ap){ const P=stageOf(ap); (P.accessPick||(P.accessPick=new Map())).set(ap.dataset.accPick, ap.dataset.accId); runPlan(false); return; }
-  const jl=e.target.closest('[data-jl]'); if(jl){ const P=stageOf(jl), set=P.jlOpen||(P.jlOpen=new Set()); if(set.has(jl.dataset.jl)) set.delete(jl.dataset.jl); else set.add(jl.dataset.jl); runPlan(false); return; }
+  const jl=e.target.closest('[data-jl]'); if(jl){ const P=stageOf(jl), set=P.jlClosed||(P.jlClosed=new Set()); if(set.has(jl.dataset.jl)) set.delete(jl.dataset.jl); else set.add(jl.dataset.jl); runPlan(false); return; }
   const fp=e.target.closest('[data-page]'); if(fp){ stageOf(fp).flightPage=+fp.dataset.page; runPlan(false); return; }
   const tr=e.target.closest('[data-train]'); if(tr){ openTrain(tr.dataset.train); return; }
   const bp=e.target.closest('[data-back-page]');
