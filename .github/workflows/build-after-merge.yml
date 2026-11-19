@@ -68,7 +68,11 @@ jobs:
 
       - run: npm ci
 
+      # Public values only (repository variables): the server address and the Google web client id for native sign-in.
       - name: Build web bundle and sync into Android project
+        env:
+          ONWARD_API_BASE: ${{ vars.ONWARD_API_BASE }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: npm run web:build && npx cap sync android
 
       - name: Assemble debug APK
