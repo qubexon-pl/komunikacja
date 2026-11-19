@@ -1,0 +1,82 @@
+name: Build after merge
+
+# Runs when a pull request is merged (a PR closed without merging is skipped).
+# Can also be started by hand from the Actions tab.
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-after-merge-${{ github.event.pull_request.base.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Test and build web bundle
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Build the merged result, not the PR head.
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build web bundle (www/)
+        run: npm run web:build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-www
+          path: www/
+          retention-days: 14
+
+  android:
+    name: Build Android debug APK
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - run: npm ci
+
+      - name: Build web bundle and sync into Android project
+        run: npm run web:build && npx cap sync android
+
+      - name: Assemble debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 14
