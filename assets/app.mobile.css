@@ -3,6 +3,14 @@
    Loaded after app.css, so these rules settle the earlier narrow-screen patches in one place.
    Breakpoints: 760 px (phones, bottom bar on), 400 px (small phones such as 360 px Android).
    ================================================================ */
+/* "Install app" button (shown only when the browser can install the site, or on iPhone with instructions) */
+.install-btn{display:inline-flex; align-items:center; gap:6px; padding:7px 14px !important; border:1px solid rgba(255,255,255,.45) !important; border-radius:999px; white-space:nowrap}
+.install-btn:hover{background:rgba(255,255,255,.12)}
+.install-btn[hidden]{display:none !important}
+.install-steps{margin:0; padding-left:1.2em; display:grid; gap:8px}
+/* items that exist only in the phone account menu (on a computer they are in the Admin menu) */
+.phone-only{display:none}
+
 @media (max-width:760px){
   /* ---- base: the page never scrolls sideways, text wraps, inputs don't zoom on iOS ---- */
   html,body{overflow-x:clip; max-width:100%}
@@ -26,7 +34,16 @@
   .nav-link-btn,#userMenu{display:inline-flex; align-items:center; justify-content:center; min-width:40px; min-height:44px; padding:0 6px !important; gap:2px}
   .nav-links .dropdown-toggle::after{display:none}
   #adminMenu .oi,#alertsBtn .oi{width:22px !important; height:22px !important}
-  #userMenu .fa-user{margin:0; font-size:1.15rem}
+  /* account: icon with a "Konto" label underneath, so it reads as the place to sign in or out */
+  #userMenu{flex-direction:column; gap:1px !important; min-width:46px; line-height:1}
+  #userMenu .fa-user{margin:0; font-size:1.05rem}
+  #userMenu #currentUser{display:block !important; max-width:58px; font-size:.62rem; font-weight:700; letter-spacing:0; text-transform:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  /* Admin menu (Refresh, Settings) moves into the account menu on phones to free the top bar */
+  .nav-links > .admin-drop{display:none !important}
+  .phone-only{display:list-item}
+  .phone-only .dropdown-item{display:flex}
+  .install-btn{width:40px; min-width:40px; padding:0 !important; border-radius:50%; justify-content:center}
+  .install-btn .txt{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
   #alertsBtn .badge-num{top:4px; right:0}
   .topbar .dropdown-menu{max-width:calc(100vw - 16px); min-width:220px}
   .topbar .dropdown-item{min-height:44px; display:flex; align-items:center; gap:8px; font-size:.95rem}
