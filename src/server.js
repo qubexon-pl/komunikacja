@@ -1040,7 +1040,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "walk" && segments.length === 2)
           || (segments[1] === "fuel" && segments.length === 2)
           || (segments[1] === "pks-price" && segments.length === 2)
-          || (segments[1] === "weather" && segments.length === 2)
+          || (segments[1] === "weather" && (segments.length === 2 || (segments.length === 3 && segments[2] === "now")))
           || (segments[1] === "airport-transfers" && (segments.length === 2 || (segments.length === 3 && ["connections", "options"].includes(segments[2]))))
           || (segments[1] === "transit" && segments.length === 3 && ["plan", "vehicles"].includes(segments[2]))
           || (segments[1] === "hotels" && segments.length === 2)
@@ -1144,6 +1144,11 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         if (publicRoute === "weather") {
           try {
             const n = (name) => Number(url.searchParams.get(name));
+            if (segments[2] === "now") {
+              if (!tripWeather?.current) throw Object.assign(new Error("Pogoda niedostępna."), { status: 503 });
+              json(res, 200, await tripWeather.current({ lat: n("lat"), lon: n("lon") }));
+              return;
+            }
             json(res, 200, await tripWeather.forecast({ lat: n("lat"), lon: n("lon"), from: url.searchParams.get("from") || "", to: url.searchParams.get("to") || "" }));
           } catch (error) {
             json(res, error.status === 400 ? 400 : 502, { error: error.message, days: [] });

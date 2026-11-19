@@ -6,6 +6,7 @@
 
 const FORECAST_DAYS = 16;
 const KEEP_MS = 60 * 60 * 1000;
+const NOW_KEEP_MS = 20 * 60 * 1000;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 function createTripWeather({ fetchSource = fetch, now = Date.now } = {}) {
@@ -66,7 +67,57 @@ function createTripWeather({ fetchSource = fetch, now = Date.now } = {}) {
     return { days, forecastUntil: last, availableFrom: firstMissing ? addDays(firstMissing, -(FORECAST_DAYS - 1)) : null };
   }
 
-  return { forecast };
+  // The weather where the person is now, for the home-page widget: current conditions and the next hours, in the same
+  // shape as the Rzeszów snapshot (/api/live/weather), plus the name of the town when the map knows it. Coordinates are
+  // rounded to about 1 km before they leave the server, and one answer per square is kept for 20 minutes.
+  const nowCache = new Map();
+  let lastNameAt = -Infinity;
+
+  async function placeName(lat, lon) {
+    // Nominatim allows one request a second; a busy second goes without a name rather than waiting.
+    if (now() - lastNameAt < 1100) return null;
+    lastNameAt = now();
+    try {
+      const url = "https://nominatim.openstreetmap.org/reverse?" + new URLSearchParams({ lat: lat.toFixed(2), lon: lon.toFixed(2), format: "jsonv2", zoom: "10", "accept-language": "pl" });
+      const response = await fetchSource(url, { headers: { "User-Agent": "komunikacja-rzeszow/1.0" }, signal: AbortSignal.timeout(4000) });
+      if (!response.ok) return null;
+      const a = (await response.json())?.address || {};
+      const name = a.city || a.town || a.village || a.municipality || a.county || null;
+      return typeof name === "string" && name.trim() ? name.trim().slice(0, 80) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function current({ lat, lon }) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      throw Object.assign(new Error("Podaj miejsce."), { status: 400 });
+    }
+    const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    const hit = nowCache.get(key);
+    if (hit && now() - hit.at < NOW_KEEP_MS) return hit.value;
+    const url = "https://api.open-meteo.com/v1/forecast?" + new URLSearchParams({
+      latitude: lat.toFixed(2),
+      longitude: lon.toFixed(2),
+      current: "temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day",
+      hourly: "temperature_2m,precipitation_probability,precipitation,weather_code",
+      forecast_hours: "8",
+      timezone: "auto",
+    });
+    const [response, place] = await Promise.all([
+      fetchSource(url, { headers: { "User-Agent": "komunikacja-rzeszow/1.0" }, signal: AbortSignal.timeout(10000) }),
+      placeName(lat, lon),
+    ]);
+    if (!response.ok) throw Object.assign(new Error(`Open-Meteo zwrócił HTTP ${response.status}.`), { status: 502 });
+    const body = await response.json();
+    if (!body?.current) throw Object.assign(new Error("Open-Meteo nie podał pogody."), { status: 502 });
+    const value = { current: body.current, hourly: body.hourly || {}, timezone: body.timezone || null, place };
+    nowCache.set(key, { at: now(), value });
+    if (nowCache.size > 500) nowCache.clear();
+    return value;
+  }
+
+  return { forecast, current };
 }
 
 const addDays = (day, n) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);

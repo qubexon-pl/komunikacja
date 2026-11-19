@@ -1,35 +1,37 @@
-name: Build after merge
+# Pull request into main  -> tests + web bundle (no deploy)
+# Merge / push to main     -> tests + web bundle + Android debug APK + deploy to Azure App Service podavo-voyage
+# Same setup as the Podavo cleaning app (qubexon-pl/tidy, .github/workflows/deploy.yml).
+name: Build and deploy
 
-# Runs when a pull request is merged (a PR closed without merging is skipped).
-# Can also be started by hand from the Actions tab.
-# After the tests pass, a merge into main is deployed to the Azure App Service podavo-voyage
-# (needs the repository secret AZURE_WEBAPP_PUBLISH_PROFILE; without it the deploy job only warns).
 on:
   pull_request:
-    types: [closed]
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: build-after-merge-${{ github.event.pull_request.base.ref || github.ref }}
-  cancel-in-progress: true
+env:
+  NODE_VERSION: "22"
+  # Azure sign-in through GitHub OIDC (no passwords stored). These IDs are not secrets.
+  AZURE_CLIENT_ID: "e225e254-7176-4481-82cb-ad0a064dc082"   # appId of the "github-tidy-deploy" app registration, also trusted for this repo's main
+  AZURE_TENANT_ID: "77f4d6ee-95d6-499c-bdfc-786d81583d02"
+  AZURE_SUBSCRIPTION_ID: "c4152d35-836b-4d38-ba59-b2587100043c"
+  AZURE_RESOURCE_GROUP: "rg-komunikacja-plc"
+  AZURE_WEBAPP_NAME: "podavo-voyage"
 
 jobs:
   web:
     name: Test and build web bundle
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Build the merged result, not the PR head.
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - run: npm ci
@@ -41,23 +43,42 @@ jobs:
         run: npm run web:build
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: web-www
           path: www/
           retention-days: 14
 
+      # Runs on pull requests too, so a broken package fails before merge; only uploads on main.
+      - name: Package server (src, pages, assets, data, production node_modules)
+        run: |
+          rm -rf node_modules
+          npm ci --omit=dev
+          mkdir -p package
+          cp -r src assets data database index.html login.html package.json package-lock.json node_modules package/
+          cd package
+          # The packaged server must load all its modules (a missing one crashes it and Azure answers 503).
+          node -e "require('./src/server.js')"
+          zip -qr ../podavo-voyage.zip .
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: podavo-voyage
+          path: podavo-voyage.zip
+          retention-days: 7
+
   android:
     name: Build Android debug APK
     needs: web
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - uses: actions/setup-java@v4
@@ -86,48 +107,57 @@ jobs:
   deploy:
     name: Deploy to Azure (podavo-voyage)
     needs: web
-    # Only what lands on main goes to production.
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC token for azure/login
+      contents: read
     concurrency:
       group: deploy-podavo-voyage
       cancel-in-progress: false
-    env:
-      # Repository secret with the publish profile downloaded from the App Service's Overview page.
-      HAS_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE != '' }}
     steps:
-      - name: Publish profile missing
-        if: env.HAS_PROFILE != 'true'
-        run: echo "::warning::Not deployed. Add the repository secret AZURE_WEBAPP_PUBLISH_PROFILE (App Service podavo-voyage > Overview > Download publish profile)."
-
-      - uses: actions/checkout@v4
-        if: env.HAS_PROFILE == 'true'
+      - uses: actions/download-artifact@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          name: podavo-voyage
 
-      - uses: actions/setup-node@v4
-        if: env.HAS_PROFILE == 'true'
+      - uses: azure/login@v2
         with:
-          node-version: 22
-          cache: npm
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
-      # The server's runtime packages only; the zip carries node_modules so the app starts without a build on Azure.
-      - name: Install production dependencies
-        if: env.HAS_PROFILE == 'true'
-        run: npm ci --omit=dev
+      - name: Make sure the app is running (it is sometimes stopped to save credit)
+        run: |
+          state=$(az webapp show -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --query state -o tsv)
+          echo "App state: $state"
+          if [ "$state" != "Running" ]; then az webapp start -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME"; fi
 
-      - name: Package the app
-        if: env.HAS_PROFILE == 'true'
-        run: >-
-          zip -qr ../app.zip . -x '.git/*' '.github/*' 'android/*' 'ios/*' 'www/*' 'test/*' '.cache/*'
-          'api/.venv/*' '.env' '.env.*' '.vscode/*' '.azure/*'
+      - name: Deploy zip
+        run: |
+          # Async: on B1 Kudu unpacking node_modules can outlast the 230 s gateway limit of a synchronous upload (HTTP 504).
+          az webapp deploy -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" \
+            --src-path podavo-voyage.zip --type zip --async true --track-status false
 
-      - name: Deploy to App Service
-        if: env.HAS_PROFILE == 'true'
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: podavo-voyage
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: ../app.zip
+      - name: Wait for deployment to finish
+        timeout-minutes: 20
+        run: |
+          # Kudu status: 0 pending, 1 building, 2 deploying, 3 failed, 4 success.
+          while true; do
+            list=$(az webapp log deployment list -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" -o json 2>/dev/null || echo '[]')
+            d=$(echo "$list" | jq 'if type == "array" then (sort_by(.received_time // .receivedTime // "") | last // {}) else . end')
+            status=$(echo "$d" | jq -r '.status // empty')
+            echo "$(date -u +%T) status=${status:-?} $(echo "$d" | jq -r '.progress // .status_text // .message // empty' | head -c 120)"
+            [ "$status" = "4" ] && exit 0
+            [ "$status" = "3" ] && { echo "$d" | jq .; exit 1; }
+            sleep 20
+          done
+
+      - name: Health check
+        run: |
+          host=$(az webapp show -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --query defaultHostName -o tsv)
+          for i in $(seq 1 20); do
+            if curl -fsS "https://${host}/api/health"; then echo; exit 0; fi
+            sleep 15
+          done
+          curl -sS "https://${host}/api/health" || true
+          echo "Health check failed"; exit 1

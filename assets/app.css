@@ -2937,3 +2937,9 @@ body.multi-mode #multiForm{display:none !important}
 @keyframes tour-pulse{from{opacity:.9; transform:scale(1)} to{opacity:0; transform:scale(1.12)}}
 @keyframes tour-in{from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none}}
 @media (prefers-reduced-motion:reduce){ .tour__pulse{animation:none} .tour__spot,.tour__card{transition:none} }
+
+/* Pogoda: przycisk „Pokaż dla mojej lokalizacji”, gdy nie ma zgody na lokalizację */
+.wx .cd-label .fa-location-dot{font-size:.85em; margin-right:2px}
+.wx-here{display:inline-flex; align-items:center; gap:6px; margin-top:10px; min-height:36px; padding:6px 12px; border:1px solid rgba(255,255,255,.45); border-radius:999px; background:transparent; color:inherit; font-size:.78rem; font-weight:600; cursor:pointer}
+.wx-here:hover,.wx-here:focus-visible{background:rgba(255,255,255,.12)}
+.wx-here:disabled{opacity:.7; cursor:default}
