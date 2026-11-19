@@ -37,9 +37,10 @@
       <span class="nav-sep" aria-hidden="true"></span>
       <a class="nav-fav nav-trips" id="myTripsLink" href="/my-trips" title="Moje podróże"><i class="oi oi-suitcase" aria-hidden="true"></i> <span>Podróże</span><b class="nav-count" id="myTripsCount" hidden></b></a>
       <a class="nav-fav" id="favLink" href="/favourites"><i class="oi oi-star" aria-hidden="true"></i> <span>Ulubione</span><b class="nav-count" id="favCount" hidden></b></a>
+      <button class="nav-link-btn install-btn" id="installBtn" type="button" title="Zainstaluj aplikację" aria-label="Zainstaluj aplikację" hidden><i class="fa-solid fa-download" aria-hidden="true"></i> <span class="txt">Zainstaluj aplikację</span></button>
       <div class="lang-switch" role="group" aria-label="Zmień język"><button type="button" data-lang="pl" lang="pl" aria-pressed="true">PL</button><button type="button" data-lang="en" lang="en" aria-pressed="false">EN</button></div>
       <button class="nav-link-btn" id="alertsBtn" type="button"><i class="oi oi-bell" aria-hidden="true"></i> <span class="txt">Komunikaty</span> <span class="badge-num" id="alertsCount" hidden>0</span></button>
-      <div class="dropdown">
+      <div class="dropdown admin-drop">
         <button class="nav-link-btn dropdown-toggle" id="adminMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="oi oi-settings" aria-hidden="true"></i> <span class="txt">Admin</span></button>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminMenu">
           <li><button class="dropdown-item" id="refreshBtn" type="button" title="Odśwież teraz"><span class="ico">↻</span> Odśwież</button></li>
@@ -50,6 +51,8 @@
         <button class="nav-link-btn dropdown-toggle" id="userMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-regular fa-user" aria-hidden="true"></i> <span id="currentUser">Konto</span></button>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
           <li class="guest-only"><a class="dropdown-item" id="loginLink" href="/login">Zaloguj się</a></li>
+          <li class="phone-only"><button class="dropdown-item" type="button" data-proxy="settingsBtn"><i class="oi oi-settings" aria-hidden="true"></i> Ustawienia</button></li>
+          <li class="phone-only"><button class="dropdown-item" type="button" data-proxy="refreshBtn"><span class="ico">↻</span> Odśwież</button></li>
           <li><button class="dropdown-item" id="aboutBtn" type="button" data-bs-toggle="modal" data-bs-target="#aboutModal"><i class="fa-solid fa-circle-info ico" aria-hidden="true"></i> O aplikacji</button></li>
           <li><button class="dropdown-item" id="themeBtn" type="button" title="Motyw">Motyw</button></li>
           <li class="account-only"><button class="dropdown-item" id="passwordBtn" type="button">Hasło</button></li>
@@ -279,6 +282,22 @@
         </ul>
         <p class="small text-soft mb-0">Gmina Miasto Rzeszów nie ponosi odpowiedzialności za sposób wykorzystania danych. Ceny i godziny sprawdź u przewoźnika przed podróżą.</p>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="installModal" tabindex="-1" aria-hidden="true" aria-labelledby="installTitle">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><span class="kicker mb-1">Aplikacja</span><h4 id="installTitle">Dodaj podavo.voyage do ekranu początkowego</h4></div>
+      <div class="modal-body p-3 p-md-4">
+        <ol class="install-steps">
+          <li>W Safari stuknij <strong>Udostępnij</strong> (kwadrat ze strzałką w górę).</li>
+          <li>Wybierz <strong>Do ekranu początkowego</strong>.</li>
+          <li>Stuknij <strong>Dodaj</strong> — podavo.voyage otworzy się jak zwykła aplikacja.</li>
+        </ol>
+      </div>
+      <div class="modal-footer border-0 pt-0 px-3 px-md-4 pb-3"><button class="btn-grad" data-bs-dismiss="modal">Rozumiem</button></div>
     </div>
   </div>
 </div>

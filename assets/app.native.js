@@ -122,6 +122,9 @@
   };
 
   if(!native){
+    // The install offer can come before the page script is ready: keep it until the "Install app" button asks for it.
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); window.__installPrompt = e; });
+    window.addEventListener('appinstalled', () => { window.__installPrompt = null; });
     // Web/PWA: cache the app shell and the user's saved trips for offline use.
     if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')){
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(e => console.warn('service worker', e)));

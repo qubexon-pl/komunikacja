@@ -7231,3 +7231,20 @@ openPage(pageFromLocation(), false);
 boot();
 trainsBoot();
 weatherBoot();
+/* „Zainstaluj aplikację”: przycisk pojawia się tylko, gdy przeglądarka pozwala zainstalować stronę (Chrome, Edge, Android),
+   a na iPhonie/iPadzie w Safari pokazuje instrukcję „Do ekranu początkowego”. W zainstalowanej aplikacji i w Android/iOS go nie ma. */
+(function installApp(){
+  const btn=document.getElementById('installBtn'); if(!btn) return;
+  const standalone=()=>matchMedia('(display-mode: standalone)').matches || navigator.standalone===true || document.documentElement.classList.contains('is-native');
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  let deferred=window.__installPrompt||null;
+  const show=()=>{ btn.hidden=standalone() || (!deferred && !ios); };
+  window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferred=e; window.__installPrompt=e; show(); });
+  window.addEventListener('appinstalled', ()=>{ deferred=null; window.__installPrompt=null; show(); });
+  btn.addEventListener('click', async ()=>{
+    if(!deferred){ bootstrap.Modal.getOrCreateInstance(document.getElementById('installModal')).show(); return; }
+    const e=deferred; deferred=null; window.__installPrompt=null; show();
+    try{ await e.prompt(); }catch(err){}
+  });
+  show();
+})();
