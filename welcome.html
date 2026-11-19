@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#173B70">
+<meta name="description" content="Planer podróży: autobusy miejskie i podmiejskie, pociągi, samoloty i samochód w jednym miejscu.">
+<title>Witaj · podavo.voyage</title>
+<link rel="icon" type="image/svg+xml" href="/assets/onward/logos/mark-transparent.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/onward/png/favicon-32.png">
+<link rel="apple-touch-icon" href="/assets/onward/png/apple-touch-180.png">
+<link rel="manifest" href="/assets/manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/onward/css/tokens.css">
+<link rel="stylesheet" href="/assets/app.welcome.css">
+<script src="/assets/app.config.js"></script>
+<script src="/assets/i18n.js"></script>
+</head>
+<body>
+<header class="w-top">
+  <a class="w-brand" href="/" aria-label="podavo.voyage"><img src="/assets/onward/logos/wordmark-on-dark.svg" alt="podavo.voyage" width="200" height="28"></a>
+  <div class="w-top__actions">
+    <div class="lang-switch" role="group" aria-label="Zmień język"><button type="button" data-lang="pl" lang="pl" aria-pressed="true">PL</button><button type="button" data-lang="en" lang="en" aria-pressed="false">EN</button></div>
+    <a class="w-top__login" href="/login" data-login>Zaloguj się</a>
+  </div>
+</header>
+
+<main>
+  <section class="start" aria-labelledby="startTitle">
+    <div class="start__copy">
+      <span class="start__kicker"><i></i> Planuj · porównuj · podróżuj</span>
+      <h1 id="startTitle">Każda podróż zaczyna się od <em>dobrego planu</em>.</h1>
+      <p class="start__lead">Autobusy miejskie i podmiejskie, pociągi, samoloty i samochód w jednym planie. Porównaj czas i koszt, zanim wyruszysz.</p>
+      <p class="start__trust">Rozkłady z oficjalnych źródeł, autobusy na żywo i ceny tanich linii lotniczych.</p>
+      <nav class="start__roles" aria-label="Od czego zaczynasz?">
+        <a class="start-role" data-role="plan" href="/plan">
+          <span class="start-role__icon" aria-hidden="true"><i class="oi oi-route"></i></span>
+          <span class="start-role__body"><strong>Zaplanuj podróż</strong><span>Skąd i dokąd: porównamy autobusy, pociągi, loty i samochód.</span></span>
+          <span class="start-role__arrow" aria-hidden="true">→</span>
+        </a>
+        <a class="start-role" data-role="explore" href="/destinations">
+          <span class="start-role__icon" aria-hidden="true"><i class="oi oi-plane"></i></span>
+          <span class="start-role__body"><strong>Sprawdź kierunki</strong><span>Mapa lotów tanich linii z polskich lotnisk, z cenami.</span></span>
+          <span class="start-role__arrow" aria-hidden="true">→</span>
+        </a>
+        <a class="start-role" data-role="transit" href="/buses">
+          <span class="start-role__icon" aria-hidden="true"><i class="oi oi-bus"></i></span>
+          <span class="start-role__body"><strong>Komunikacja miejska</strong><span>Autobusy na żywo, rozkłady jazdy i pociągi w okolicy.</span></span>
+          <span class="start-role__arrow" aria-hidden="true">→</span>
+        </a>
+      </nav>
+      <p class="start__notice"><a href="/plan?tour=1">Pokaż mi, jak to działa</a> · <a href="/login" data-login>Zaloguj się</a> · <a href="/plan">Przeglądaj bez logowania</a></p>
+    </div>
+    <div class="start__art" aria-hidden="true">
+      <img src="/assets/hero.svg" alt="" class="start__scene">
+      <div class="start__float start__float--modes">
+        <span class="start__float-title">W jednym planie</span>
+        <span class="start__modes"><i class="oi oi-bus"></i><i class="oi oi-suburban-bus"></i><i class="oi oi-train"></i><i class="oi oi-plane"></i><i class="oi oi-car"></i></span>
+      </div>
+      <div class="start__float start__float--live"><span class="start__dot"></span> Autobusy na żywo</div>
+    </div>
+  </section>
+
+  <section class="perks" aria-labelledby="perksTitle">
+    <h2 id="perksTitle">Z kontem Podavo możesz więcej</h2>
+    <ul>
+      <li><span class="perk__icon" aria-hidden="true"><i class="oi oi-suitcase"></i></span><div><h3>Moje podróże</h3><p>Zapisz zaplanowaną podróż i miej plan krok po kroku zawsze pod ręką, także offline.</p></div></li>
+      <li><span class="perk__icon" aria-hidden="true"><i class="oi oi-star"></i></span><div><h3>Ulubione</h3><p>Trasy, przystanki i stacje, których często używasz, na każdym urządzeniu.</p></div></li>
+      <li><span class="perk__icon" aria-hidden="true"><i class="oi oi-bell"></i></span><div><h3>Alerty cenowe</h3><p>Damy znać, gdy lot na wybranej trasie stanieje.</p></div></li>
+    </ul>
+    <div class="perks__cta">
+      <a class="w-btn" href="/login" data-login>Załóż konto lub zaloguj się</a>
+      <a class="w-btn w-btn--ghost" href="/plan?tour=1">Zobacz przewodnik po aplikacji</a>
+    </div>
+    <p class="perks__note">Jedno konto Podavo działa we wszystkich aplikacjach Podavo. Pierwszy kod z e-maila je utworzy.</p>
+  </section>
+</main>
+
+<footer class="w-foot">PODAVO.VOYAGE <span>·</span> PODRÓŻUJ PO SWOJEMU</footer>
+</body>
+</html>

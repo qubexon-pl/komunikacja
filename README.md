@@ -20,6 +20,10 @@ Bus and PKS pages list every departure from a stop for today or the next six day
 
 "Jak dojechać" accepts a street, with or without a house number, as well as a stop or station name. The server checks the address with OpenStreetMap's public Nominatim service through `/api/geocode`, at most one request per second and with a 24-hour cache. Nominatim does not allow search-as-you-type, so live suggestions come from the Photon service through `/api/streets` and the chosen address is still checked with Nominatim when the form is submitted. The planner then compares several stops near each address and counts the estimated walk. Heavier traffic would need a self-hosted or paid geocoder.
 
+## Welcome page and app tour
+
+Visitors who are not signed in land on a welcome page (`welcome.html`, served at `/` for them and always at `/welcome`); signed-in users get the app at `/` as before, and `/plan` always opens the app. The guided tour (`assets/app.tour.js`, same walk-through as in Podavo Clean) is offered once per device on the first visit, and can be reopened from the `?` button in the top bar, from the Konto menu, or with `/plan?tour=1`.
+
 ## Database design
 
 The schema in [`database/schema.sql`](./database/schema.sql) separates agencies, routes, stops, services, service calendars, service exceptions, trips, stop times, shapes, shape points, and feed import metadata. Account data is separated into users, local credentials, external identities, sessions, and short-lived email challenges; pending registrations are stored separately and do not create an account before email verification. Composite primary and foreign keys keep IDs scoped to their agency and enforce the timetable relationships. The source URL is represented in storage only by a SHA-256 hash.
