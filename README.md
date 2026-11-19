@@ -89,6 +89,25 @@ Restart the app after configuring these values. The registration and recovery op
 
 Google credentials and `ADMIN_EMAILS` are secrets/configuration: do not commit them. For production, store them in Azure App Service settings or Key Vault, use HTTPS, and grant the app identity least-privilege database access.
 
+## AI sightseeing plan
+
+On a saved trip's page, each city's sightseeing section has a **Plan od AI** box. The traveller sets their preferences once (interests, pace, budget, how much they like to walk, a free-text note about themselves) and can add a wish for this trip only. The server (`src/ai-planner.js`) then builds the context from the database and asks Claude for a day-by-day plan:
+
+- the preferences, saved in `UserPreference` under `travelStyle` and reused for every later trip;
+- the trip itself from `UserFavorites`: dates, arrival time, hotel, people, and the places already in its sightseeing plan (not repeated);
+- the traveller's other saved trips and the places they planned there, as a hint of what they like;
+- the Open-Meteo forecast for the stay, so rainy days get indoor places.
+
+Claude (`claude-opus-5-5`, structured JSON output, with Anthropic's server-side fallback if a request is declined) returns real places with approximate positions, times, a reason tied to the preferences, tips and typical prices, in Polish. Positions more than 60 km from the city are dropped. Each place has a **Dojazd** button that fills the city transport planner from the previous place (or the hotel) half an hour before the proposed time, so the ride can be added to the trip as before. The last plan per trip and city is stored in `dbo.TripAiPlan`; each user can ask for 8 plans an hour.
+
+To enable it:
+
+1. Create an API key in the Claude Console (console.anthropic.com → API keys) and set `ANTHROPIC_API_KEY` in `.env` locally, or as an App Service application setting (better: a Key Vault reference) on Azure. Without it the box is hidden and nothing else changes.
+2. Optionally set `AI_PLAN_MODEL` to another Claude model id.
+3. Run `npm run db:migrate` to create `TripAiPlan`.
+
+A plan uses roughly 3–6k input and 2–4k output tokens, about $0.05–0.10 at Opus 5.5 prices.
+
 ## Local checks
 
 ```powershell

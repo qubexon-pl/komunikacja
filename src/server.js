@@ -30,6 +30,7 @@ const { createWizzTimetable } = require("./wizz-timetable");
 const { createRyanairApi } = require("./ryanair-api");
 const { createHotels } = require("./hotels");
 const { createTripWeather } = require("./trip-weather");
+const { createAiPlanner, createPlanStore, createAnthropicClient } = require("./ai-planner");
 const { createPksFares } = require("./pks-fares");
 const { createRates } = require("./rates");
 const { createStoredAnswers } = require("./stored");
@@ -486,6 +487,60 @@ async function servePksPrice(res, url, pksFares) {
     json(res, 200, await pksFares.price({ from, to, day, time: q("time").slice(0, 5), line: q("line").slice(0, 10) }));
   } catch (error) {
     json(res, error.status === 429 || error.status === 403 ? 429 : 502, { error: error.message, price: null });
+  }
+}
+
+// AI sightseeing plan of a saved trip's city (src/ai-planner.js): GET the last one, POST to propose a new one.
+// GET /api/ai/style and PUT /api/ai/style read and save the traveller's preferences used for it.
+async function serveAiPlan(req, res, url, aiPlanner, segments) {
+  if (segments.length === 3 && segments[2] === "status" && req.method === "GET") {
+    json(res, 200, { enabled: !!aiPlanner?.enabled() });
+    return;
+  }
+  if (!aiPlanner) {
+    json(res, 503, { error: "Plan od AI nie jest włączony na tym serwerze." });
+    return;
+  }
+  try {
+    if (segments.length === 3 && segments[2] === "style") {
+      if (req.method === "GET") {
+        json(res, 200, { style: await aiPlanner.styleOf(req.user.id) });
+        return;
+      }
+      if (req.method === "PUT") {
+        requireSameOrigin(req);
+        const { style } = await readJson(req, 16 * 1024);
+        json(res, 200, { style: await aiPlanner.saveStyle(req.user.id, style) });
+        return;
+      }
+      res.setHeader("Allow", "GET, PUT");
+      json(res, 405, { error: "Method not allowed." });
+      return;
+    }
+    if (segments.length === 3 && segments[2] === "city-plan") {
+      if (req.method === "GET") {
+        json(res, 200, { plan: await aiPlanner.saved(req.user.id, { tid: url.searchParams.get("tid") || "", city: url.searchParams.get("city") || "" }) });
+        return;
+      }
+      if (req.method === "POST") {
+        requireSameOrigin(req);
+        json(res, 200, { plan: await aiPlanner.generate(req.user.id, await readJson(req, 32 * 1024)) });
+        return;
+      }
+      res.setHeader("Allow", "GET, POST");
+      json(res, 405, { error: "Method not allowed." });
+      return;
+    }
+    json(res, 404, { error: "Not found." });
+  } catch (error) {
+    if (error.expose) {
+      if (error.status >= 500) console.warn("AI plan failed:", error.message);
+      json(res, error.status, { error: error.message });
+      return;
+    }
+    // Anything else (the Claude API, the database) is logged here and not shown to the traveller.
+    console.error("AI plan failed:", error.status || "", error.message);
+    json(res, 502, { error: "Plan od AI jest chwilowo niedostępny. Spróbuj ponownie za chwilę." });
   }
 }
 
@@ -987,7 +1042,7 @@ async function forwardToApi(req, res, url, fetchSource = fetch) {
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, hotels = createHotels({ fetchSource }), staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, hotels = createHotels({ fetchSource }), aiPlanner = null, staticRoot = ROOT }) {
   // Database first: geocoding, driving routes, paths, walking times, weather, hotel and PKS prices are read from the
   // stored answers and only asked from the outside service when nothing fresh is stored.
   const keep = createStoredAnswers(snapshots);
@@ -1264,6 +1319,10 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           await servePreferences(req, res, auth);
           return;
         }
+        if (segments[1] === "ai" && segments.length === 3) {
+          await serveAiPlan(req, res, url, aiPlanner, segments);
+          return;
+        }
         if (segments[1] === "alerts" && segments.length <= 3) {
           await serveAlerts(req, res, alerts, segments);
           return;
@@ -1483,6 +1542,14 @@ async function main() {
     alerts,
     wizz,
     ryanair: createRyanairApi({ flights, toPln: createRates() }),
+    aiPlanner: createAiPlanner({
+      client: createAnthropicClient(),
+      store: createPlanStore(pool),
+      getFavorites: (userId) => auth.getFavorites(userId),
+      getPreferences: (userId) => auth.getPreferences(userId),
+      savePreferences: (userId, preferences) => auth.savePreferences(userId, preferences),
+      forecast: (() => { const weather = createTripWeather(); return (q) => weather.forecast(q); })(),
+    }),
     database: {
       health: async () => pool.request().query("SELECT 1 AS ok"),
       getSchedule: (agency, sourceKey) => getSchedule(pool, agency, sourceKey),

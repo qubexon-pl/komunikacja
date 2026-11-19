@@ -168,6 +168,7 @@ function createAuthService(pool, {
       BEGIN TRANSACTION;
       DELETE FROM dbo.UserFavorites WHERE user_id = @userId;
       DELETE FROM dbo.UserPreference WHERE user_id = @userId;
+      IF OBJECT_ID(N'dbo.TripAiPlan', N'U') IS NOT NULL DELETE FROM dbo.TripAiPlan WHERE user_id = @userId;
       IF OBJECT_ID(N'dbo.EmailChallenge', N'U') IS NOT NULL DELETE FROM dbo.EmailChallenge WHERE user_id = @userId;
       IF OBJECT_ID(N'dbo.AuthSession', N'U') IS NOT NULL DELETE FROM dbo.AuthSession WHERE user_id = @userId;
       IF OBJECT_ID(N'dbo.ExternalIdentity', N'U') IS NOT NULL DELETE FROM dbo.ExternalIdentity WHERE user_id = @userId;
