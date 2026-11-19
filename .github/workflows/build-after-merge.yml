@@ -2,6 +2,8 @@ name: Build after merge
 
 # Runs when a pull request is merged (a PR closed without merging is skipped).
 # Can also be started by hand from the Actions tab.
+# After the tests pass, a merge into main is deployed to the Azure App Service podavo-voyage
+# (needs the repository secret AZURE_WEBAPP_PUBLISH_PROFILE; without it the deploy job only warns).
 on:
   pull_request:
     types: [closed]
@@ -80,3 +82,52 @@ jobs:
           name: android-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 14
+
+  deploy:
+    name: Deploy to Azure (podavo-voyage)
+    needs: web
+    # Only what lands on main goes to production.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-podavo-voyage
+      cancel-in-progress: false
+    env:
+      # Repository secret with the publish profile downloaded from the App Service's Overview page.
+      HAS_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE != '' }}
+    steps:
+      - name: Publish profile missing
+        if: env.HAS_PROFILE != 'true'
+        run: echo "::warning::Not deployed. Add the repository secret AZURE_WEBAPP_PUBLISH_PROFILE (App Service podavo-voyage > Overview > Download publish profile)."
+
+      - uses: actions/checkout@v4
+        if: env.HAS_PROFILE == 'true'
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        if: env.HAS_PROFILE == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      # The server's runtime packages only; the zip carries node_modules so the app starts without a build on Azure.
+      - name: Install production dependencies
+        if: env.HAS_PROFILE == 'true'
+        run: npm ci --omit=dev
+
+      - name: Package the app
+        if: env.HAS_PROFILE == 'true'
+        run: >-
+          zip -qr ../app.zip . -x '.git/*' '.github/*' 'android/*' 'ios/*' 'www/*' 'test/*' '.cache/*'
+          'api/.venv/*' '.env' '.env.*' '.vscode/*' '.azure/*'
+
+      - name: Deploy to App Service
+        if: env.HAS_PROFILE == 'true'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: podavo-voyage
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ../app.zip
