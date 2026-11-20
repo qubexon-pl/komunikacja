@@ -203,3 +203,23 @@ test("every Polish city has a centre, a search radius and what runs there", () =
   assert.ok(!CITIES.some((c) => c.name === "Rzeszów")); // Rzeszów has its own pages
   for (const name of ["Warszawa", "Kraków", "Wrocław", "Gdańsk", "Poznań", "Łódź"]) assert.ok(publicCities().some((c) => c.name === name), name);
 });
+
+test("lines of a Polish city come from the vehicles on their way across the city, counted once per trip", async () => {
+  const asked = [];
+  const t0 = Date.parse("2026-11-20T11:00:00Z");
+  const seg = (trip, line, mode, extra = {}) => ({ trips: [{ tripId: trip, routeShortName: line }], mode, routeColor: "", from: { name: "A" }, to: { name: "B" }, departure: "2026-11-20T11:05:00Z", arrival: "2026-11-20T11:07:00Z", polyline: "", ...extra });
+  const transitous = { mapTrips: async (q) => { asked.push(q); return [
+    seg("t1", "10", "TRAM"), seg("t1", "10", "TRAM"), seg("t2", "10", "TRAM", { realTime: true, scheduledDeparture: "2026-11-20T11:01:00Z" }),
+    seg("b1", "2", "BUS"), seg("x", "", "BUS"),
+  ]; } };
+  const city = createCityTransit({ transitous, now: () => t0 });
+  const r = await city.lines({ city: "wroclaw" });
+  assert.deepEqual(r.lines.map((l) => [l.line, l.kind, l.vehicles, l.late]), [["2", "bus", 1, 0], ["10", "tram", 2, 1]]);
+  assert.equal(asked[0].startTime, "2026-11-20T11:00:00.000Z");
+  assert.equal(asked[0].endTime, "2026-11-20T11:30:00.000Z");
+  const [s, w] = asked[0].min.split(",").map(Number), [n, e] = asked[0].max.split(",").map(Number);
+  assert.ok(s < 51.1079 && n > 51.1079 && w < 17.0385 && e > 17.0385);
+  await city.lines({ city: "wroclaw" });
+  assert.equal(asked.length, 1); // kept for 5 minutes
+  await assert.rejects(city.lines({ city: "nigdzie" }), { status: 400 });
+});

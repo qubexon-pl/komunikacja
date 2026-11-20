@@ -7,6 +7,7 @@
 <script src="/assets/app.config.js"></script>
 <script src="/assets/app.native.js"></script>
 <script src="/assets/i18n.js"></script>
+<script src="/assets/app.cities.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300..800&display=swap" rel="stylesheet">
@@ -261,8 +262,10 @@
   </div>
 
 
-  <div class="sec-head only-ztm" id="lines-sec" style="margin-top:64px"><span class="sec-num">05</span><h2>Linie i przystanki</h2><span class="sec-rule"></span></div>
-  <div id="linesGrid" class="lines-grid only-ztm"></div>
+  <div class="sec-head only-ztm lines-part" id="lines-sec" style="margin-top:64px"><span class="sec-num">05</span><h2>Linie i przystanki</h2><span class="sec-rule"></span></div>
+  <div id="linesGrid" class="lines-grid only-ztm lines-part"></div>
+  <div class="sec-head only-kolej lines-part lines-only" id="trlines-sec"><span class="sec-num">01</span><h2>Kierunki pociągów</h2><span class="sec-rule"></span></div>
+  <div id="trLines" class="only-kolej lines-part lines-only"></div>
 
 </main>
 

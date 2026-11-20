@@ -784,3 +784,15 @@ test("Polish city transport: the city list, stop search and departures are publi
   assert.deepEqual((await down.json()).departures, []);
   assert.deepEqual(asked[0], ["stops", { city: "wroclaw", q: "Rynek" }]);
 });
+
+test("Polish city lines are public and a Transitous failure answers with an empty list", async (t) => {
+  const cityTransit = { lines: async ({ city }) => { if (city === "x") throw new Error("Transitous zwrócił HTTP 503."); return { city, lines: [{ line: "10", kind: "tram", vehicles: 3, late: 0 }] }; } };
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, cityTransit });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/transit/lines`;
+  assert.equal((await (await fetch(`${base}?city=wroclaw`)).json()).lines[0].line, "10");
+  const down = await fetch(`${base}?city=x`);
+  assert.equal(down.status, 502);
+  assert.deepEqual((await down.json()).lines, []);
+});

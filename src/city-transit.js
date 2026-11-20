@@ -20,6 +20,7 @@ const MIN_ZOOM = 12;
 const LOCAL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const STOPS_KEEP_MS = 60 * 60 * 1000;
 const DEPARTURES_KEEP_MS = 30 * 1000;
+const LINES_KEEP_MS = 5 * 60 * 1000;
 const PL_ZONE = "Europe/Warsaw";
 
 const bad = (message) => Object.assign(new Error(message), { status: 400 });
@@ -97,6 +98,36 @@ function createCityTransit({ transitous = null, fetchSource = fetch, now = Date.
     }
     const result = { stops: list.slice(0, 12), city: c.id };
     remember(stopLists, id, { result, fetchedAt: now() });
+    return result;
+  }
+
+  // Lines running in a Polish city within the next half hour, from the vehicles on their way across the whole city.
+  const lineLists = new Map();
+  async function lines({ city }) {
+    const c = cityById(city);
+    if (!c) throw bad("Nieznane miasto.");
+    const hit = lineLists.get(c.id);
+    if (hit && now() - hit.fetchedAt < LINES_KEEP_MS) return hit;
+    const reach = Math.min(c.km, 18), dLat = reach / 111, dLon = reach / (111 * Math.cos((c.centre[0] * Math.PI) / 180));
+    const start = Math.floor(now() / 60000) * 60000;
+    const r4 = (v) => v.toFixed(4);
+    const segments = await client.mapTrips({ min: `${r4(c.centre[0] - dLat)},${r4(c.centre[1] - dLon)}`, max: `${r4(c.centre[0] + dLat)},${r4(c.centre[1] + dLon)}`, zoom: "13", startTime: new Date(start).toISOString(), endTime: new Date(start + 30 * 60000).toISOString() });
+    const by = new Map();
+    for (const s of Array.isArray(segments) ? segments : []) {
+      const trip = s.trips?.[0] || {};
+      const line = String(trip.displayName || trip.routeShortName || "").trim();
+      if (!line) continue;
+      const kind = kindOf(s.mode), key = `${kind}|${line}`;
+      let g = by.get(key);
+      if (!g) { g = { line, kind, color: hex(s.routeColor), trips: new Set(), late: new Set() }; by.set(key, g); }
+      const id = trip.tripId || `${s.from?.name}-${s.departure}`;
+      g.trips.add(id);
+      if (s.realTime && s.scheduledDeparture && Date.parse(s.departure) - Date.parse(s.scheduledDeparture) >= 3 * 60000) g.late.add(id);
+    }
+    const list = [...by.values()].map((g) => ({ line: g.line, kind: g.kind, color: g.color, vehicles: g.trips.size, late: g.late.size }))
+      .sort((a, b) => a.line.localeCompare(b.line, "pl", { numeric: true, sensitivity: "base" }));
+    const result = { city: c.id, lines: list, fetchedAt: now(), source: "Transitous" };
+    lineLists.set(c.id, result);
     return result;
   }
 
@@ -191,7 +222,7 @@ function createCityTransit({ transitous = null, fetchSource = fetch, now = Date.
     return pending;
   }
 
-  return { plan, vehicles, stops, departures };
+  return { plan, vehicles, stops, departures, lines };
 }
 
 module.exports = { createCityTransit, clip };
