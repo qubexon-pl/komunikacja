@@ -1515,7 +1515,9 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
       // Visitors who are not signed in start on the welcome page; signed-in users go straight to the app.
       if (url.pathname === "/") {
         const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE)).catch(() => null);
-        serveStatic(res, user ? "/" : "/welcome", root, url.search);
+        // A server package without welcome.html (it was once left out of the deploy zip) shows the app, not a 404.
+        const hasWelcome = !user && fs.existsSync(path.join(root, "welcome.html"));
+        serveStatic(res, hasWelcome ? "/welcome" : "/", root, url.search);
         return;
       }
       if (url.pathname === "/login") {

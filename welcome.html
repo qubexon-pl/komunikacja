@@ -21,7 +21,8 @@
 <script src="/assets/app.welcome.js" defer></script>
 </head>
 <body>
-<!-- Same layout as the Podavo Clean start page: white bar, slogan, two big choices, painted scene beside them. -->
+<!-- Same layout as the Podavo Clean start page: white bar, slogan, two big choices, painted scene beside them.
+     It fits one screen, and every choice goes through the login page (which still offers "Przeglądaj bez logowania"). -->
 <header class="w-top">
   <a class="w-brand" href="/" aria-label="podavo.voyage"><img src="/assets/onward/logos/wordmark-on-light.svg" alt="podavo.voyage" width="190" height="27"></a>
   <nav class="w-top__links" aria-label="Strona">
@@ -40,16 +41,16 @@
       <p class="start__lead">Autobus, pociąg, samolot czy samochód? Wpisz, skąd i dokąd jedziesz, porównaj czas i koszt w jednym planie i wybierz najlepszą trasę.</p>
       <p class="start__trust">Rozkłady z oficjalnych źródeł, autobusy na żywo i ceny tanich linii.</p>
       <nav class="start__roles" aria-label="Od czego zaczynasz?">
-        <a class="start-role" data-role="plan" data-page="plan" href="/plan">
+        <a class="start-role" data-role="plan" data-page="login" href="/login?returnTo=%2Fplan">
           <span class="start-role__icon" aria-hidden="true"><i class="oi oi-search"></i></span>
           <span class="start-role__body">
             <strong>Zaplanuj podróż</strong>
             <span>Skąd i dokąd · autobusy, pociągi, loty i samochód.</span>
-            <small>Za darmo, bez logowania</small>
+            <small>Zaloguj się i zacznij planować</small>
           </span>
           <span class="start-role__arrow" aria-hidden="true">→</span>
         </a>
-        <a class="start-role" data-role="explore" data-page="destinations" href="/destinations">
+        <a class="start-role" data-role="explore" data-page="login" href="/login?returnTo=%2Fdestinations">
           <span class="start-role__icon" aria-hidden="true"><i class="oi oi-plane"></i></span>
           <span class="start-role__body">
             <strong>Sprawdź kierunki</strong>
