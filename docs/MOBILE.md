@@ -36,7 +36,7 @@ origin). The apps get the same token in the response body, keep it in the Keycha
 **Photos.** `POST /api/photos` checks that the trip is one of the caller's own saved trips, then the app sends 4 MB
 chunks with `Upload-Offset`. A chunk at the wrong offset gets `409` with the offset the server has; after a dropped
 connection the app asks `GET /api/photos/{id}` and continues. The first bytes must match the declared image type
-(JPEG, PNG, WebP, HEIC). Files are stored at `<userId>/<trip-name>-<tripId>/<day>_<photoId>.<ext>` (the trip name without accents, e.g. `weekend-w-krakowie-k3x9a1b2`; a renamed trip keeps the folder of its first photo), become readable only after the
+(JPEG, PNG, WebP, HEIC). Files are stored at `<userId>/<tripId>/<photoId>.<ext>`, become readable only after the
 last chunk, and are served only to their owner (`Cache-Control: private`). Metadata is in `dbo.TripPhoto`.
 
 **Offline.**

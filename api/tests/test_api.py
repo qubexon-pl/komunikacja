@@ -81,23 +81,12 @@ def test_photo_upload_resumes_after_an_interruption_and_is_private(client):
     assert client.delete(f"/api/photos/{pid}", headers=bearer(token)).json() == {"deleted": True}
 
 
-def test_photos_are_stored_by_user_and_trip_name(client):
+def test_photos_are_stored_by_user_and_trip_id(client):
     token = native_login(client).json()["token"]
-    trips = [{"type": "trip", "view": "podroz", "id": f"f:{i}", "from": "Rzeszów", "to": "Łódź", "name": "Lot", "tid": tid, "status": "booked",
-              **({"title": "Weekend w Łodzi & Kraków!"} if title else {})} for i, (tid, title) in enumerate([("trip0001", True), ("trip0002", True), ("trip0003", False)])]
-    client.put("/api/favorites", json={"favorites": trips}, headers=bearer(token))
-    start = lambda tid: client.post("/api/photos", json={"tripId": tid, "contentType": "image/jpeg", "size": 10, "takenAt": "2026-05-02T10:00:00Z"},
-                                    headers=bearer(token)).json()["photo"]["id"]
-    path = lambda pid: client.repo.photos_[pid]["path"]
-    first = path(start("trip0001"))
-    user_dir, folder, name = first.split("/")
-    assert folder == "weekend-w-lodzi-krakow-trip0001" and name.startswith("2026-05-02_") and name.endswith(".jpg")
-    assert path(start("trip0002")).split("/")[1] == "weekend-w-lodzi-krakow-trip0002"  # same name, own folder
-    assert path(start("trip0003")).split("/")[1] == "rzeszow-lodz-trip0003"  # no title: from and to
-    # a renamed trip keeps adding to the folder of its first photo
-    trips[0]["title"] = "Majówka"
-    client.put("/api/favorites", json={"favorites": trips}, headers=bearer(token))
-    assert path(start("trip0001")).split("/")[:2] == [user_dir, "weekend-w-lodzi-krakow-trip0001"]
+    _trip(client, token)
+    pid = client.post("/api/photos", json={"tripId": "trip0001", "contentType": "image/jpeg", "size": 10}, headers=bearer(token)).json()["photo"]["id"]
+    user_dir, trip_dir, name = client.repo.photos_[pid]["path"].split("/")
+    assert user_dir and trip_dir == "trip0001" and name == f"{pid}.jpg"
 
 
 def test_a_file_that_is_not_the_declared_image_type_is_refused(client):
