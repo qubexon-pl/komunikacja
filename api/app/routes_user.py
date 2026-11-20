@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import unicodedata
 import uuid
 from datetime import datetime
 
@@ -14,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from .deps import require_user
-from .favorites import normalize_favorites, trip_ids
+from .favorites import normalize_favorites
 
 router = APIRouter(prefix="/api")
 MAX_FAVORITES_BYTES = 512 * 1024
@@ -88,12 +90,28 @@ def _owned(request: Request, user: dict, photo_id: str) -> dict:
     return photo
 
 
+def _slug(name: str) -> str:
+    """A trip name as a folder name: Polish letters without accents, lower case, words joined with "-" (max 60)."""
+    name = name.replace("ł", "l").replace("Ł", "L")
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "-", ascii_name.lower()).strip("-")[:60].strip("-")
+
+
+def trip_folder(trip: dict) -> str:
+    """The trip's folder in photo storage: its name plus the trip id, so two trips with the same name never share a
+    folder (e.g. "weekend-w-krakowie-k3x9a1b2c4d5"). The name is the traveller's own title, else "from-to"."""
+    name = trip.get("title") or f"{trip.get('from', '')} {trip.get('to', '')}"
+    slug = _slug(name)
+    return f"{slug}-{trip['tid']}" if slug else trip["tid"]
+
+
 @router.post("/photos", status_code=201)
 async def start_photo(request: Request, user: dict = Depends(require_user)):
     settings, repo = request.app.state.settings, request.app.state.repo
     body = await _json(request, 8 * 1024)
     trip_id, content_type, size = body.get("tripId"), body.get("contentType"), body.get("size")
-    if not isinstance(trip_id, str) or trip_id not in trip_ids(repo.favorites(user["id"])):
+    trip = next((f for f in repo.favorites(user["id"]) if f.get("type") == "trip" and f.get("tid") == trip_id), None) if isinstance(trip_id, str) else None
+    if not trip:
         raise HTTPException(404, {"error": "Nie znaleziono tej podróży.", "code": "trip-not-found"})
     if content_type not in TYPES:
         raise HTTPException(415, "Dozwolone są zdjęcia JPEG, PNG, WebP i HEIC.")
@@ -105,7 +123,13 @@ async def start_photo(request: Request, user: dict = Depends(require_user)):
     except ValueError:
         taken_at = None
     photo_id = str(uuid.uuid4())
-    photo = {"id": photo_id, "userId": user["id"], "tripId": trip_id, "path": f"{user['id']}/{trip_id}/{photo_id}.{TYPES[content_type]}",
+    # trip-photos/<user>/<trip name>-<trip id>/<day>_<photo>.<ext>. A renamed trip keeps the folder its first photo
+    # went to, so all photos of one trip stay together.
+    earlier = [p for p in repo.photos(user["id"], trip_id) if p.get("path")]
+    kept = earlier[0]["path"].split("/")[1] if earlier and earlier[0]["path"].count("/") >= 2 else ""
+    folder = kept if kept and kept != trip_id else trip_folder(trip)  # photos from before names were used sat in "<trip id>"
+    day = taken_at.strftime("%Y-%m-%d") + "_" if taken_at else ""
+    photo = {"id": photo_id, "userId": user["id"], "tripId": trip_id, "path": f"{user['id']}/{folder}/{day}{photo_id}.{TYPES[content_type]}",
              "contentType": content_type, "size": size, "caption": str(body.get("caption") or "").strip()[:200], "takenAt": taken_at}
     request.app.state.storage.create(photo["path"])
     repo.create_photo(photo)
