@@ -231,3 +231,14 @@
   .tx-mode,.tx-sub{font-size:.76rem !important; gap:4px !important}
   .tx-mode .oi,.tx-sub .oi,.tx-sub i{display:none}
 }
+
+/* ---- keyboard open: the field being typed in stays visible (see app.native.js) ----
+   --kb-overlap is the part of the screen the keyboard covers when the app's web view is not resized; usually 0. */
+html.keyboard-open body{padding-bottom:var(--kb-overlap,0px) !important}
+@media (max-width:760px){
+  html.keyboard-open .modal-dialog{padding-bottom:var(--kb-overlap,0px)}
+  html.keyboard-open .modal-content{max-height:calc(100dvh - 24px - env(safe-area-inset-top,0px) - var(--kb-overlap,0px))}
+
+  /* the "Compare connections: buses, trains…" picture under the search box only takes room on a phone */
+  #planResults:empty{display:none !important}
+}
