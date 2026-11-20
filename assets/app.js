@@ -135,86 +135,65 @@ document.getElementById('removePasswordBtn')?.addEventListener('click',async()=>
   catch(err){ passwordMessage(err.message); }
 });
 
-/* ---------- Wylogowanie po godzinie bez aktywności (jak w Podavo): tylko na komputerze z myszką, wspólne dla kart ---------- */
-const IDLE={key:'podavo-voyage-last-activity', limit:60*60000, warn:2*60000, warned:false, timer:null};
-const idleDesktop=()=>matchMedia('(hover: hover) and (pointer: fine)').matches && !(window.ONWARD&&window.ONWARD.native);
+/* ---------- Wylogowanie na komputerze po godzinie bez aktywności (czas ustala administrator: idleLogoutMinutes, 0 = wyłączone).
+   Tylko na komputerze z myszką, wspólne dla kart: ruch w jednej karcie liczy się dla wszystkich. ---------- */
+const IDLE={key:'podavo-voyage-last-activity', warn:2*60000, warned:false, timer:null};
+const idleLimit=()=>{ const m=Number(CFG?.idleLogoutMinutes); return Number.isFinite(m)&&m>0 ? m*60000 : 0; };
+// Komputer: jakiekolwiek precyzyjne wskazywanie (mysz, touchpad), także na laptopie z ekranem dotykowym.
+const idleDesktop=()=>matchMedia('(any-pointer: fine)').matches && matchMedia('(any-hover: hover)').matches && !(window.ONWARD&&window.ONWARD.native);
 const lastActivity=()=>{ try{ return +localStorage.getItem(IDLE.key)||0; }catch(e){ return 0; } };
-function markActivity(){ const now=Date.now(); if(now-lastActivity()>15000){ try{ localStorage.setItem(IDLE.key,String(now)); }catch(e){} } IDLE.warned=false; }
+function markActivity(){
+  const now=Date.now(), last=lastActivity(), limit=idleLimit();
+  // Pierwszy ruch po długiej przerwie (np. po uśpieniu komputera) nie przedłuża sesji, tylko kończy ją.
+  if(IDLE.timer && limit && last && now-last>=limit){ idleSignOut(); return; }
+  if(now-last>15000){ try{ localStorage.setItem(IDLE.key,String(now)); }catch(e){} } IDLE.warned=false; }
 const forgetActivity=()=>{ try{ localStorage.removeItem(IDLE.key); }catch(e){} };
 async function idleSignOut(){
+  if(IDLE.out) return; IDLE.out=true;
   clearInterval(IDLE.timer);
   forgetActivity(); // inaczej stary znacznik wylogowałby od razu po następnym zalogowaniu
   try{ await fetch('/api/auth/logout',{method:'POST'}); }catch(e){}
-  store('onward.user', null);
+  store('onward.user', null); store('rzbus.favs', []); try{ await caches?.delete('onward-api'); }catch(e){}
   location.assign('/login?powod=bezczynnosc&returnTo='+encodeURIComponent(location.pathname));
 }
 function checkIdle(){
+  const limit=idleLimit(); if(!limit) return;
   const idle=Date.now()-(lastActivity()||Date.now());
-  if(idle>=IDLE.limit){ idleSignOut(); return; }
-  if(idle>=IDLE.limit-IDLE.warn && !IDLE.warned){ IDLE.warned=true; toast(L2('Za 2 minuty wylogujemy Cię z powodu braku aktywności. Rusz myszką, aby zostać.','You will be signed out in 2 minutes for inactivity. Move the mouse to stay.')); }
+  if(idle>=limit){ idleSignOut(); return; }
+  if(idle>=limit-IDLE.warn && !IDLE.warned){ IDLE.warned=true; toast(L2('Za 2 minuty wylogujemy Cię z powodu braku aktywności. Rusz myszką, aby zostać.','You will be signed out in 2 minutes for inactivity. Move the mouse to stay.')); }
 }
 sessionUser.then(user=>{
   if(!user || !idleDesktop()) return;
-  if(lastActivity() && Date.now()-lastActivity()>=IDLE.limit){ idleSignOut(); return; } // otwarta ponownie po ponad godzinie
+  if(idleLimit() && lastActivity() && Date.now()-lastActivity()>=idleLimit()){ idleSignOut(); return; } // otwarta ponownie po czasie
   markActivity();
   for(const ev of ['mousemove','mousedown','keydown','wheel','scroll','touchstart']) addEventListener(ev, markActivity, {passive:true});
+  // Uśpiony komputer lub karta w tle: sprawdź od razu po powrocie, zanim ruch myszy odnowi znacznik.
+  const checkFirst=()=>{ if(document.visibilityState==='visible') checkIdle(); };
+  document.addEventListener('visibilitychange', checkFirst, true);
+  addEventListener('focus', checkFirst, true);
   IDLE.timer=setInterval(checkIdle, 30000);
 });
 /* ============================================================
    Konfiguracja
    ============================================================ */
-const DEFAULTS = {
-  threshold: 3,           // min — od tylu minut autobus jest „spóźniony” (czerwony)
-  refresh: 20,            // s
-  rtUrls: [
-    'https://kmrzeszow.live/gtfs/rt/gtfsrt.pb',
-    'https://www.mpkrzeszow.pl/gtfs/rt/gtfsrt.pb'
-  ],
-  staticUrls: [
-    'https://mkuran.pl/gtfs/rzeszow.zip',
-    'https://cdn.zbiorkom.live/gtfs/rzeszow.zip'
-  ],
-  proxy: 'auto',
-  proxyCustom: '',
-  demo: false,
-  tiles: 'esri',
-  gkey: '',
-  traffic: true,
-  // PKS Rzeszów (ZGPKS) — linie podmiejskie. Dokładne adresy z kmrzeszow.live/otwartedane można wkleić w Ustawieniach.
-  pks: true,
-  pksRtUrls: [
-    'https://kmrzeszow.live/gtfs-pks/rt/gtfsrt.pb',
-    'https://www.mpkrzeszow.pl/gtfs-pks/rt/gtfsrt.pb'
-  ],
-  pksStaticUrls: [
-    'https://kmrzeszow.live/gtfs-pks/latest.zip',
-    'https://www.mpkrzeszow.pl/gtfs-pks/latest.zip'
-  ],
-  // Pociągi — Otwarte Dane Kolejowe PKP PLK, klucz trzyma serwer
-  trains: true,
-  // Pogoda — Open-Meteo (bez klucza)
-  weather: true
-};
+const DEFAULTS = window.VOYAGE_DEFAULTS; // assets/app.defaults.js
 const TZ = 'Europe/Warsaw';
 const RZ_CENTER = [50.0378, 22.0049];
 
 const OLD_PLK_KEY='rzbus.plk.old';
 function store(k, v){ try{ if(v===undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); }catch(e){ return null; } }
-// Jednorazowo: stare ustawienia źródeł i pamięć rozkładu potrafiły blokować wczytanie linii. Adresy PKS i klucze zostają.
-if(store('rzbus.sourcesV')!==2){
-  const saved=store('rzbus.cfg');
-  if(saved){ delete saved.proxy; delete saved.proxyCustom; delete saved.staticUrls; store('rzbus.cfg', saved); }
-  try{ indexedDB.deleteDatabase('rzbus'); }catch(e){}
-  store('rzbus.sourcesV', 2);
+// Ustawienia ustala administrator dla wszystkich (/admin, GET /api/settings). Kopia z ostatniej wizyty pozwala wystartować
+// od razu i bez internetu; dawne ustawienia z tej przeglądarki już nie obowiązują.
+const SHARED_KEY='voyage.shared';
+// Klucz PKP PLK z dawnych ustawień czeka osobno, aż administrator zapisze go na serwerze (panel /admin).
+{ const saved=store('rzbus.cfg'); if(saved?.plkKey) store(OLD_PLK_KEY, saved.plkKey); try{ localStorage.removeItem('rzbus.cfg'); }catch(e){} }
+function settingsFrom(shared){
+  const cfg=Object.assign({}, DEFAULTS, shared||{});
+  if(cfg.proxy!=='custom') cfg.proxy='auto';
+  if(!TILE_KEYS_OK(cfg.tiles)) cfg.tiles='esri';
+  return cfg;
 }
-// Klucz z dawnych ustawień czeka osobno, aż administrator zapisze go na serwerze.
-{ const saved=store('rzbus.cfg'); if(saved?.plkKey){ store(OLD_PLK_KEY, saved.plkKey); delete saved.plkKey; store('rzbus.cfg', saved); } }
-// Zapisane ustawienia pamiętają dawne, nieistniejące adresy PKS i zasłaniałyby nowe domyślne.
-{ const saved=store('rzbus.cfg'), old=url=>/\/gtfs\/(rt\/pks|pks)/.test(url);
-  if(saved?.pksRtUrls?.some(old) || saved?.pksStaticUrls?.some(old)){ delete saved.pksRtUrls; delete saved.pksStaticUrls; store('rzbus.cfg', saved); } }
-let CFG = Object.assign({}, DEFAULTS, store('rzbus.cfg') || {});
-if(CFG.proxy!=='custom') CFG.proxy='auto';
-if(!TILE_KEYS_OK(CFG.tiles)) CFG.tiles='esri';
+let CFG = settingsFrom(store(SHARED_KEY));
 function TILE_KEYS_OK(k){ return ['esri','osm','hot','sat','carto','google'].includes(k); }
 
 /* ============================================================
@@ -851,7 +830,7 @@ function setTiles(){
   for(const t of tileLayers) map.removeLayer(t); tileLayers=[];
   document.getElementById('trafficLegend').classList.toggle('d-none', !(CFG.tiles==='google' && CFG.gkey && CFG.traffic));
   if(CFG.tiles==='google'){
-    if(!CFG.gkey){ showTileNote('Aby użyć Google Maps z natężeniem ruchu, wpisz klucz API Google w Ustawieniach.'); CFG.tiles='esri'; setTiles(); CFG.tiles='google'; return; }
+    if(!CFG.gkey){ showTileNote('Google Maps z natężeniem ruchu wymaga klucza API, który administrator wpisuje w panelu administratora.'); CFG.tiles='esri'; setTiles(); CFG.tiles='google'; return; }
     document.getElementById('map').classList.remove('dim-tiles');
     ensureGoogle(CFG.gkey).then(()=>{
       if(my!==tilesToken) return;
@@ -1249,58 +1228,35 @@ document.getElementById('alertsBtn').addEventListener('click', ()=>{
   loadDataStatus();
   alertsModal.show();
 });
-const settingsModal=new bootstrap.Modal(document.getElementById('settingsModal'));
-function fillSettings(){
-  sThr.value=CFG.threshold; sThrLbl.textContent=CFG.threshold; sRefresh.value=CFG.refresh; sRefreshLbl.textContent=CFG.refresh;
-  sRt.value=CFG.rtUrls.join('\n'); sStatic.value=CFG.staticUrls.join('\n'); sProxy.value=CFG.proxy; sProxyCustom.value=CFG.proxyCustom; sDemo.checked=CFG.demo; sTiles.value=CFG.tiles; sGkey.value=CFG.gkey||''; sTraffic.checked=CFG.traffic!==false; gBox.style.display = CFG.tiles==='google'?'':'none';
-  sPks.checked=CFG.pks!==false; sPksRt.value=(CFG.pksRtUrls||[]).join('\n'); sPksStatic.value=(CFG.pksStaticUrls||[]).join('\n'); sTrains.checked=CFG.trains!==false; loadPlkStatus(); sWeather.checked=CFG.weather!==false;
-  sProxyCustom.style.display = CFG.proxy==='custom'?'':'none';
-}
-const [sThr,sThrLbl,sRefresh,sRefreshLbl,sRt,sStatic,sProxy,sProxyCustom,sDemo,sTiles,sGkey,sTraffic,gBox] = ['sThr','sThrLbl','sRefresh','sRefreshLbl','sRt','sStatic','sProxy','sProxyCustom','sDemo','sTiles','sGkey','sTraffic','gBox'].map(id=>document.getElementById(id));
-const [sPks,sPksRt,sPksStatic,sTrains,sPlk,sWeather]=['sPks','sPksRt','sPksStatic','sTrains','sPlk','sWeather'].map(id=>document.getElementById(id));
-sThr.addEventListener('input',()=>sThrLbl.textContent=sThr.value);
-sRefresh.addEventListener('input',()=>sRefreshLbl.textContent=sRefresh.value);
-sTiles.addEventListener('change',()=>gBox.style.display = sTiles.value==='google'?'':'none');
-sProxy.addEventListener('change',()=>sProxyCustom.style.display = sProxy.value==='custom'?'':'none');
-document.getElementById('settingsBtn').addEventListener('click', ()=>{ fillSettings(); settingsModal.show(); });
-// Pole widzi tylko administrator; zapisanego klucza serwer nigdy nie odsyła.
-async function loadPlkStatus(){
-  const panel=document.getElementById('plkAdmin'), note=document.getElementById('sPlkNote');
-  panel.hidden=true; note.textContent='';
-  try{
-    const r=await fetch('/api/settings/plk-key'); if(!r.ok) return;
-    const {configured,updatedAt}=await r.json();
-    sPlk.value=store(OLD_PLK_KEY)||''; panel.hidden=false;
-    note.textContent=configured?`Klucz zapisany na serwerze (${fmtDay(updatedAt.slice(0,10))}). Wklej nowy, aby go zastąpić.`:'Klucza nie ma jeszcze na serwerze.';
-  }catch(e){ console.warn('Klucz PKP PLK', e); }
-}
-document.getElementById('sPlkSave').addEventListener('click', async e=>{
-  const note=document.getElementById('sPlkNote'), key=sPlk.value.trim();
-  if(!key){ note.textContent='Wklej klucz API PKP PLK.'; return; }
-  e.currentTarget.disabled=true; note.textContent='Sprawdzam klucz w PKP PLK…';
-  try{
-    const r=await fetch('/api/settings/plk-key',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({key})});
-    if(!r.ok){ note.textContent=(await r.json()).error; return; }
-    localStorage.removeItem(OLD_PLK_KEY); sPlk.value=''; note.textContent='Zapisano. Klucz działa teraz dla wszystkich użytkowników.';
-    trainsBoot();
-  }catch(err){ console.warn('Klucz PKP PLK', err); note.textContent='Nie udało się zapisać klucza. Spróbuj ponownie.'; }
-  finally{ document.getElementById('sPlkSave').disabled=false; }
-});
-document.getElementById('resetSettings').addEventListener('click', ()=>{ CFG=Object.assign({},DEFAULTS); fillSettings(); });
-document.getElementById('settingsForm').addEventListener('submit', e=>{
-  e.preventDefault();
-  const lines = t => t.split(/\s*\n\s*/).map(s=>s.trim()).filter(Boolean);
-  const reloadData = lines(sRt.value).join()!==CFG.rtUrls.join() || lines(sStatic.value).join()!==CFG.staticUrls.join() || sProxy.value!==CFG.proxy || sProxyCustom.value!==CFG.proxyCustom || sDemo.checked!==CFG.demo || sPks.checked!==(CFG.pks!==false) || lines(sPksRt.value).join()!==(CFG.pksRtUrls||[]).join() || lines(sPksStatic.value).join()!==(CFG.pksStaticUrls||[]).join();
-  const trainsChanged = sTrains.checked!==(CFG.trains!==false);
-  const weatherChanged = sWeather.checked!==(CFG.weather!==false);
-  CFG = {threshold:+sThr.value, refresh:+sRefresh.value, rtUrls:lines(sRt.value), staticUrls:lines(sStatic.value), proxy:sProxy.value, proxyCustom:sProxyCustom.value.trim(), demo:sDemo.checked, tiles:sTiles.value, gkey:sGkey.value.trim(), traffic:sTraffic.checked, pks:sPks.checked, pksRtUrls:lines(sPksRt.value), pksStaticUrls:lines(sPksStatic.value), trains:sTrains.checked, weather:sWeather.checked};
-  if(gmLoadedKey && CFG.gkey!==gmLoadedKey){ store('rzbus.cfg', CFG); location.reload(); return; }
-  store('rzbus.cfg', CFG); settingsModal.hide(); setTiles();
+/* ---------- Wspólne ustawienia (ustala administrator na /admin, obowiązują wszystkich) ---------- */
+const sameList=(a,b)=>(a||[]).join('|')===(b||[]).join('|');
+function applySettings(next){
+  const prev=CFG;
+  const reloadData = !sameList(next.rtUrls,prev.rtUrls) || !sameList(next.staticUrls,prev.staticUrls) || next.proxy!==prev.proxy || next.proxyCustom!==prev.proxyCustom || next.demo!==prev.demo
+    || (next.pks!==false)!==(prev.pks!==false) || !sameList(next.pksRtUrls,prev.pksRtUrls) || !sameList(next.pksStaticUrls,prev.pksStaticUrls);
+  const trainsChanged=(next.trains!==false)!==(prev.trains!==false), weatherChanged=(next.weather!==false)!==(prev.weather!==false);
+  CFG=next;
+  if(gmLoadedKey && CFG.gkey!==gmLoadedKey){ location.reload(); return; } // Google Maps wczytuje klucz tylko raz
+  setTiles();
   document.querySelectorAll('.thrLbl').forEach(x=>x.textContent=CFG.threshold);
   if(reloadData) boot(); else { restartTimer(); renderAll(); }
   if(trainsChanged && typeof trainsBoot==='function') trainsBoot();
   if(weatherChanged && typeof weatherBoot==='function') weatherBoot();
-});
+}
+let settingsAsked=0;
+async function syncSharedSettings(){
+  if(Date.now()-settingsAsked<60000) return; settingsAsked=Date.now();
+  let shared;
+  try{ const r=await fetch('/api/settings'); if(!r.ok) return; shared=(await r.json()).settings||{}; }
+  catch(e){ return; } // bez internetu zostaje kopia z ostatniej wizyty
+  if(JSON.stringify(shared)===JSON.stringify(store(SHARED_KEY)||{})) return;
+  store(SHARED_KEY, shared);
+  try{ applySettings(settingsFrom(shared)); }catch(e){ console.warn('Wspólne ustawienia', e); location.reload(); }
+}
+// Zmiana administratora dociera do otwartych kart: co 5 minut i po powrocie do karty.
+setTimeout(syncSharedSettings, 0);
+setInterval(syncSharedSettings, 5*60000);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') syncSharedSettings(); });
 
 /* ============================================================
    Filtry, motyw, przyciski mapy

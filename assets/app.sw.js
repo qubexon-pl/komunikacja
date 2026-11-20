@@ -4,7 +4,7 @@
 const VERSION = 'onward-v24';
 const SHELL = `${VERSION}-shell`;
 const API = 'onward-api'; // cleared at logout by the page
-const PRECACHE = ['/plan', '/login', '/assets/app.css', '/assets/app.mobile.css', '/assets/app.js', '/assets/app.cities.js', '/assets/i18n.js', '/assets/app.native.js', '/assets/app.photos.js', '/assets/app.tour.js', '/assets/app.welcome.css', '/assets/app.welcome.js', '/assets/onward/illustrations/welcome-journey.svg',
+const PRECACHE = ['/plan', '/login', '/assets/app.css', '/assets/app.mobile.css', '/assets/app.js', '/assets/app.cities.js', '/assets/app.defaults.js', '/assets/i18n.js', '/assets/app.native.js', '/assets/app.photos.js', '/assets/app.tour.js', '/assets/app.welcome.css', '/assets/app.welcome.js', '/assets/onward/illustrations/welcome-journey.svg',
   '/assets/app.config.js', '/assets/login.css', '/assets/login.js', '/assets/manifest.webmanifest', '/assets/onward/css/tokens.css',
   '/assets/onward/logos/wordmark-on-dark.svg', '/assets/onward/logos/mark-transparent.svg', '/assets/hero.svg'];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];

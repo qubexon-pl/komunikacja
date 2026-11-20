@@ -820,6 +820,7 @@ body:not([data-view="podroz"]) #map-sec{margin-top:64px}
 
 /* ---- admin ---- */
 body:not(.admin) .admin-only{display:none}
+html.is-native .admin-link{display:none !important} /* the admin page is on the website only */
 .scan-group{margin:0 0 16px; padding:0; border:0}
 .scan-group[hidden]{display:none}
 .scan-group legend{margin-bottom:8px; font-size:.62rem; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-soft)}
