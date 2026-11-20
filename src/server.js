@@ -193,10 +193,37 @@ function constantTimeEqual(left, right) {
 // The Android / iOS app signs in through FastAPI with "X-Auth-Mode: token" from its own origin. A web page elsewhere
 // cannot send that header here (Node allows no cross-origin requests), so only the app and our own pages pass.
 const NATIVE_ORIGINS = new Set(String(process.env.NATIVE_ORIGINS || "capacitor://localhost,https://localhost,http://localhost").split(",").map((o) => o.trim()).filter(Boolean));
+const bearerToken = (req) => /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization || ""))?.[1] || null;
+// The app sends its session as a bearer token (no cookies across origins); a website cannot send this from the app's origin.
+function isNativeTokenRequest(req) {
+  return NATIVE_ORIGINS.has(req.headers.origin) && (req.headers["x-auth-mode"] === "token" || !!bearerToken(req));
+}
+
+// The Android / iOS app talks to this server directly (no FastAPI in front on Azure): allow its origin for /api/ calls,
+// answer the preflight, and read its bearer token as the session. Returns true when the request is fully answered.
+function nativeApiAccess(req, res, pathname) {
+  const origin = req.headers.origin;
+  if (!NATIVE_ORIGINS.has(origin) || !pathname.startsWith("/api/")) return false;
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Accept-Language, X-Auth-Mode, Upload-Offset",
+      "Access-Control-Max-Age": "600",
+    });
+    res.end();
+    return true;
+  }
+  const token = bearerToken(req);
+  if (token) req.headers.cookie = `${SESSION_COOKIE}=${encodeURIComponent(token)}`;
+  return false;
+}
+
 function requireSameOrigin(req) {
   const origin = req.headers.origin;
   const configuredOrigin = process.env.APP_BASE_URL ? new URL(process.env.APP_BASE_URL).origin : `http://${req.headers.host}`;
-  if (req.headers["x-auth-mode"] === "token" && NATIVE_ORIGINS.has(origin)) return;
+  if (isNativeTokenRequest(req)) return;
   if (!origin || origin !== configuredOrigin) {
     throw new AuthError("Nie udało się zweryfikować źródła żądania.", 403);
   }
@@ -785,7 +812,7 @@ async function googleCallback(req, res, auth, url) {
 }
 
 // Sign-in, the Podavo family way (accounts in podavo-mdm): an e-mail code first, an optional password, Google.
-// The Android / iOS app goes through FastAPI, which turns the session cookie into a token (X-Auth-Mode: token).
+// The Android / iOS app gets the session as a token in the body (X-Auth-Mode: token) and sends it back as a bearer token.
 async function handleAuth(req, res, url, auth) {
   const route = url.pathname;
   const attempt = () => {
@@ -795,7 +822,9 @@ async function handleAuth(req, res, url, auth) {
   };
   const signedIn = (result, status = 200) => {
     setSessionCookie(res, result.session.token);
-    json(res, status, { user: { ...result.user, canAdminister: isAppAdmin(result.user) } });
+    const user = { ...result.user, canAdminister: isAppAdmin(result.user) };
+    // The app keeps the session itself (secure storage) and sends it back as a bearer token.
+    json(res, status, isNativeTokenRequest(req) ? { user, token: result.session.token } : { user });
   };
   const me = () => auth.resolveSession(readCookie(req, SESSION_COOKIE));
   if (route === "/api/auth/config" && req.method === "GET") {
@@ -1076,6 +1105,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
     try {
       const url = new URL(req.url, "http://localhost");
       const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+      if (nativeApiAccess(req, res, url.pathname)) return;
 
       if (url.pathname.startsWith("/api/auth/")) {
         if (await handleAuth(req, res, url, auth)) return;

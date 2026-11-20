@@ -258,6 +258,67 @@
     document.querySelectorAll('.modal.show').forEach(m => window.bootstrap.Modal.getInstance(m)?.hide());
   }, true);
 
+  /* ---------- pull down to refresh (the app, and the web app on the Home Screen) ----------
+     A firm swipe down at the top of the page reloads it with fresh data. Browsers have their own, so only installed. */
+  (function pullToRefresh(){
+    const installed = native || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    if(!installed) return;
+    const LIMIT = 80;                     // px of pull (after resistance) that reloads
+    const SKIP = '.leaflet-container, .modal, .offcanvas, input, textarea, select, [contenteditable], [data-no-pull]';
+    let startY = 0, startX = 0, pull = 0, active = false, el = null;
+    const ui = () => {
+      if(el) return el;
+      el = document.createElement('div');
+      el.className = 'pull-refresh'; el.setAttribute('aria-hidden', 'true');
+      el.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>';
+      document.body.appendChild(el);
+      return el;
+    };
+    const draw = (y, ready) => {
+      const e = ui();
+      e.style.transform = `translate(-50%, ${Math.min(y, LIMIT * 1.4) - 48}px) rotate(${y * 3}deg)`;
+      e.style.opacity = String(Math.min(1, y / LIMIT));
+      e.classList.toggle('ready', ready);
+    };
+    const scrolledInside = (node) => {
+      for(let n = node; n && n !== document.body && n.nodeType === 1; n = n.parentElement){
+        if(n.scrollTop > 0) return true;
+      }
+      return false;
+    };
+    document.addEventListener('touchstart', (e) => {
+      active = false;
+      if(e.touches.length !== 1 || document.body.classList.contains('modal-open')) return;
+      if((document.scrollingElement || document.documentElement).scrollTop > 0) return;
+      const t = e.target;
+      if(t.closest && t.closest(SKIP)) return;
+      if(scrolledInside(t)) return;
+      startY = e.touches[0].clientY; startX = e.touches[0].clientX; pull = 0; active = true;
+    }, { passive: true });
+    document.addEventListener('touchmove', (e) => {
+      if(!active) return;
+      const dy = e.touches[0].clientY - startY, dx = e.touches[0].clientX - startX;
+      if(pull === 0 && (dy <= 0 || Math.abs(dx) > Math.abs(dy))){ active = false; return; } // scrolling up or sideways
+      pull = Math.max(0, dy * 0.5);   // resistance: it takes a deliberate swipe
+      if(e.cancelable) e.preventDefault();
+      draw(pull, pull >= LIMIT);
+    }, { passive: false });
+    const end = () => {
+      if(!active) return;
+      active = false;
+      if(pull >= LIMIT){
+        const e = ui(); e.classList.add('spinning');
+        e.style.transform = `translate(-50%, ${LIMIT - 40}px)`;
+        setTimeout(() => location.reload(), 150);
+        return;
+      }
+      if(el){ el.style.transition = 'transform .2s, opacity .2s'; draw(0, false); setTimeout(() => { if(el) el.style.transition = ''; }, 220); }
+      pull = 0;
+    };
+    document.addEventListener('touchend', end, { passive: true });
+    document.addEventListener('touchcancel', end, { passive: true });
+  })();
+
   if(!native){
     // The install offer can come before the page script is ready: keep it until the "Install app" button asks for it.
     window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); window.__installPrompt = e; });
