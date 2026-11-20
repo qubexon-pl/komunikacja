@@ -7853,20 +7853,34 @@ openPage(pageFromLocation(), false);
 boot();
 trainsBoot();
 weatherBoot();
-/* „Zainstaluj aplikację”: przycisk pojawia się tylko, gdy przeglądarka pozwala zainstalować stronę (Chrome, Edge, Android),
-   a na iPhonie/iPadzie w Safari pokazuje instrukcję „Do ekranu początkowego”. W zainstalowanej aplikacji i w Android/iOS go nie ma. */
+/* „Zainstaluj aplikację”: na telefonie z Androidem przycisk daje prawdziwą aplikację: stronę w Google Play, gdy jest
+   (ANDROID_STORE_URL na serwerze), a do tego czasu plik APK z /download/voyage.apk z krótką instrukcją instalacji, także w wersji dodanej z przeglądarki do ekranu początkowego. Gdzie indziej przycisk pojawia się,
+   gdy przeglądarka pozwala zainstalować stronę (Chrome, Edge), a na iPhonie/iPadzie w Safari pokazuje instrukcję „Do ekranu początkowego”.
+   W aplikacji na Androida/iOS przycisku nie ma. */
 (function installApp(){
   const btn=document.getElementById('installBtn'); if(!btn) return;
-  const standalone=()=>matchMedia('(display-mode: standalone)').matches || navigator.standalone===true || document.documentElement.classList.contains('is-native');
+  const native=document.documentElement.classList.contains('is-native');
+  const standalone=()=>matchMedia('(display-mode: standalone)').matches || navigator.standalone===true || native;
   const ios=/iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  const android=!native && /android/i.test(navigator.userAgent);
+  let apk=false, store=null; // the Android app: its Google Play page, or the APK on this server (checked once, below)
   let deferred=window.__installPrompt||null;
-  const show=()=>{ btn.hidden=standalone() || (!deferred && !ios); };
+  const show=()=>{ btn.hidden= native || !(store || apk || (!standalone() && (deferred || ios))); };
   window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferred=e; window.__installPrompt=e; show(); });
   window.addEventListener('appinstalled', ()=>{ deferred=null; window.__installPrompt=null; show(); });
   btn.addEventListener('click', async ()=>{
+    if(store){ location.href=store; return; }
+    if(apk){
+      const note=document.getElementById('androidPwaNote'); if(note) note.hidden=!standalone();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('androidModal')).show(); return;
+    }
     if(!deferred){ bootstrap.Modal.getOrCreateInstance(document.getElementById('installModal')).show(); return; }
     const e=deferred; deferred=null; window.__installPrompt=null; show();
     try{ await e.prompt(); }catch(err){}
   });
+  if(android){
+    fetch('/api/android-app', {cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{ if(!d) return;
+      store=d.store||null; apk=!!d.apk; if(d.apk) document.getElementById('androidDownload')?.setAttribute('href', d.apk); show(); }).catch(()=>{});
+  }
   show();
 })();

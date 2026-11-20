@@ -99,6 +99,41 @@ test("static server exposes the frontend but not project files", async (t) => {
   assert.equal(traversedFile.status, 404);
 });
 
+test("the Android app is offered at /download/voyage.apk once the deploy has put it there, or on Google Play", async (t) => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "voyage-static-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, staticRoot: root });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  assert.equal((await fetch(`${baseUrl}/download/voyage.apk`, { method: "HEAD" })).status, 404);
+  assert.deepEqual(await (await fetch(`${baseUrl}/api/android-app`)).json(), { store: null, apk: null });
+
+  fs.mkdirSync(path.join(root, "download"));
+  fs.writeFileSync(path.join(root, "download", "voyage.apk"), Buffer.from("PK\u0003\u0004apk"));
+  fs.writeFileSync(path.join(root, "download", "other.apk"), "x");
+  const head = await fetch(`${baseUrl}/download/voyage.apk`, { method: "HEAD" });
+  assert.equal(head.status, 200);
+  const apk = await fetch(`${baseUrl}/download/voyage.apk`);
+  assert.equal(apk.status, 200);
+  assert.equal(apk.headers.get("content-type"), "application/vnd.android.package-archive");
+  assert.match(apk.headers.get("content-disposition"), /attachment; filename="podavo-voyage\.apk"/);
+  assert.equal((await apk.arrayBuffer()).byteLength, 7);
+  assert.equal((await fetch(`${baseUrl}/download/other.apk`)).status, 404);
+  assert.deepEqual(await (await fetch(`${baseUrl}/api/android-app`)).json(), { store: null, apk: "/download/voyage.apk" });
+  const before = process.env.ANDROID_STORE_URL;
+  t.after(() => { if (before === undefined) delete process.env.ANDROID_STORE_URL; else process.env.ANDROID_STORE_URL = before; });
+  process.env.ANDROID_STORE_URL = "https://evil.example/app";
+  assert.equal((await (await fetch(`${baseUrl}/api/android-app`)).json()).store, null);
+  process.env.ANDROID_STORE_URL = "https://play.google.com/store/apps/details?id=app.podavo.voyage";
+  assert.equal((await (await fetch(`${baseUrl}/api/android-app`)).json()).store, process.env.ANDROID_STORE_URL);
+});
+
 test("guests cannot reach account or schedule storage APIs", async (t) => {
   const baseUrl = await startServer(t, {
     health: async () => {},

@@ -1,5 +1,6 @@
 # Pull request into main  -> tests + web bundle (no deploy)
-# Merge / push to main     -> tests + web bundle + Android debug APK + deploy to Azure App Service podavo-voyage
+# Merge / push to main     -> tests + web bundle + Android APK + deploy to Azure App Service podavo-voyage
+#                             (the APK is served at https://<app>/download/voyage.apk for the "Install app" button on Android)
 # Same setup as the Podavo cleaning app (qubexon-pl/tidy, .github/workflows/deploy.yml).
 name: Build and deploy
 
@@ -69,10 +70,14 @@ jobs:
           retention-days: 7
 
   android:
-    name: Build Android debug APK
+    name: Build Android APK
     needs: web
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      VERSION_CODE: ${{ github.run_number }}
+      VERSION_NAME: "1.0.${{ github.run_number }}"
+      PLAY_UPLOAD: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -96,22 +101,78 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: npm run web:build && npx cap sync android
 
-      - name: Assemble debug APK
+      # Release signing key from repository secrets (see docs/android-install.md). Without it CI falls back to a debug
+      # build: it installs, but every build has a different key, so updating means uninstalling the old app first.
+      - name: Set up release signing
+        id: signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set: building a debug APK (updates need an uninstall first)."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/voyage-release.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/voyage-release.jks"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
+          } > android/keystore.properties
+          echo "release=true" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble APK (and the Play Store bundle when signed)
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          if [ "${{ steps.signing.outputs.release }}" = "true" ]; then
+            ./gradlew assembleRelease bundleRelease --no-daemon
+            cp app/build/outputs/apk/release/app-release.apk ../voyage.apk
+            cp app/build/outputs/bundle/release/app-release.aab ../voyage.aab
+          else
+            ./gradlew assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk ../voyage.apk
+          fi
+          rm -f keystore.properties
+          # The SHA-1 to register on the Android OAuth client in Google Cloud (native Google sign-in checks it).
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs ../voyage.apk 2>/dev/null | grep -i "SHA-1" | head -1 || true
 
+      # Hand-over to the deploy job only: the APK is served from Azure (/download/voyage.apk), not kept on GitHub.
       - uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
-          retention-days: 14
+          name: android-apk
+          path: voyage.apk
+          retention-days: 1
+
+      # Until Play upload is set up: the signed bundle for the one manual first upload in Play Console (kept 1 day).
+      - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.release == 'true' && env.PLAY_UPLOAD != 'true'
+        with:
+          name: play-bundle
+          path: voyage.aab
+          retention-days: 1
+
+      # Google Play: once PLAY_SERVICE_ACCOUNT_JSON is set (and the first bundle was uploaded by hand in Play Console),
+      # every merge sends the signed bundle to the chosen track. Status "draft" until the app has passed its first review.
+      - name: Upload to Google Play
+        if: steps.signing.outputs.release == 'true' && env.PLAY_UPLOAD == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: app.podavo.voyage
+          releaseFiles: voyage.aab
+          track: ${{ vars.PLAY_TRACK || 'internal' }}
+          status: ${{ vars.PLAY_RELEASE_STATUS || 'draft' }}
 
   deploy:
     name: Deploy to Azure (podavo-voyage)
-    needs: web
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [web, android]
+    # Still deploys the website if the Android build failed; without the APK the install button falls back to the web app install.
+    if: always() && needs.web.result == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       id-token: write   # OIDC token for azure/login
@@ -123,6 +184,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: podavo-voyage
+
+      - uses: actions/download-artifact@v4
+        if: needs.android.result == 'success'
+        with:
+          name: android-apk
+          path: download
+
+      - name: Add the Android app to the package (served at /download/voyage.apk)
+        if: needs.android.result == 'success'
+        run: zip -q podavo-voyage.zip download/voyage.apk
 
       - uses: azure/login@v2
         with:
