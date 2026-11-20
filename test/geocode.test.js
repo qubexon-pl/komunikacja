@@ -196,7 +196,7 @@ test("a house number found in one city still lists the same street in other citi
   assert.deepEqual(places.map((place) => place.label), ["Lwowska, Rzeszów", "Lwowska 40, Jasło", "Lwowska, Kraków"]);
 });
 
-test("suggestions keep local streets and add cities from anywhere", async () => {
+test("suggestions put a nearby street first and a city before the same street far away", async () => {
   const feature = (properties, coordinates) => ({ properties, geometry: { coordinates } });
   const suggest = createStreetSuggester({
     minGapMs: 0,
@@ -207,7 +207,7 @@ test("suggestions keep local streets and add cities from anywhere", async () => 
       feature({ type: "city", name: "Kraków", country: "Polska" }, [19.9, 50.06]),
     ] }),
   });
-  assert.deepEqual(await suggest("Krak"), ["Krakowska, Rzeszów", "Krakowska, Gdańsk", "Kraków, Polska"]);
+  assert.deepEqual(await suggest("Krak"), ["Krakowska, Rzeszów", "Kraków, Polska", "Krakowska, Gdańsk"]);
 });
 
 test("a business named after a town is not mistaken for that town", async () => {
@@ -291,9 +291,44 @@ test("suggestions forgive a small typo, return the map point and can be biased t
     fetchSource: async (url) => { asked = url; return { ok: true, json: async () => ({ features: [feature("Siedmiogrodzka", "9", "Warszawa", 20.969884, 52.230751), feature("Hetmańska", "9", "Rzeszów", 22.01, 50.03)] }) }; },
   });
   const places = await suggest.places("Siedmogrodzka 9", [52.2297, 21.0122]);
-  assert.deepEqual(places, [{ label: "Siedmiogrodzka 9, Warszawa", point: [52.230751, 20.969884] }]);
+  assert.deepEqual(places, [{ label: "Siedmiogrodzka 9, Warszawa", main: "Siedmiogrodzka 9", sub: "Warszawa", kind: "address", point: [52.230751, 20.969884] }]);
   assert.equal(asked.searchParams.get("lat"), "52.2297");
   assert.deepEqual(await suggest("Siedmogrodzka 9", [52.2297, 21.0122]), ["Siedmiogrodzka 9, Warszawa"]);
   await suggest("Hetmańska");
   assert.equal(asked.searchParams.get("lat"), "50.0378", "without a city the suggestions stay around Rzeszów");
+});
+
+test("suggestions find shops, stations and landmarks by name, nearest first, like a map app", async () => {
+  const feature = (properties, coordinates) => ({ properties: { countrycode: "PL", ...properties }, geometry: { coordinates } });
+  let asked;
+  const suggest = createStreetSuggester({
+    minGapMs: 0,
+    fetchSource: async (url) => {
+      asked = url;
+      return response({ features: [
+        feature({ type: "house", osm_key: "shop", osm_value: "mall", name: "Galeria Krakowska", street: "Pawia", housenumber: "5", city: "Kraków" }, [19.94, 50.07]),
+        feature({ type: "house", osm_key: "shop", osm_value: "mall", name: "Galeria Rzeszów", street: "Aleja Józefa Piłsudskiego", housenumber: "44", city: "Rzeszów" }, [22.01, 50.04]),
+        feature({ type: "other", osm_key: "amenity", osm_value: "cafe", name: "Kawiarnia", city: "Rzeszów" }, [22.0, 50.03]),
+      ] });
+    },
+  });
+  const places = await suggest.places("galeria");
+  assert.deepEqual(places.map((place) => place.label), ["Galeria Rzeszów", "Galeria Krakowska, Kraków"]);
+  assert.equal(places[0].sub, "Aleja Józefa Piłsudskiego 44, Rzeszów");
+  assert.equal(places[0].kind, "poi");
+  assert.ok(asked.searchParams.getAll("layer").includes("other"));
+});
+
+test("suggestions match every typed word, a station is marked as one, and streets abroad only near the searched city", async () => {
+  const feature = (properties, coordinates) => ({ properties, geometry: { coordinates } });
+  const features = [
+    feature({ type: "house", osm_key: "railway", osm_value: "station", name: "Rzeszów Główny", street: "Plac Dworcowy", housenumber: "1", city: "Rzeszów", countrycode: "PL" }, [22.01, 50.04]),
+    feature({ type: "house", osm_key: "railway", osm_value: "station", name: "Kraków Główny", city: "Kraków", countrycode: "PL" }, [19.95, 50.07]),
+    feature({ type: "street", name: "Główna", city: "Berlin", countrycode: "DE" }, [13.4, 52.5]),
+  ];
+  const suggest = createStreetSuggester({ minGapMs: 0, fetchSource: async () => response({ features }) });
+  const places = await suggest.places("rzeszow glow");
+  assert.deepEqual(places.map((place) => [place.label, place.kind]), [["Rzeszów Główny", "station"]]);
+  assert.deepEqual((await suggest.places("Głów")).map((place) => place.label), ["Rzeszów Główny", "Kraków Główny"]);
+  assert.equal((await suggest.places("Głów", [52.52, 13.4]))[0].label, "Główna, Berlin");
 });

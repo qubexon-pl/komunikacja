@@ -521,6 +521,12 @@ body[data-view="kolej"] .not-kolej,body:not([data-view="kolej"]) .only-kolej,bod
 .suggest-list li{display:flex; align-items:baseline; gap:10px; padding:9px 14px; color:var(--ink); font-size:.92rem; cursor:pointer}
 .suggest-list li:hover,.suggest-list li.active{background:var(--soft)}
 .sg-kind{flex:none; width:82px; color:var(--ink-soft); font-size:.6rem; font-weight:600; letter-spacing:.1em; text-transform:uppercase}
+.suggest-list li.sg-item{align-items:center; gap:12px; padding:9px 14px}
+.sg-ico{flex:none; width:28px; height:28px; display:grid; place-items:center; border-radius:50%; background:var(--soft); color:var(--ink-soft); font-size:.8rem}
+.sg-text{display:flex; flex-direction:column; min-width:0; line-height:1.25}
+.sg-main{font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.sg-sub{color:var(--ink-soft); font-size:.78rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.sg-sub .sg-kind{width:auto; display:inline; font-size:inherit; font-weight:500; letter-spacing:0; text-transform:none}
 
 /* ---- pełny rozkład i strony ---- */
 .timetable-bar{display:grid; grid-template-columns:2fr 1fr 1fr auto; border:1px solid var(--line); background:var(--bg-alt)}
@@ -993,6 +999,7 @@ body[data-view="podroz"] #plan-sec{display:none !important}
 .mode-check i,.trip-steps li>i,.trip-title i,.walk-step i,.map-toggle i,.dest-map i{color:var(--red)}
 .suggest-list{top:calc(100% + 6px); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow-lift)}
 .sg-kind{font-size:.72rem}
+.sg-sub .sg-kind{font-size:inherit}
 
 /* przyciski */
 .btn-grad,:root[data-theme="dark"] .btn-grad{border-radius:12px; background:var(--red); color:#fff; font-size:.92rem; font-weight:700; padding:12px 22px}
