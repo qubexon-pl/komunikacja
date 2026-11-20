@@ -70,7 +70,7 @@ Android back button (closes a dialog or menu, then goes back, then exits), statu
 | `PHOTO_STORAGE=adls`, `ADLS_ACCOUNT_URL`, `ADLS_FILE_SYSTEM` | FastAPI | e.g. `https://<account>.dfs.core.windows.net`, `trip-photos`; without them photos go to `.cache/photos` (development only) |
 | `NATIVE_ORIGINS` | FastAPI | default `capacitor://localhost,https://localhost,http://localhost` |
 | `ONWARD_API_BASE`, `GOOGLE_IOS_CLIENT_ID` | app build | public values written into the app by `npm run web:build` |
-| `ONWARD_API_BASE`, `GOOGLE_CLIENT_ID` | GitHub repository variables | used by the CI APK build (Settings → Secrets and variables → Actions → Variables) |
+| `ONWARD_API_BASE`, `GOOGLE_CLIENT_ID` | GitHub repository variables | used by the CI APK build (without `ONWARD_API_BASE` CI asks Azure for the app's address) (Settings → Secrets and variables → Actions → Variables) |
 
 ## One-time setup
 

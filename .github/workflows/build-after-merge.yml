@@ -74,6 +74,9 @@ jobs:
     needs: web
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC for azure/login: looks up the live server address when ONWARD_API_BASE is not set
+      contents: read
     env:
       VERSION_CODE: ${{ github.run_number }}
       VERSION_NAME: "1.0.${{ github.run_number }}"
@@ -94,10 +97,30 @@ jobs:
 
       - run: npm ci
 
-      # Public values only (repository variables): the server address and the Google web client id for native sign-in.
-      - name: Build web bundle and sync into Android project
+      # The app talks to the live server. Without the ONWARD_API_BASE repository variable, ask Azure for its address.
+      - uses: azure/login@v2
+        if: vars.ONWARD_API_BASE == ''
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Server address for the app
         env:
           ONWARD_API_BASE: ${{ vars.ONWARD_API_BASE }}
+        run: |
+          base="$ONWARD_API_BASE"
+          if [ -z "$base" ]; then
+            base="https://$(az webapp show -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --query defaultHostName -o tsv)"
+          fi
+          echo "App API: $base"
+          echo "ONWARD_API_BASE=$base" >> "$GITHUB_ENV"
+
+      # Public values only: the server address and the Google web client id for native sign-in.
+      # ONWARD_ENV=production stops the build if the address is missing, instead of shipping an app that reaches nothing.
+      - name: Build web bundle and sync into Android project
+        env:
+          ONWARD_ENV: production
           GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: npm run web:build && npx cap sync android
 
