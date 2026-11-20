@@ -1023,18 +1023,20 @@ async function proxyGtfsSource(res, url, fetchSource = fetch) {
 
 // Przekazuje zapytanie do serwera FastAPI (API_UPSTREAM, domyślnie http://127.0.0.1:8000) razem z ciasteczkiem sesji.
 // Bez działającego FastAPI odpowiada jasnym komunikatem zamiast 404.
-const FORWARD_HEADERS = ["cookie", "content-type", "accept", "accept-language", "origin", "authorization", "user-agent"];
-async function forwardToApi(req, res, url, fetchSource = fetch) {
+// Upload-Offset: zdjęcia z podróży wysyłane są kawałkami i FastAPI sprawdza, od którego bajtu jest dany kawałek.
+const FORWARD_HEADERS = ["cookie", "content-type", "accept", "accept-language", "origin", "authorization", "user-agent", "upload-offset"];
+const PHOTO_CHUNK_BYTES = 4 * 1024 * 1024; // photo_chunk_bytes w api/app/config.py
+async function forwardToApi(req, res, url, fetchSource = fetch, maxBody = 64 * 1024) {
   const upstream = (process.env.API_UPSTREAM || "http://127.0.0.1:8000").replace(/\/+$/, "");
   const headers = {};
   for (const name of FORWARD_HEADERS) if (req.headers[name]) headers[name] = req.headers[name];
   headers["x-forwarded-for"] = clientAddress(req);
-  const body = ["GET", "HEAD"].includes(req.method) ? undefined : await readBody(req, 64 * 1024);
+  const body = ["GET", "HEAD"].includes(req.method) ? undefined : await readBody(req, maxBody);
   let answer;
   try {
     answer = await fetchSource(upstream + url.pathname + url.search, { method: req.method, headers, body, redirect: "manual", signal: AbortSignal.timeout(15000) });
   } catch {
-    json(res, 503, { error: "Udostępnianie wymaga serwera API (FastAPI). Uruchom aplikację poleceniem: npm run dev:all", code: "api-offline" });
+    json(res, 503, { error: "Udostępnianie i zdjęcia z podróży wymagają serwera API (FastAPI). Uruchom aplikację poleceniem: npm run dev:all", code: "api-offline" });
     return;
   }
   const bytes = Buffer.from(await answer.arrayBuffer());
@@ -1079,6 +1081,12 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
       // Udostępnianie podróży żyje w FastAPI; gdy aplikację otwiera się przez Node, te zapytania idą dalej do FastAPI.
       if (segments[0] === "api" && segments[1] === "trips") {
         await forwardToApi(req, res, url, fetchSource);
+        return;
+      }
+      // Zdjęcia z podróży też obsługuje FastAPI. Bez tego Node odpowiadał 404 „API endpoint not found.”, a aplikacja
+      // brała to za podróż niezapisaną na koncie i zdjęcie czekało bez końca.
+      if (segments[0] === "api" && segments[1] === "photos") {
+        await forwardToApi(req, res, url, fetchSource, PHOTO_CHUNK_BYTES + 64 * 1024);
         return;
       }
 

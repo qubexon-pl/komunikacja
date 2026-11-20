@@ -81,6 +81,14 @@ def test_photo_upload_resumes_after_an_interruption_and_is_private(client):
     assert client.delete(f"/api/photos/{pid}", headers=bearer(token)).json() == {"deleted": True}
 
 
+def test_photos_are_stored_by_user_and_trip_id(client):
+    token = native_login(client).json()["token"]
+    _trip(client, token)
+    pid = client.post("/api/photos", json={"tripId": "trip0001", "contentType": "image/jpeg", "size": 10}, headers=bearer(token)).json()["photo"]["id"]
+    user_dir, trip_dir, name = client.repo.photos_[pid]["path"].split("/")
+    assert user_dir and trip_dir == "trip0001" and name == f"{pid}.jpg"
+
+
 def test_a_file_that_is_not_the_declared_image_type_is_refused(client):
     token = native_login(client).json()["token"]
     _trip(client, token)

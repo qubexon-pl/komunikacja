@@ -698,6 +698,26 @@ test("trip sharing requests are passed on to the FastAPI server with the session
   assert.equal((await down.json()).code, "api-offline");
 });
 
+test("trip photos are passed on to FastAPI with their chunk offset, so the app does not mistake a 404 for an unsaved trip", async (t) => {
+  const seen = [];
+  const fetchSource = async (url, init) => {
+    seen.push({ url: String(url), method: init.method, offset: init.headers["upload-offset"], size: init.body ? init.body.length : 0 });
+    return new Response(JSON.stringify({ photo: { received: 200000 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, fetchSource });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const put = await fetch(`${base}/api/photos/abc/content`, { method: "PUT", headers: { "Content-Type": "application/octet-stream", "Upload-Offset": "0", Origin: base }, body: Buffer.alloc(200000, 1) });
+  assert.equal(put.status, 200);
+  const list = await fetch(`${base}/api/photos?tripId=trip0001`);
+  assert.equal(list.status, 200);
+  assert.deepEqual(seen, [
+    { url: "http://127.0.0.1:8000/api/photos/abc/content", method: "PUT", offset: "0", size: 200000 },
+    { url: "http://127.0.0.1:8000/api/photos?tripId=trip0001", method: "GET", offset: undefined, size: 0 },
+  ]);
+});
+
 test("the EUR rate is served for prices in two currencies, and a bad currency is refused", async (t) => {
   const asked = [];
   const server = createServer({ database: {}, auth: { resolveSession: async () => null }, fareRates: async (amount, code) => { asked.push(code); return amount * 4.2537; }, fetchSource: async () => { throw new Error("no outside calls"); } });

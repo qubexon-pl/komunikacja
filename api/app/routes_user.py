@@ -94,7 +94,7 @@ async def start_photo(request: Request, user: dict = Depends(require_user)):
     body = await _json(request, 8 * 1024)
     trip_id, content_type, size = body.get("tripId"), body.get("contentType"), body.get("size")
     if not isinstance(trip_id, str) or trip_id not in trip_ids(repo.favorites(user["id"])):
-        raise HTTPException(404, "Nie znaleziono tej podróży.")
+        raise HTTPException(404, {"error": "Nie znaleziono tej podróży.", "code": "trip-not-found"})
     if content_type not in TYPES:
         raise HTTPException(415, "Dozwolone są zdjęcia JPEG, PNG, WebP i HEIC.")
     if not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= settings.photo_max_bytes:

@@ -107,7 +107,8 @@
   /* ---------- photos: camera or gallery ---------- */
   ON.pickPhoto = async function(source){
     if(native && P.Camera){
-      const photo = await P.Camera.getPhoto({ quality: 85, resultType: 'uri', source: source === 'camera' ? 'CAMERA' : 'PHOTOS', saveToGallery: false, correctOrientation: true, width: 2560 });
+      const photo = await P.Camera.getPhoto({ quality: 85, resultType: 'uri', source: source === 'camera' ? 'CAMERA' : 'PHOTOS', saveToGallery: source === 'camera', // a shot from the camera also goes to the phone's gallery
+        correctOrientation: true, width: 2560 });
       const blob = await (await origFetch(photo.webPath)).blob();
       const type = blob.type || ('image/' + (photo.format === 'jpg' ? 'jpeg' : photo.format || 'jpeg'));
       return new File([blob], 'photo.' + (photo.format || 'jpg'), { type });
