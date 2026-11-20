@@ -7488,11 +7488,13 @@ function wmo(c){ return WMO[c] || ['—','·']; }
 /* Pogoda tam, gdzie jestem: położenie z urządzenia (przeglądarka albo natywne GPS w aplikacji), zaokrąglone do ok. 1 km.
    Bez zgody, bez GPS albo gdy serwis nie odpowie, widżet pokazuje Rzeszów, jak dotąd. Odmowę zapamiętujemy, żeby nie pytać
    przy każdym otwarciu; przycisk w widżecie pozwala spróbować ponownie. */
-const WX_SPOT='onward.wxSpot', WX_NOLOC='onward.wxNoLoc';
+const WX_SPOT='onward.wxSpot', WX_NOLOC='onward.wxNoLoc2'; // nowy klucz: stara, błędna odmowa z WebView nie blokuje lokalizacji
 async function weatherSpot(ask){
   if(!navigator.geolocation) return null;
-  if(!ask && store(WX_NOLOC)) return null;
-  try{ const st=await navigator.permissions?.query({name:'geolocation'}); if(st?.state==='denied'){ store(WX_NOLOC,true); return null; } }catch(e){}
+  if(!ask && !ONW.native && store(WX_NOLOC)) return null; // w aplikacji system sam pamięta odmowę i od razu ją zwraca
+  // W aplikacji Android/iOS zgodę daje natywne okno systemu, a WebView zgłasza tu „denied”, nawet gdy GPS jest dozwolony;
+  // pytamy więc wtedy od razu urządzenie. Gdy ktoś sam stuknie „Pokaż dla mojej lokalizacji”, też pytamy wprost.
+  if(!ask && !ONW.native){ try{ const st=await navigator.permissions?.query({name:'geolocation'}); if(st?.state==='denied'){ store(WX_NOLOC,true); return null; } }catch(e){} }
   return new Promise(res=>{
     try{
       navigator.geolocation.getCurrentPosition(p=>{
@@ -7517,6 +7519,7 @@ async function weatherTick(ask){
       WX.data=d; WX.local=true; WX.err=null; ok=true;
     }catch(e){ console.warn('weather here',e); }
   }
+  WX.hereFailed=!!spot && !ok;
   if(!ok){
     try{ const buf=await fetchTimeout('/api/live/weather', 15000); WX.data=JSON.parse(new TextDecoder().decode(buf)); if(WX.data.error) throw new Error(WX.data.reason||'błąd'); WX.local=false; WX.err=null; }
     catch(e){ WX.err='Brak danych pogodowych'; console.warn('weather',e); }
@@ -7525,7 +7528,7 @@ async function weatherTick(ask){
   renderWeather();
 }
 function weatherTitle(){
-  if(!WX.local) return esc('Pogoda w Rzeszowie');
+  if(!WX.local) return esc('Pogoda w Rzeszowie')+(WX.noLoc&&WX.spot!==undefined?` <small class="wx-why">· ${esc(L2('brak lokalizacji','no location'))}</small>`:WX.hereFailed?` <small class="wx-why">· ${esc(L2('Twoja okolica chwilowo niedostępna','your area is unavailable right now'))}</small>`:'');
   const place=WX.data?.place;
   return place ? esc(L2('Pogoda: ','Weather: ')+place) : esc(L2('Pogoda w Twojej okolicy','Weather near you'));
 }

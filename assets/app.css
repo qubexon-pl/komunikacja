@@ -3089,3 +3089,4 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 .tp-photos.compact .tp-photo-cloud{top:auto; bottom:3px}
 .tp-photos.compact .tp-photos-foot{margin-top:8px; gap:6px}
 .tp-photos.compact .tp-cloud-switch{padding:8px 10px}
+.wx .cd-label .wx-why{font-size:.8em; font-weight:400; opacity:.8; text-transform:none; letter-spacing:0}
