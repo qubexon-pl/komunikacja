@@ -70,7 +70,7 @@ Android back button (closes a dialog or menu, then goes back, then exits), statu
 | `PHOTO_STORAGE=adls`, `ADLS_ACCOUNT_URL`, `ADLS_FILE_SYSTEM` | FastAPI | e.g. `https://<account>.dfs.core.windows.net`, `trip-photos`; without them photos go to `.cache/photos` (development only) |
 | `NATIVE_ORIGINS` | FastAPI | default `capacitor://localhost,https://localhost,http://localhost` |
 | `ONWARD_API_BASE`, `GOOGLE_IOS_CLIENT_ID` | app build | public values written into the app by `npm run web:build` |
-| `ONWARD_API_BASE`, `GOOGLE_CLIENT_ID` | GitHub repository variables | used by the CI debug APK build (Settings → Secrets and variables → Actions → Variables) |
+| `ONWARD_API_BASE`, `GOOGLE_CLIENT_ID` | GitHub repository variables | used by the CI APK build (Settings → Secrets and variables → Actions → Variables) |
 
 ## One-time setup
 
@@ -118,7 +118,7 @@ npm run ios:open          # Xcode on a Mac
 
 - **Android / Google Play**: create an upload key (`keytool -genkeypair -v -keystore onward-upload.jks -keyalg RSA
   -keysize 2048 -validity 10000 -alias onward`), write `android/keystore.properties` (`storeFile`, `storePassword`,
-  `keyAlias`, `keyPassword`; not in git), raise `versionCode`/`versionName` in `android/app/build.gradle`, then
+  `keyAlias`, `keyPassword`; not in git), set `VERSION_CODE`/`VERSION_NAME` (higher than the last upload), then
   `npm run android:release` → `android/app/build/outputs/bundle/release/app-release.aab`. Enrol in Play App Signing
   and add its SHA-1 to the Android OAuth client. Store listing needs a privacy policy URL and the Data safety form
   (location, photos, e-mail address, account id).
@@ -129,6 +129,28 @@ npm run ios:open          # Xcode on a Mac
 - Debug against a local backend: the app must reach the API over the network — use the computer's LAN address or a
   dev tunnel with HTTPS for `ONWARD_API_BASE` (Android emulator: `http://10.0.2.2:8000` works only in debug builds
   with cleartext allowed).
+
+## Installing the Android app without Google Play
+
+Every merge to `main` builds an APK in CI and deploys it with the website at `/download/voyage.apk`. On an Android
+phone the **Zainstaluj aplikację** button opens a short guide with a *Pobierz aplikację* link to that file (also from
+the browser version added to the Home Screen); other platforms keep the PWA install. The native app asks for location
+and camera through Android's own permissions.
+
+To sign it with a fixed key (so new versions install over the old one), add four repository secrets
+(Settings → Secrets and variables → Actions → Secrets):
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | the keystore file in base64: `base64 -w0 onward-upload.jks` (macOS: `base64 -i onward-upload.jks`) |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
+| `ANDROID_KEY_ALIAS` | the key alias, e.g. `onward` |
+| `ANDROID_KEY_PASSWORD` | the key password (leave out if it is the same as the keystore password) |
+
+Create the keystore once with the `keytool` command below and keep it safe; the same key can later be the Play upload
+key. Without these secrets CI builds a debug APK: it installs, but each build has a different key, so updating means
+uninstalling the old app first. The *Assemble APK* step prints the key's SHA-1: add it to the Android OAuth client in
+Google Cloud so Google sign-in works in the app. `versionCode` is the CI run number.
 
 ## Still to do
 

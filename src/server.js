@@ -55,6 +55,7 @@ const MIME_TYPES = new Map([
   [".png", "image/png"],
   [".ico", "image/x-icon"],
   [".webmanifest", "application/manifest+json"],
+  [".apk", "application/vnd.android.package-archive"],
 ]);
 const COMPRESSIBLE = new Set([".css", ".html", ".js", ".json", ".svg", ".webmanifest"]);
 const acceptsGzip = (req) => /\bgzip\b/.test(req?.headers?.["accept-encoding"] || "");
@@ -67,6 +68,7 @@ const APP_PAGES = new Set(["/", "/buses", "/suburban", "/trains", "/plan", "/des
 // Polish addresses used before the pages got English names: saved links and bookmarks still work.
 const OLD_PAGES = { "/podroz": "/plan", "/autobusy": "/buses", "/pks": "/suburban", "/pociagi": "/trains", "/kierunki": "/destinations", "/ulubione": "/favourites", "/moje-podroze": "/my-trips", "/podroz-szczegoly": "/trip", "/koncowe": "/plan" };
 const MAX_FAVORITES_BYTES = 512 * 1024; // saved trips carry what they looked like (up to 12 kB each)
+const ANDROID_APK_PATH = "/download/voyage.apk";
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
@@ -641,7 +643,9 @@ function serveStatic(res, pathname, root, search = "") {
     || pathname === "/assets/hero.svg" || pathname === "/assets/manifest.webmanifest";
   // The service worker must live at the site root to cover every page.
   const isServiceWorker = pathname === "/sw.js";
-  if (!isAppPage && !isLoginPage && !isWelcomePage && !isServiceWorker && !pathname.startsWith("/assets/")) {
+  // The Android app (built and signed by CI, copied into download/ at deploy time) for the "Install app" button.
+  const isAndroidApp = pathname === ANDROID_APK_PATH;
+  if (!isAppPage && !isLoginPage && !isWelcomePage && !isServiceWorker && !isAndroidApp && !pathname.startsWith("/assets/")) {
     json(res, 404, { error: "Not found." });
     return;
   }
@@ -655,7 +659,7 @@ function serveStatic(res, pathname, root, search = "") {
     json(res, 403, { error: "Forbidden." });
     return;
   }
-  if (!isLoginPage && !isAppPage && !isWelcomePage && !filePath.startsWith(`${path.resolve(root, "assets")}${path.sep}`)) {
+  if (!isLoginPage && !isAppPage && !isWelcomePage && !isAndroidApp && !filePath.startsWith(`${path.resolve(root, "assets")}${path.sep}`)) {
     json(res, 404, { error: "Not found." });
     return;
   }
@@ -676,6 +680,7 @@ function serveStatic(res, pathname, root, search = "") {
       ETag: etag,
       // "/" is the welcome page or the app depending on the sign-in cookie.
       Vary: pathname === "/" || isWelcomePage ? "Accept-Encoding, Cookie" : "Accept-Encoding",
+      ...(isAndroidApp ? { "Content-Disposition": 'attachment; filename="podavo-voyage.apk"', "Content-Length": stats.size } : {}),
     };
     if (res.req?.headers?.["if-none-match"] === etag) {
       res.writeHead(304, base);
