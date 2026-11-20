@@ -26,7 +26,8 @@
       "overlaysWebView": false
     },
     "Keyboard": {
-      "resize": "body"
+      "resize": "body",
+      "resizeOnFullScreen": true
     },
     "SocialLogin": {
       "providers": {

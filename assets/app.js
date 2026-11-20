@@ -1508,7 +1508,7 @@ function renderTransitTabs(current){
   const txOn=tx&&current==='ztm';
   // Ulubione mają własną stronę (gwiazdka w górnym pasku), więc tu trzecia zakładka to linie wybranego miasta.
   const subs=[['', current==='pks'?L2('Dokąd dojedziesz','Where you can go'):L2('Szukaj połączenia','Find a connection'), 'fa-solid fa-magnifying-glass'], ['rozklad', L2('Rozkład jazdy','Timetable'), 'fa-regular fa-clock'], ['linie', L2('Linie','Lines'), 'fa-solid fa-list-ol']];
-  el.innerHTML=`${cityPickerHtml()}<div class="tx-modes" role="group" aria-label="${L2('Rodzaj komunikacji','Kind of transport')}">${TRANSIT_MODES.map(([v,icon,pl,en])=>{ const soon=!local&&v!=='kolej'&&!(tx&&v==='ztm'); if(tx&&v==='ztm'){ pl='Komunikacja miejska'; en='City transport'; } return `<button type="button" class="tx-mode ${v===current?'on':''} ${soon?'soon':''}" data-transit-go="${v}" aria-pressed="${v===current}" ${soon?`title="${esc(L2(`${TCITY.name}: wkrótce — na razie pociągi`,`${TCITY.name}: coming soon — trains for now`))}" aria-disabled="true"`:''}><i class="oi oi-${icon}" aria-hidden="true"></i> ${L2(pl,en)}${soon?` <small>${L2('wkrótce','soon')}</small>`:''}</button>`; }).join('')}</div>
+  el.innerHTML=`${cityPickerHtml()}<div class="tx-modes" role="group" aria-label="${L2('Rodzaj komunikacji','Kind of transport')}">${TRANSIT_MODES.map(([v,icon,pl,en])=>{ const soon=!local&&v!=='kolej'&&!(tx&&v==='ztm'); if(tx&&v==='ztm'){ pl='Komunikacja miejska'; en='City transport'; } return `<button type="button" class="tx-mode ${v===current?'on':''} ${soon?'soon':''}" data-transit-go="${v}" aria-pressed="${v===current}" ${soon?`title="${esc(L2(`${TCITY.name}: wkrótce — na razie pociągi`,`${TCITY.name}: coming soon — trains for now`))}" aria-disabled="true"`:''}><i class="oi oi-${icon}" aria-hidden="true"></i> ${L2(pl,en)}</button>`; }).join('')}</div>
     <div class="tx-subs" role="group" aria-label="${L2('Widok','View')}">${subs.map(([v,label,icon])=>`<button type="button" class="tx-sub ${(fav?'ulubione':S.sub)===v?'on':''}" data-transit-sub="${v}" aria-pressed="${(fav?'ulubione':S.sub)===v}"><i class="${icon}" aria-hidden="true"></i> ${label}</button>`).join('')}</div>`;
 }
 document.getElementById('transitTabs')?.addEventListener('click', e=>{
@@ -7865,7 +7865,8 @@ weatherBoot();
   const android=!native && /android/i.test(navigator.userAgent);
   let apk=false, store=null; // the Android app: its Google Play page, or the APK on this server (checked once, below)
   let deferred=window.__installPrompt||null;
-  const show=()=>{ btn.hidden= native || !(store || apk || (!standalone() && (deferred || ios))); };
+  const item=btn.closest('li')||btn;
+  const show=()=>{ item.hidden= native || !(store || apk || (!standalone() && (deferred || ios))); };
   window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferred=e; window.__installPrompt=e; show(); });
   window.addEventListener('appinstalled', ()=>{ deferred=null; window.__installPrompt=null; show(); });
   btn.addEventListener('click', async ()=>{
