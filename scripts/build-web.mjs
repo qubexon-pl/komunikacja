@@ -33,7 +33,7 @@ if (!/^https:\/\//.test(apiBase) && envName === 'production') {
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-for (const file of ['index.html', 'login.html']) cpSync(join(root, file), join(out, file));
+for (const file of ['index.html', 'login.html', 'welcome.html']) cpSync(join(root, file), join(out, file));
 const skip = /(\.md$|[\\/]onward[\\/](manifest|extended-manifest|missing-manifest)\.json$|app\.sw\.js$)/;
 cpSync(join(root, 'assets'), join(out, 'assets'), { recursive: true, filter: (src) => !skip.test(src) });
 

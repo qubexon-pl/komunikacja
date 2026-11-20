@@ -56,6 +56,13 @@
   /* ---------- pages: in the app the pages are files, not server routes ---------- */
   ON.loginUrl = (returnTo) => native ? '/login.html' : '/login' + (returnTo ? '?returnTo=' + encodeURIComponent(returnTo) : '');
   ON.homeUrl = () => native ? '/index.html' : '/plan';
+  ON.whenSignedIn = (fn) => tokenReady.then(() => { if(token) fn(); });
+  // The app opens on the welcome page (welcome.html) until the person signs in, once per launch, like / on the website.
+  if(native && /^\/(index\.html)?$/.test(location.pathname)){
+    let welcomed = false;
+    try{ welcomed = sessionStorage.getItem('onward.welcomed') === '1'; }catch(e){}
+    if(!welcomed) tokenReady.then(() => { if(!token) location.replace('/welcome.html'); });
+  }
 
   /* ---------- Google sign-in ---------- */
   ON.googleSignIn = async function(){

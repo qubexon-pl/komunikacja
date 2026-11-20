@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+<defs><filter id="tp-paint" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="3" seed="3" result="warp"></feTurbulence><feDisplacementMap in="SourceGraphic" in2="warp" scale="13" xChannelSelector="R" yChannelSelector="G" result="wobbly"></feDisplacementMap><feTurbulence type="fractalNoise" baseFrequency="0.9 0.05" numOctaves="2" seed="8" result="streak"></feTurbulence><feColorMatrix in="streak" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 1.2" result="streakA"></feColorMatrix><feComposite in="wobbly" in2="streakA" operator="in" result="textured"></feComposite><feComponentTransfer in="wobbly" result="base"><feFuncA type="linear" slope="0.8"></feFuncA></feComponentTransfer><feMerge><feMergeNode in="base"></feMergeNode><feMergeNode in="textured"></feMergeNode></feMerge></filter><filter id="tp-wash" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.008" numOctaves="2" seed="11" result="w"></feTurbulence><feDisplacementMap in="SourceGraphic" in2="w" scale="40" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap></filter><filter id="tp-ink" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" seed="5" result="n"></feTurbulence><feDisplacementMap in="SourceGraphic" in2="n" scale="4" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap></filter><filter id="tp-grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"></feTurbulence><feColorMatrix type="matrix" values="0 0 0 0 0.35  0 0 0 0 0.28  0 0 0 0 0.18  0 0 0 0.16 0"></feColorMatrix></filter></defs>
+<rect width="800" height="400" fill="#E6F0FA"/>
+<g filter="url(#tp-wash)">
+  <circle cx="580" cy="78" r="70" fill="#F2B84B"/>
+  <ellipse cx="250" cy="96" rx="250" ry="110" fill="#CFE4F6"/>
+  <ellipse cx="560" cy="170" rx="200" ry="60" fill="#D7E9F7"/>
+</g>
+<g filter="url(#tp-paint)">
+  <path d="M0 250 L120 176 L230 240 L330 150 L470 250 L0 270Z" fill="#9CC3E6"/>
+  <path d="M410 262 L540 180 L640 244 L740 196 L800 230 L800 280 L410 280Z" fill="#7FB0DD"/>
+  <path d="M304 170 L330 150 L356 170 L343 176 L330 166 L317 176Z" fill="#FFFFFF"/>
+  <path d="M0 286 C200 264 560 300 800 274 L800 400 L0 400Z" fill="#5FB98C"/>
+  <path d="M0 342 C240 328 540 354 800 336 L800 400 L0 400Z" fill="#8FD0A0"/>
+  <path d="M280 400 C330 356 356 326 362 288 L430 288 C436 326 470 360 520 400Z" fill="#5B6E8C"/>
+  <g transform="translate(296 186) scale(0.66)"><rect x="0" y="0" width="300" height="128" rx="26" fill="#2878D0"/>
+  <rect x="0" y="82" width="300" height="20" fill="#173B70"/>
+  <path d="M12 4 Q150 -28 288 4" fill="none" stroke="#173B70" stroke-width="22" stroke-linecap="round"/>
+  <rect x="26" y="22" width="58" height="46" rx="8" fill="#BFE3EC"/>
+  <rect x="98" y="22" width="58" height="46" rx="8" fill="#BFE3EC"/>
+  <rect x="170" y="22" width="58" height="46" rx="8" fill="#BFE3EC"/>
+  <rect x="242" y="22" width="42" height="62" rx="8" fill="#BFE3EC"/>
+  <circle cx="60" cy="130" r="26" fill="#173B70"/><circle cx="60" cy="130" r="10" fill="#C9D6E8"/>
+  <circle cx="242" cy="130" r="26" fill="#173B70"/><circle cx="242" cy="130" r="10" fill="#C9D6E8"/></g>
+  <g transform="translate(214 306) scale(0.8)"><rect x="0" y="8" width="96" height="70" rx="12" fill="#F2B84B"/>
+  <rect x="-4" y="0" width="104" height="16" rx="7" fill="#E0A63A"/>
+  <rect x="22" y="16" width="10" height="58" fill="#E0A63A"/>
+  <rect x="64" y="16" width="10" height="58" fill="#E0A63A"/>
+  <path d="M28 0 C28 -22 68 -22 68 0" fill="none" stroke="#173B70" stroke-width="7"/></g>
+  <g transform="translate(540 206) scale(0.82)"><rect x="46" y="0" width="12" height="150" rx="5" fill="#B88A55"/>
+  <path d="M0 14 L100 14 L116 30 L100 46 L0 46Z" fill="#EE8A68"/>
+  <path d="M104 56 L4 56 L-12 72 L4 88 L104 88Z" fill="#20A995"/></g>
+  <g transform="translate(262 112) rotate(-14) scale(0.9)"><path d="M-40 0 Q0 -12 40 0 Q0 12 -40 0Z" fill="#FFFFFF"/><path d="M-6 -2 L14 -30 L22 -30 L14 0Z" fill="#FFFFFF"/><path d="M-6 2 L14 30 L22 30 L14 0Z" fill="#E3ECF6"/><path d="M-36 -2 L-44 -16 L-36 -16 L-26 -2Z" fill="#2878D0"/><circle cx="26" cy="-1" r="3" fill="#173B70"/></g>
+</g>
+<g filter="url(#tp-ink)" fill="none" stroke="#173B70" stroke-width="3.5" stroke-linecap="round" opacity="0.8">
+  <path d="M300 104 C340 120 370 96 410 106 C450 116 470 90 520 92" stroke-dasharray="2 13"/>
+  <path d="M60 372 h50 M700 376 h50"/>
+</g>
+<g filter="url(#tp-ink)" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="13 15" fill="none" opacity=".85"><path d="M398 400 C397 360 396 330 396 300"/></g>
+<g filter="url(#tp-ink)" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" fill="none"><path d="M549 230 h40 M563 268 h40"/></g>
+<g transform="translate(398 128) scale(1.0)"><path d="M0 30 C-6 18 -18 8 -18 -4 A18 18 0 1 1 18 -4 C18 8 6 18 0 30Z" fill="#20A995"/><circle cx="0" cy="-4" r="7" fill="#FFFFFF"/></g>
+<g transform="translate(520 72) scale(0.75)"><path d="M0 30 C-6 18 -18 8 -18 -4 A18 18 0 1 1 18 -4 C18 8 6 18 0 30Z" fill="#EE8A68"/><circle cx="0" cy="-4" r="7" fill="#FFFFFF"/></g>
+<g transform="translate(226 250) scale(0.7)"><path d="M0 30 C-6 18 -18 8 -18 -4 A18 18 0 1 1 18 -4 C18 8 6 18 0 30Z" fill="#F2B84B"/><circle cx="0" cy="-4" r="7" fill="#FFFFFF"/></g>
+<path d="M382 172 l11 11 l22 -24" fill="none" stroke="#20A995" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M352 43 Q352 54 363 54 Q352 54 352 65 Q352 54 341 54 Q352 54 352 43Z" fill="#FFFFFF"/><path d="M470 31 Q470 40 479 40 Q470 40 470 49 Q470 40 461 40 Q470 40 470 31Z" fill="#FFFFFF"/><path d="M232 172 Q232 180 240 180 Q232 180 232 188 Q232 180 224 180 Q232 180 232 172Z" fill="#FFFFFF"/><path d="M650 141 Q650 150 659 150 Q650 150 650 159 Q650 150 641 150 Q650 150 650 141Z" fill="#FFFFFF"/>
+<rect width="800" height="400" filter="url(#tp-grain)" style="mix-blend-mode:multiply"/>
+</svg>
