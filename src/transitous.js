@@ -18,7 +18,7 @@ function createTransitous({ fetchSource = fetch, now = Date.now, minGapMs = MIN_
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       lastAsk = now();
       const response = await fetchSource(`${BASE}${path}?${new URLSearchParams(params)}`, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(20000) });
-      if (!response.ok) throw Object.assign(new Error(`Transitous zwrócił HTTP ${response.status}.`), { status: 502 });
+      if (!response.ok) throw Object.assign(new Error(`Transitous zwrócił HTTP ${response.status}.`), { status: 502, upstream: response.status });
       return response.json();
     });
     queue = run.catch(() => {});

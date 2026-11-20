@@ -43,6 +43,7 @@ const { OPERATIONS_KEY, createPlkCollector, scheduleKey } = require("./plk");
 const { ageOf } = require("./snapshots");
 const { createScheduleStore } = require("./schedule");
 const { createTimetableStore } = require("./timetable");
+const { createAdminUsers, createSharedSettings } = require("./admin");
 const { AuthError, SESSION_TTL_SECONDS, createAuthService, isEmailConfigured, safeReturnTo } = require("./auth");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -67,12 +68,13 @@ const OAUTH_COOKIE = "rzbus_oauth_state";
 const APP_PAGES = new Set(["/", "/buses", "/suburban", "/trains", "/plan", "/destinations", "/favourites", "/my-trips", "/trip"]);
 // Polish addresses used before the pages got English names: saved links and bookmarks still work.
 const OLD_PAGES = { "/podroz": "/plan", "/autobusy": "/buses", "/pks": "/suburban", "/pociagi": "/trains", "/kierunki": "/destinations", "/ulubione": "/favourites", "/moje-podroze": "/my-trips", "/podroz-szczegoly": "/trip", "/koncowe": "/plan" };
+const ADMIN_USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_FAVORITES_BYTES = 512 * 1024; // saved trips carry what they looked like (up to 12 kB each)
 const ANDROID_APK_PATH = "/download/voyage.apk";
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, reverse: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -661,6 +663,7 @@ function serveStatic(res, pathname, root, search = "") {
   const isLoginPage = pathname === "/login";
   // Welcome page for visitors who are not signed in (also at "/" for them, see the request handler).
   const isWelcomePage = pathname === "/welcome";
+  const isAdminPage = pathname === "/admin"; // only reached through the admin check in the request handler
   const isAppPage = APP_PAGES.has(pathname);
   const isLoginAsset = pathname === "/assets/login.css" || pathname === "/assets/login.js" || pathname === "/assets/i18n.js";
   const isLogo = /^\/assets\/logo(-\d+)?\.png$/.test(pathname); // the app logo, in the sizes it is used
@@ -672,7 +675,7 @@ function serveStatic(res, pathname, root, search = "") {
   const isServiceWorker = pathname === "/sw.js";
   // The Android app (built and signed by CI, copied into download/ at deploy time) for the "Install app" button.
   const isAndroidApp = pathname === ANDROID_APK_PATH;
-  if (!isAppPage && !isLoginPage && !isWelcomePage && !isServiceWorker && !isAndroidApp && !pathname.startsWith("/assets/")) {
+  if (!isAppPage && !isLoginPage && !isWelcomePage && !isAdminPage && !isServiceWorker && !isAndroidApp && !pathname.startsWith("/assets/")) {
     json(res, 404, { error: "Not found." });
     return;
   }
@@ -680,13 +683,13 @@ function serveStatic(res, pathname, root, search = "") {
     json(res, 404, { error: "Not found." });
     return;
   }
-  const requestedPath = isAppPage ? "/index.html" : isLoginPage ? "/login.html" : isWelcomePage ? "/welcome.html" : isServiceWorker ? "/assets/app.sw.js" : pathname;
+  const requestedPath = isAppPage ? "/index.html" : isLoginPage ? "/login.html" : isWelcomePage ? "/welcome.html" : isAdminPage ? "/admin.html" : isServiceWorker ? "/assets/app.sw.js" : pathname;
   const filePath = path.resolve(root, `.${requestedPath}`);
   if (!filePath.startsWith(`${root}${path.sep}`)) {
     json(res, 403, { error: "Forbidden." });
     return;
   }
-  if (!isLoginPage && !isAppPage && !isWelcomePage && !isAndroidApp && !filePath.startsWith(`${path.resolve(root, "assets")}${path.sep}`)) {
+  if (!isLoginPage && !isAppPage && !isWelcomePage && !isAdminPage && !isAndroidApp && !filePath.startsWith(`${path.resolve(root, "assets")}${path.sep}`)) {
     json(res, 404, { error: "Not found." });
     return;
   }
@@ -964,9 +967,84 @@ async function serveTimetable(req, res, agency, timetables) {
   res.end(feed.buffer);
 }
 
+function configuredAdmins() {
+  return (process.env.ADMIN_EMAILS || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean);
+}
+
 function isAppAdmin(user) {
-  const admins = (process.env.ADMIN_EMAILS || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean);
-  return Boolean(user.isAdmin || admins.includes(String(user.email).toLowerCase()));
+  return Boolean(user && (user.isAdmin || configuredAdmins().includes(String(user.email).toLowerCase())));
+}
+
+// Settings an administrator set for everyone. Anyone may read them (the app needs them before sign-in); only an
+// administrator changes them, and the change reaches every user the next time the app asks (within a minute).
+async function serveSharedSettings(req, res, sharedSettings) {
+  if (req.method === "GET") {
+    const shared = sharedSettings ? await sharedSettings.get() : { settings: {}, updatedAt: null, updatedBy: null };
+    res.setHeader("Cache-Control", "no-cache");
+    json(res, 200, req.user && isAppAdmin(req.user) ? shared : { settings: shared.settings, updatedAt: shared.updatedAt });
+    return;
+  }
+  if (req.method !== "PUT") {
+    res.setHeader("Allow", "GET, PUT");
+    json(res, 405, { error: "Method not allowed." });
+    return;
+  }
+  if (!isAppAdmin(req.user)) {
+    json(res, 403, { error: "Ustawienia dla wszystkich zmienia tylko administrator." });
+    return;
+  }
+  if (!sharedSettings) {
+    json(res, 503, { error: "Wspólne ustawienia nie są skonfigurowane na tym serwerze." });
+    return;
+  }
+  requireSameOrigin(req);
+  const { settings } = await readJson(req);
+  json(res, 200, await sharedSettings.set(settings, req.user));
+}
+
+// The admin page's list of people and their administrator rights.
+async function serveAdminUsers(req, res, url, segments, adminUsers) {
+  if (!isAppAdmin(req.user)) {
+    json(res, 403, { error: "Ta część jest tylko dla administratorów." });
+    return;
+  }
+  if (!adminUsers) {
+    json(res, 503, { error: "Lista użytkowników nie jest dostępna na tym serwerze." });
+    return;
+  }
+  const fromConfig = new Set(configuredAdmins());
+  const mark = (user) => ({ ...user, isAdmin: user.isAdmin || fromConfig.has(String(user.email).toLowerCase()), fromConfig: fromConfig.has(String(user.email).toLowerCase()) });
+  if (segments.length === 3 && req.method === "GET") {
+    const result = await adminUsers.list({ query: url.searchParams.get("q") || "", limit: url.searchParams.get("limit") || 100 });
+    json(res, 200, { ...result, users: result.users.map(mark), me: req.user.id });
+    return;
+  }
+  if (segments.length === 4 && req.method === "PUT") {
+    requireSameOrigin(req);
+    const userId = segments[3];
+    if (!ADMIN_USER_ID.test(userId)) {
+      json(res, 400, { error: "Nieprawidłowy identyfikator użytkownika." });
+      return;
+    }
+    const { isAdmin } = await readJson(req);
+    if (typeof isAdmin !== "boolean") {
+      json(res, 400, { error: "Podaj, czy osoba ma być administratorem." });
+      return;
+    }
+    if (!isAdmin && userId.toLowerCase() === String(req.user.id).toLowerCase()) {
+      json(res, 409, { error: "Nie możesz odebrać uprawnień samemu sobie. Poproś o to innego administratora." });
+      return;
+    }
+    const updated = await adminUsers.setAdmin(userId, isAdmin);
+    if (!updated) {
+      json(res, 404, { error: "Nie ma takiego użytkownika." });
+      return;
+    }
+    json(res, 200, { user: mark(updated) });
+    return;
+  }
+  res.setHeader("Allow", segments.length === 3 ? "GET" : "PUT");
+  json(res, 405, { error: "Method not allowed." });
 }
 
 // The saved key is never sent back: an administrator can replace it but not read it.
@@ -1083,11 +1161,12 @@ async function forwardToApi(req, res, url, fetchSource = fetch, maxBody = 64 * 1
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, duffel = null, hotels = createHotels({ fetchSource }), aiPlanner = null, staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, duffel = null, hotels = createHotels({ fetchSource }), aiPlanner = null, sharedSettings = null, adminUsers = null, staticRoot = ROOT }) {
   // Database first: geocoding, driving routes, paths, walking times, weather, hotel and PKS prices are read from the
   // stored answers and only asked from the outside service when nothing fresh is stored.
   const keep = createStoredAnswers(snapshots);
   const DAY_MS = 86400000;
+  const reverseGeocode = typeof geocode?.reverse === "function" ? geocode.reverse : null;
   geocode = keep.wrap("geo", 30 * DAY_MS, geocode, (q, o) => [String(q || "").trim().toLowerCase(), !!o?.world], (v) => !!v?.places?.length);
   drive = keep.wrap("drive", 30 * DAY_MS, drive, (a, b) => [a, b]);
   findPath = keep.wrap("path", 30 * DAY_MS, findPath, (m, a, b) => [m, a, b], (v) => Array.isArray(v) && v.length > 1);
@@ -1098,7 +1177,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
   const eurRate = keep.wrap("fx", 12 * 3600000, async (code) => { const v = await fareRates(10000, code); return v ? v / 10000 : null; }, (code) => [code]);
   const transitClient = createTransitous({ fetchSource });
   const airportTransfers = transfers || createAirportTransfers({ transitous: transitClient, toPln: fareRates, geocode, snapshots, drive });
-  const city = cityTransit || createCityTransit({ transitous: transitClient });
+  const city = cityTransit || createCityTransit({ transitous: transitClient, store: snapshots });
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
@@ -1143,6 +1222,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         const publicRoute = req.method === "GET" && (
           (segments[1] === "streets" && segments.length === 2)
           || (segments[1] === "geocode" && segments.length === 2)
+          || (segments[1] === "geocode" && segments.length === 3 && segments[2] === "reverse")
           || (segments[1] === "feeds" && segments[2] === "fetch" && segments.length === 3)
           || (segments[1] === "timetable" && segments.length === 3 && AGENCIES.has(segments[2]))
           || (segments[1] === "schedule" && segments.length === 3 && AGENCIES.has(segments[2]))
@@ -1161,6 +1241,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "rates" && segments.length === 2)
         ) ? (segments[1] === "feeds" ? "feeds"
           : segments[1] === "airport-transfers" ? (segments[2] === "options" ? "transfer-options" : segments[2] ? "transfer-trips" : "transfers")
+          : segments[1] === "geocode" && segments[2] === "reverse" ? "reverse"
           : segments[1] === "transit" ? ({ plan: "city-plan", cities: "city-list", stops: "city-stops", departures: "departures", lines: "city-lines" }[segments[2]] || "vehicles")
           : segments[1]) : null;
         if (publicRoute && !takePublicRequest(req, publicRoute)) {
@@ -1344,6 +1425,26 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           }
           return;
         }
+        if (segments[1] === "geocode" && segments[2] === "reverse" && segments.length === 3 && req.method === "GET") {
+          const lat = Number(url.searchParams.get("lat"));
+          const lon = Number(url.searchParams.get("lon"));
+          if (!url.searchParams.get("lat") || !url.searchParams.get("lon") || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+            json(res, 400, { error: "Podaj położenie." });
+            return;
+          }
+          if (!reverseGeocode) {
+            json(res, 503, { error: "Wyszukiwarka adresów jest chwilowo niedostępna." });
+            return;
+          }
+          try {
+            const place = await reverseGeocode(lat, lon);
+            json(res, place ? 200 : 404, place ? { place } : { error: "Nie znaleziono adresu w tym miejscu." });
+          } catch (error) {
+            console.error("Reverse geocoding failed:", error.message);
+            json(res, 502, { error: "Wyszukiwarka adresów jest chwilowo niedostępna." });
+          }
+          return;
+        }
         if (segments[1] === "geocode" && segments.length === 2 && req.method === "GET") {
           const query = url.searchParams.get("q")?.trim() || "";
           if (query.length < 2 || query.length > 120) {
@@ -1360,6 +1461,11 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         }
         if (segments[1] === "feeds" && segments[2] === "fetch" && segments.length === 3 && req.method === "GET") {
           await proxyGtfsSource(res, url, fetchSource);
+          return;
+        }
+        if (segments[1] === "settings" && segments.length === 2 && req.method === "GET") {
+          req.user = await auth.resolveSession(readCookie(req, SESSION_COOKIE)).catch(() => null);
+          await serveSharedSettings(req, res, sharedSettings);
           return;
         }
         req.user = await auth.resolveSession(readCookie(req, SESSION_COOKIE));
@@ -1457,6 +1563,14 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           await refreshFare(req, res, collector, flights, tripAsked, ryanair);
           return;
         }
+        if (segments[1] === "settings" && segments.length === 2) {
+          await serveSharedSettings(req, res, sharedSettings);
+          return;
+        }
+        if (segments[1] === "admin" && segments[2] === "users" && (segments.length === 3 || segments.length === 4)) {
+          await serveAdminUsers(req, res, url, segments, adminUsers);
+          return;
+        }
         if (segments[1] === "settings" && segments[2] === "plk-key" && segments.length === 3) {
           await servePlkKey(req, res, plk);
           return;
@@ -1515,7 +1629,23 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
       // Visitors who are not signed in start on the welcome page; signed-in users go straight to the app.
       if (url.pathname === "/") {
         const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE)).catch(() => null);
-        serveStatic(res, user ? "/" : "/welcome", root, url.search);
+        // A server package without welcome.html (it was once left out of the deploy zip) shows the app, not a 404.
+        const hasWelcome = !user && fs.existsSync(path.join(root, "welcome.html"));
+        serveStatic(res, hasWelcome ? "/welcome" : "/", root, url.search);
+        return;
+      }
+      // The admin page: sign in first, and only administrators get it (everyone else goes back to the app).
+      if (url.pathname === "/admin") {
+        const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE)).catch(() => null);
+        if (!user) {
+          authRedirect(res, `/login?returnTo=${encodeURIComponent("/admin")}`);
+          return;
+        }
+        if (!isAppAdmin(user)) {
+          authRedirect(res, "/plan");
+          return;
+        }
+        serveStatic(res, url.pathname, root, url.search);
         return;
       }
       if (url.pathname === "/login") {
@@ -1596,6 +1726,12 @@ async function main() {
   const alerts = createPriceAlerts({ db: createAlertDatabase(pool), flights, collector, sendEmail: (message) => auth.sendNotice(message) });
   alerts.start();
   const transitous = createTransitous();
+  // Lines of every city with city transport are collected into the database a minute after start and every 6 hours.
+  const cityTransit = createCityTransit({ transitous, store: snapshots });
+  const sweepLines = () => cityTransit.refreshAllLines().catch((error) => console.warn("City lines:", error.message));
+  const linesStart = setTimeout(sweepLines, 60 * 1000);
+  const linesTimer = setInterval(sweepLines, 6 * 3600 * 1000);
+  linesStart.unref?.(); linesTimer.unref?.();
   const transfers = createAirportTransfers({
     snapshots,
     transitous,
@@ -1614,8 +1750,10 @@ async function main() {
   transfers.ready().catch((error) => console.warn("Airport transfers could not load:", error.message));
   const server = createServer({
     auth,
+    sharedSettings: createSharedSettings({ read: (key) => readSetting(pool, key), save: (key, value) => saveSetting(pool, key, value) }),
+    adminUsers: createAdminUsers(pool),
     transfers,
-    cityTransit: createCityTransit({ transitous }),
+    cityTransit,
     timetables,
     snapshots,
     plk,
@@ -1650,6 +1788,7 @@ async function main() {
     live.stop();
     flights.stop();
     alerts.stop();
+    clearTimeout(linesStart); clearInterval(linesTimer);
     await pool.close();
     process.exit(0);
   });

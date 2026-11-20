@@ -820,6 +820,7 @@ body:not([data-view="podroz"]) #map-sec{margin-top:64px}
 
 /* ---- admin ---- */
 body:not(.admin) .admin-only{display:none}
+html.is-native .admin-link{display:none !important} /* the admin page is on the website only */
 .scan-group{margin:0 0 16px; padding:0; border:0}
 .scan-group[hidden]{display:none}
 .scan-group legend{margin-bottom:8px; font-size:.62rem; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-soft)}
@@ -1646,6 +1647,12 @@ body.explore-mode #exploreMap{height:clamp(420px,calc(100vh - 340px),760px)}
 .cp-body{display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px}
 .cp-map-wrap{position:relative} .cp-map{height:520px; border-radius:12px; overflow:hidden; border:1px solid var(--line)}
 .city-panel.picking .cp-map{cursor:crosshair; outline:3px solid var(--gold)}
+.cp-map-toggle{display:inline-flex; align-items:center; gap:8px; padding:6px 14px; border:1px solid var(--line); border-radius:999px; background:var(--bg-alt, #fff); color:var(--ink); font-size:.84rem; font-weight:700}
+.cp-map-toggle i{color:var(--red, #2878D0)}
+.cp-map-toggle:hover{border-color:var(--red, #2878D0)}
+.city-panel.map-hidden .cp-map-wrap,.city-panel.map-hidden .cp-live,.city-panel.map-hidden .cp-status{display:none}
+.city-panel.map-hidden .cp-body{grid-template-columns:minmax(0,720px)}
+.ctx:has(.city-panel.map-hidden) .ctx-stats{display:none}
 .cp-legend{display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:6px; font-size:.75rem; color:var(--ink-soft)}
 .cp-legend span{display:inline-flex; align-items:center; gap:5px}
 .cp-veh span,.cp-veh-l{display:grid; place-items:center; width:100%; height:100%; border-radius:50%; color:#fff; border:1.5px solid rgba(255,255,255,.75); box-shadow:0 1px 3px rgba(0,0,0,.35)}
@@ -2814,6 +2821,7 @@ body.lines-mode #lines-sec{margin-top:8px !important}
 .ctx-lines .lg{display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:6px}
 .ctx-line{display:flex; flex-direction:column; align-items:flex-start; gap:4px; border:1px solid var(--line); background:var(--bg-alt); color:inherit; border-radius:12px; padding:8px 10px; text-align:left; min-width:0}
 .ctx-line:hover,.ctx-line:focus-visible{border-color:#2878D0; outline:none}
+.ctx-line.idle{opacity:.6}
 .ctx-line small{color:var(--ink-soft); font-size:.7rem; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%}
 .ctx-stats{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px}
 .ctx-stats > div{border:1px solid var(--line); background:var(--bg-alt); border-radius:14px; padding:10px 12px}
@@ -2825,7 +2833,8 @@ body.lines-mode #lines-sec{margin-top:8px !important}
 .ctx-filter .cs-chip{cursor:default}
 .ctx-when-bar{display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end}
 .ctx-when-bar label{display:flex; flex-direction:column; gap:4px; font-size:.78rem; font-weight:700; color:var(--ink-soft)}
-.ctx-when-bar input,.ctx-when-bar select{min-height:44px; border:1px solid var(--line); border-radius:12px; padding:0 10px; background:var(--bg); color:inherit; font:inherit}
+.ctx-when-bar input,.ctx-when-bar select{min-height:44px; border:1px solid var(--line); border-radius:12px; padding:0 10px; background:var(--bg-alt, #fff); color:var(--ink); font:inherit; font-weight:500}
+.ctx-when-bar input:focus,.ctx-when-bar select:focus{outline:none; border-color:#2878D0; box-shadow:0 0 0 3px rgba(40,120,208,.18)}
 body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribution){display:none !important}
 .ctx{display:flex; flex-direction:column; gap:12px; min-width:0}
 .ctx-head{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px}
@@ -2837,13 +2846,13 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 .ctx .city-panel{margin:0}
 .ctx-search{display:flex; flex-direction:column; gap:4px; max-width:520px}
 .ctx-search label{font-size:.78rem; font-weight:700; color:var(--ink-soft, #6B7A90)}
-.ctx-search .pl-inp{display:flex; align-items:center; gap:8px; border:1px solid var(--line, #E3EAF3); border-radius:12px; padding:0 12px; background:var(--bg, #fff)}
+.ctx-search .pl-inp{display:flex; align-items:center; gap:8px; border:1px solid var(--line, #E3EAF3); border-radius:12px; padding:0 12px; background:var(--bg-alt, #fff)}
 .ctx-search input{flex:1; min-width:0; min-height:44px; border:0; background:transparent; font:inherit; color:inherit}
 .ctx-search input:focus{outline:none}
 .ctx-search .pl-inp:focus-within{border-color:#2878D0; box-shadow:0 0 0 3px rgba(40,120,208,.18)}
 .ctx-stops{list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px}
 .ctx-stops:empty{display:none}
-.ctx-stops button{display:flex; flex-direction:column; align-items:flex-start; border:1px solid var(--line, #E3EAF3); background:var(--bg, #fff); color:inherit; border-radius:12px; padding:6px 12px; text-align:left}
+.ctx-stops button{display:flex; flex-direction:column; align-items:flex-start; border:1px solid var(--line, #E3EAF3); background:var(--bg-alt, #fff); color:inherit; border-radius:12px; padding:6px 12px; text-align:left}
 .ctx-stops button:hover,.ctx-stops button.on{border-color:#2878D0; background:#E5F1FD; color:#172B45}
 .ctx-stops b{font-size:.88rem} .ctx-stops small{font-size:.72rem; opacity:.75}
 .ctx-none{color:var(--ink-soft, #6B7A90); font-size:.85rem; padding:4px 2px}
@@ -3190,3 +3199,32 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 .tp-sheet-step .tp-sheet-bar{position:absolute; top:10px; right:10px; padding:0; z-index:1}
 .tp-sheet-step .tp-sheet-body{padding-top:16px}
 .tp-sheet-step .tp-panel > h4{padding-right:48px; min-height:32px; display:flex; align-items:center; gap:6px}
+
+/* ---- „Najtaniej łącznie z dojazdem na lotnisko”: ciepła karta podpowiedzi, nie w kolorze przycisków ---- */
+.trip-best{background:#FFF4DC; color:#5C3B00; border:1px solid #F3D59A; border-left:4px solid var(--gold); border-radius:14px; font-weight:600; box-shadow:none}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .trip-best{background:#3A2B0C; color:#FFE2A6; border-color:#5E4614; border-left-color:var(--gold)} }
+:root[data-theme="dark"] .trip-best{background:#3A2B0C; color:#FFE2A6; border-color:#5E4614; border-left-color:var(--gold)}
+
+/* ---- „Dalej” w planerze: na komputerze wyraźniejszy niż niebieskie ikony i przyciski wokół ---- */
+@media (min-width:768px){
+  .btn-grad.btn-next,:root[data-theme="dark"] .btn-grad.btn-next{display:inline-flex; align-items:center; gap:10px; padding:14px 28px; font-size:1rem; font-weight:800; color:#14233D;
+    background:linear-gradient(135deg,#FFD27A 0%,#F2B84B 100%); box-shadow:0 14px 28px -14px rgba(201,140,20,.9),0 0 0 3px rgba(242,184,75,.25)}
+  .btn-grad.btn-next:hover,.btn-grad.btn-next:focus-visible,:root[data-theme="dark"] .btn-grad.btn-next:hover{color:#14233D; background:linear-gradient(135deg,#FFDB91 0%,#E9A93A 100%); transform:translateY(-1px)}
+  .btn-grad.btn-next .fa-arrow-right{transition:transform .15s}
+  .btn-grad.btn-next:hover .fa-arrow-right{transform:translateX(3px)}
+}
+
+/* ---- pogoda: brak dostępu do lokalizacji jako czerwony dzwonek z okienkiem ---- */
+.wx-alert{position:relative; display:inline-block; vertical-align:middle; margin:10px 8px 0 0}
+.wx-alert-btn{display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border:0; border-radius:50%; background:#E5484D; color:#fff; font-size:.95rem; box-shadow:0 6px 14px -6px rgba(229,72,77,.9); cursor:pointer}
+.wx-alert-btn:hover,.wx-alert-btn:focus-visible{background:#C9363B}
+.wx-alert-btn[aria-expanded="false"] .fa-bell{animation:wx-ring 2.4s ease-in-out 2}
+@keyframes wx-ring{0%,60%,100%{transform:rotate(0)} 10%,30%{transform:rotate(14deg)} 20%,40%{transform:rotate(-14deg)}}
+@media (prefers-reduced-motion:reduce){ .wx-alert-btn .fa-bell{animation:none !important} }
+.wx-here{vertical-align:middle}
+.wx-alert-pop{position:fixed; z-index:1060; top:0; left:0; width:min(300px,80vw); padding:12px 34px 12px 14px; border-radius:12px; border-top:3px solid #E5484D;
+  background:var(--bg-alt,#fff); color:var(--ink,#14233D); font-size:.8rem; font-weight:400; line-height:1.4; text-align:left; box-shadow:0 18px 40px -12px rgba(10,30,60,.45)}
+.wx-alert-pop[hidden]{display:none}
+.wx-alert-pop b{display:block; margin-bottom:4px; color:#C9363B; font-size:.82rem}
+.wx-alert-close{position:absolute; top:6px; right:6px; width:26px; height:26px; border:0; border-radius:50%; background:transparent; color:var(--ink-soft,#5A6B82)}
+.wx-alert-close:hover{background:var(--soft,#EEF3F9)}

@@ -135,86 +135,65 @@ document.getElementById('removePasswordBtn')?.addEventListener('click',async()=>
   catch(err){ passwordMessage(err.message); }
 });
 
-/* ---------- Wylogowanie po godzinie bez aktywności (jak w Podavo): tylko na komputerze z myszką, wspólne dla kart ---------- */
-const IDLE={key:'podavo-voyage-last-activity', limit:60*60000, warn:2*60000, warned:false, timer:null};
-const idleDesktop=()=>matchMedia('(hover: hover) and (pointer: fine)').matches && !(window.ONWARD&&window.ONWARD.native);
+/* ---------- Wylogowanie na komputerze po godzinie bez aktywności (czas ustala administrator: idleLogoutMinutes, 0 = wyłączone).
+   Tylko na komputerze z myszką, wspólne dla kart: ruch w jednej karcie liczy się dla wszystkich. ---------- */
+const IDLE={key:'podavo-voyage-last-activity', warn:2*60000, warned:false, timer:null};
+const idleLimit=()=>{ const m=Number(CFG?.idleLogoutMinutes); return Number.isFinite(m)&&m>0 ? m*60000 : 0; };
+// Komputer: jakiekolwiek precyzyjne wskazywanie (mysz, touchpad), także na laptopie z ekranem dotykowym.
+const idleDesktop=()=>matchMedia('(any-pointer: fine)').matches && matchMedia('(any-hover: hover)').matches && !(window.ONWARD&&window.ONWARD.native);
 const lastActivity=()=>{ try{ return +localStorage.getItem(IDLE.key)||0; }catch(e){ return 0; } };
-function markActivity(){ const now=Date.now(); if(now-lastActivity()>15000){ try{ localStorage.setItem(IDLE.key,String(now)); }catch(e){} } IDLE.warned=false; }
+function markActivity(){
+  const now=Date.now(), last=lastActivity(), limit=idleLimit();
+  // Pierwszy ruch po długiej przerwie (np. po uśpieniu komputera) nie przedłuża sesji, tylko kończy ją.
+  if(IDLE.timer && limit && last && now-last>=limit){ idleSignOut(); return; }
+  if(now-last>15000){ try{ localStorage.setItem(IDLE.key,String(now)); }catch(e){} } IDLE.warned=false; }
 const forgetActivity=()=>{ try{ localStorage.removeItem(IDLE.key); }catch(e){} };
 async function idleSignOut(){
+  if(IDLE.out) return; IDLE.out=true;
   clearInterval(IDLE.timer);
   forgetActivity(); // inaczej stary znacznik wylogowałby od razu po następnym zalogowaniu
   try{ await fetch('/api/auth/logout',{method:'POST'}); }catch(e){}
-  store('onward.user', null);
+  store('onward.user', null); store('rzbus.favs', []); try{ await caches?.delete('onward-api'); }catch(e){}
   location.assign('/login?powod=bezczynnosc&returnTo='+encodeURIComponent(location.pathname));
 }
 function checkIdle(){
+  const limit=idleLimit(); if(!limit) return;
   const idle=Date.now()-(lastActivity()||Date.now());
-  if(idle>=IDLE.limit){ idleSignOut(); return; }
-  if(idle>=IDLE.limit-IDLE.warn && !IDLE.warned){ IDLE.warned=true; toast(L2('Za 2 minuty wylogujemy Cię z powodu braku aktywności. Rusz myszką, aby zostać.','You will be signed out in 2 minutes for inactivity. Move the mouse to stay.')); }
+  if(idle>=limit){ idleSignOut(); return; }
+  if(idle>=limit-IDLE.warn && !IDLE.warned){ IDLE.warned=true; toast(L2('Za 2 minuty wylogujemy Cię z powodu braku aktywności. Rusz myszką, aby zostać.','You will be signed out in 2 minutes for inactivity. Move the mouse to stay.')); }
 }
 sessionUser.then(user=>{
   if(!user || !idleDesktop()) return;
-  if(lastActivity() && Date.now()-lastActivity()>=IDLE.limit){ idleSignOut(); return; } // otwarta ponownie po ponad godzinie
+  if(idleLimit() && lastActivity() && Date.now()-lastActivity()>=idleLimit()){ idleSignOut(); return; } // otwarta ponownie po czasie
   markActivity();
   for(const ev of ['mousemove','mousedown','keydown','wheel','scroll','touchstart']) addEventListener(ev, markActivity, {passive:true});
+  // Uśpiony komputer lub karta w tle: sprawdź od razu po powrocie, zanim ruch myszy odnowi znacznik.
+  const checkFirst=()=>{ if(document.visibilityState==='visible') checkIdle(); };
+  document.addEventListener('visibilitychange', checkFirst, true);
+  addEventListener('focus', checkFirst, true);
   IDLE.timer=setInterval(checkIdle, 30000);
 });
 /* ============================================================
    Konfiguracja
    ============================================================ */
-const DEFAULTS = {
-  threshold: 3,           // min — od tylu minut autobus jest „spóźniony” (czerwony)
-  refresh: 20,            // s
-  rtUrls: [
-    'https://kmrzeszow.live/gtfs/rt/gtfsrt.pb',
-    'https://www.mpkrzeszow.pl/gtfs/rt/gtfsrt.pb'
-  ],
-  staticUrls: [
-    'https://mkuran.pl/gtfs/rzeszow.zip',
-    'https://cdn.zbiorkom.live/gtfs/rzeszow.zip'
-  ],
-  proxy: 'auto',
-  proxyCustom: '',
-  demo: false,
-  tiles: 'esri',
-  gkey: '',
-  traffic: true,
-  // PKS Rzeszów (ZGPKS) — linie podmiejskie. Dokładne adresy z kmrzeszow.live/otwartedane można wkleić w Ustawieniach.
-  pks: true,
-  pksRtUrls: [
-    'https://kmrzeszow.live/gtfs-pks/rt/gtfsrt.pb',
-    'https://www.mpkrzeszow.pl/gtfs-pks/rt/gtfsrt.pb'
-  ],
-  pksStaticUrls: [
-    'https://kmrzeszow.live/gtfs-pks/latest.zip',
-    'https://www.mpkrzeszow.pl/gtfs-pks/latest.zip'
-  ],
-  // Pociągi — Otwarte Dane Kolejowe PKP PLK, klucz trzyma serwer
-  trains: true,
-  // Pogoda — Open-Meteo (bez klucza)
-  weather: true
-};
+const DEFAULTS = window.VOYAGE_DEFAULTS; // assets/app.defaults.js
 const TZ = 'Europe/Warsaw';
 const RZ_CENTER = [50.0378, 22.0049];
 
 const OLD_PLK_KEY='rzbus.plk.old';
 function store(k, v){ try{ if(v===undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); }catch(e){ return null; } }
-// Jednorazowo: stare ustawienia źródeł i pamięć rozkładu potrafiły blokować wczytanie linii. Adresy PKS i klucze zostają.
-if(store('rzbus.sourcesV')!==2){
-  const saved=store('rzbus.cfg');
-  if(saved){ delete saved.proxy; delete saved.proxyCustom; delete saved.staticUrls; store('rzbus.cfg', saved); }
-  try{ indexedDB.deleteDatabase('rzbus'); }catch(e){}
-  store('rzbus.sourcesV', 2);
+// Ustawienia ustala administrator dla wszystkich (/admin, GET /api/settings). Kopia z ostatniej wizyty pozwala wystartować
+// od razu i bez internetu; dawne ustawienia z tej przeglądarki już nie obowiązują.
+const SHARED_KEY='voyage.shared';
+// Klucz PKP PLK z dawnych ustawień czeka osobno, aż administrator zapisze go na serwerze (panel /admin).
+{ const saved=store('rzbus.cfg'); if(saved?.plkKey) store(OLD_PLK_KEY, saved.plkKey); try{ localStorage.removeItem('rzbus.cfg'); }catch(e){} }
+function settingsFrom(shared){
+  const cfg=Object.assign({}, DEFAULTS, shared||{});
+  if(cfg.proxy!=='custom') cfg.proxy='auto';
+  if(!TILE_KEYS_OK(cfg.tiles)) cfg.tiles='esri';
+  return cfg;
 }
-// Klucz z dawnych ustawień czeka osobno, aż administrator zapisze go na serwerze.
-{ const saved=store('rzbus.cfg'); if(saved?.plkKey){ store(OLD_PLK_KEY, saved.plkKey); delete saved.plkKey; store('rzbus.cfg', saved); } }
-// Zapisane ustawienia pamiętają dawne, nieistniejące adresy PKS i zasłaniałyby nowe domyślne.
-{ const saved=store('rzbus.cfg'), old=url=>/\/gtfs\/(rt\/pks|pks)/.test(url);
-  if(saved?.pksRtUrls?.some(old) || saved?.pksStaticUrls?.some(old)){ delete saved.pksRtUrls; delete saved.pksStaticUrls; store('rzbus.cfg', saved); } }
-let CFG = Object.assign({}, DEFAULTS, store('rzbus.cfg') || {});
-if(CFG.proxy!=='custom') CFG.proxy='auto';
-if(!TILE_KEYS_OK(CFG.tiles)) CFG.tiles='esri';
+let CFG = settingsFrom(store(SHARED_KEY));
 function TILE_KEYS_OK(k){ return ['esri','osm','hot','sat','carto','google'].includes(k); }
 
 /* ============================================================
@@ -851,7 +830,7 @@ function setTiles(){
   for(const t of tileLayers) map.removeLayer(t); tileLayers=[];
   document.getElementById('trafficLegend').classList.toggle('d-none', !(CFG.tiles==='google' && CFG.gkey && CFG.traffic));
   if(CFG.tiles==='google'){
-    if(!CFG.gkey){ showTileNote('Aby użyć Google Maps z natężeniem ruchu, wpisz klucz API Google w Ustawieniach.'); CFG.tiles='esri'; setTiles(); CFG.tiles='google'; return; }
+    if(!CFG.gkey){ showTileNote('Google Maps z natężeniem ruchu wymaga klucza API, który administrator wpisuje w panelu administratora.'); CFG.tiles='esri'; setTiles(); CFG.tiles='google'; return; }
     document.getElementById('map').classList.remove('dim-tiles');
     ensureGoogle(CFG.gkey).then(()=>{
       if(my!==tilesToken) return;
@@ -1249,58 +1228,35 @@ document.getElementById('alertsBtn').addEventListener('click', ()=>{
   loadDataStatus();
   alertsModal.show();
 });
-const settingsModal=new bootstrap.Modal(document.getElementById('settingsModal'));
-function fillSettings(){
-  sThr.value=CFG.threshold; sThrLbl.textContent=CFG.threshold; sRefresh.value=CFG.refresh; sRefreshLbl.textContent=CFG.refresh;
-  sRt.value=CFG.rtUrls.join('\n'); sStatic.value=CFG.staticUrls.join('\n'); sProxy.value=CFG.proxy; sProxyCustom.value=CFG.proxyCustom; sDemo.checked=CFG.demo; sTiles.value=CFG.tiles; sGkey.value=CFG.gkey||''; sTraffic.checked=CFG.traffic!==false; gBox.style.display = CFG.tiles==='google'?'':'none';
-  sPks.checked=CFG.pks!==false; sPksRt.value=(CFG.pksRtUrls||[]).join('\n'); sPksStatic.value=(CFG.pksStaticUrls||[]).join('\n'); sTrains.checked=CFG.trains!==false; loadPlkStatus(); sWeather.checked=CFG.weather!==false;
-  sProxyCustom.style.display = CFG.proxy==='custom'?'':'none';
-}
-const [sThr,sThrLbl,sRefresh,sRefreshLbl,sRt,sStatic,sProxy,sProxyCustom,sDemo,sTiles,sGkey,sTraffic,gBox] = ['sThr','sThrLbl','sRefresh','sRefreshLbl','sRt','sStatic','sProxy','sProxyCustom','sDemo','sTiles','sGkey','sTraffic','gBox'].map(id=>document.getElementById(id));
-const [sPks,sPksRt,sPksStatic,sTrains,sPlk,sWeather]=['sPks','sPksRt','sPksStatic','sTrains','sPlk','sWeather'].map(id=>document.getElementById(id));
-sThr.addEventListener('input',()=>sThrLbl.textContent=sThr.value);
-sRefresh.addEventListener('input',()=>sRefreshLbl.textContent=sRefresh.value);
-sTiles.addEventListener('change',()=>gBox.style.display = sTiles.value==='google'?'':'none');
-sProxy.addEventListener('change',()=>sProxyCustom.style.display = sProxy.value==='custom'?'':'none');
-document.getElementById('settingsBtn').addEventListener('click', ()=>{ fillSettings(); settingsModal.show(); });
-// Pole widzi tylko administrator; zapisanego klucza serwer nigdy nie odsyła.
-async function loadPlkStatus(){
-  const panel=document.getElementById('plkAdmin'), note=document.getElementById('sPlkNote');
-  panel.hidden=true; note.textContent='';
-  try{
-    const r=await fetch('/api/settings/plk-key'); if(!r.ok) return;
-    const {configured,updatedAt}=await r.json();
-    sPlk.value=store(OLD_PLK_KEY)||''; panel.hidden=false;
-    note.textContent=configured?`Klucz zapisany na serwerze (${fmtDay(updatedAt.slice(0,10))}). Wklej nowy, aby go zastąpić.`:'Klucza nie ma jeszcze na serwerze.';
-  }catch(e){ console.warn('Klucz PKP PLK', e); }
-}
-document.getElementById('sPlkSave').addEventListener('click', async e=>{
-  const note=document.getElementById('sPlkNote'), key=sPlk.value.trim();
-  if(!key){ note.textContent='Wklej klucz API PKP PLK.'; return; }
-  e.currentTarget.disabled=true; note.textContent='Sprawdzam klucz w PKP PLK…';
-  try{
-    const r=await fetch('/api/settings/plk-key',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({key})});
-    if(!r.ok){ note.textContent=(await r.json()).error; return; }
-    localStorage.removeItem(OLD_PLK_KEY); sPlk.value=''; note.textContent='Zapisano. Klucz działa teraz dla wszystkich użytkowników.';
-    trainsBoot();
-  }catch(err){ console.warn('Klucz PKP PLK', err); note.textContent='Nie udało się zapisać klucza. Spróbuj ponownie.'; }
-  finally{ document.getElementById('sPlkSave').disabled=false; }
-});
-document.getElementById('resetSettings').addEventListener('click', ()=>{ CFG=Object.assign({},DEFAULTS); fillSettings(); });
-document.getElementById('settingsForm').addEventListener('submit', e=>{
-  e.preventDefault();
-  const lines = t => t.split(/\s*\n\s*/).map(s=>s.trim()).filter(Boolean);
-  const reloadData = lines(sRt.value).join()!==CFG.rtUrls.join() || lines(sStatic.value).join()!==CFG.staticUrls.join() || sProxy.value!==CFG.proxy || sProxyCustom.value!==CFG.proxyCustom || sDemo.checked!==CFG.demo || sPks.checked!==(CFG.pks!==false) || lines(sPksRt.value).join()!==(CFG.pksRtUrls||[]).join() || lines(sPksStatic.value).join()!==(CFG.pksStaticUrls||[]).join();
-  const trainsChanged = sTrains.checked!==(CFG.trains!==false);
-  const weatherChanged = sWeather.checked!==(CFG.weather!==false);
-  CFG = {threshold:+sThr.value, refresh:+sRefresh.value, rtUrls:lines(sRt.value), staticUrls:lines(sStatic.value), proxy:sProxy.value, proxyCustom:sProxyCustom.value.trim(), demo:sDemo.checked, tiles:sTiles.value, gkey:sGkey.value.trim(), traffic:sTraffic.checked, pks:sPks.checked, pksRtUrls:lines(sPksRt.value), pksStaticUrls:lines(sPksStatic.value), trains:sTrains.checked, weather:sWeather.checked};
-  if(gmLoadedKey && CFG.gkey!==gmLoadedKey){ store('rzbus.cfg', CFG); location.reload(); return; }
-  store('rzbus.cfg', CFG); settingsModal.hide(); setTiles();
+/* ---------- Wspólne ustawienia (ustala administrator na /admin, obowiązują wszystkich) ---------- */
+const sameList=(a,b)=>(a||[]).join('|')===(b||[]).join('|');
+function applySettings(next){
+  const prev=CFG;
+  const reloadData = !sameList(next.rtUrls,prev.rtUrls) || !sameList(next.staticUrls,prev.staticUrls) || next.proxy!==prev.proxy || next.proxyCustom!==prev.proxyCustom || next.demo!==prev.demo
+    || (next.pks!==false)!==(prev.pks!==false) || !sameList(next.pksRtUrls,prev.pksRtUrls) || !sameList(next.pksStaticUrls,prev.pksStaticUrls);
+  const trainsChanged=(next.trains!==false)!==(prev.trains!==false), weatherChanged=(next.weather!==false)!==(prev.weather!==false);
+  CFG=next;
+  if(gmLoadedKey && CFG.gkey!==gmLoadedKey){ location.reload(); return; } // Google Maps wczytuje klucz tylko raz
+  setTiles();
   document.querySelectorAll('.thrLbl').forEach(x=>x.textContent=CFG.threshold);
   if(reloadData) boot(); else { restartTimer(); renderAll(); }
   if(trainsChanged && typeof trainsBoot==='function') trainsBoot();
   if(weatherChanged && typeof weatherBoot==='function') weatherBoot();
-});
+}
+let settingsAsked=0;
+async function syncSharedSettings(){
+  if(Date.now()-settingsAsked<60000) return; settingsAsked=Date.now();
+  let shared;
+  try{ const r=await fetch('/api/settings'); if(!r.ok) return; shared=(await r.json()).settings||{}; }
+  catch(e){ return; } // bez internetu zostaje kopia z ostatniej wizyty
+  if(JSON.stringify(shared)===JSON.stringify(store(SHARED_KEY)||{})) return;
+  store(SHARED_KEY, shared);
+  try{ applySettings(settingsFrom(shared)); }catch(e){ console.warn('Wspólne ustawienia', e); location.reload(); }
+}
+// Zmiana administratora dociera do otwartych kart: co 5 minut i po powrocie do karty.
+setTimeout(syncSharedSettings, 0);
+setInterval(syncSharedSettings, 5*60000);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') syncSharedSettings(); });
 
 /* ============================================================
    Filtry, motyw, przyciski mapy
@@ -1360,6 +1316,9 @@ function setView(view, push, sub='', kind=FAVF.kind){
   S.agency=view; S.query=''; S.plan=null; S.placeChoice={}; planReq++; planBusy();
   document.body.dataset.view=view; map.invalidateSize();
   document.getElementById('heroLead').textContent=V.lead;
+  // Na stronie podróży „Skąd?” to zawsze adres (ulica z numerem albo miasto), bez przystanków i miejsc z mapy.
+  plFrom.placeholder=view==='podroz'?'Adres lub miasto':'Adres, przystanek, stacja lub miasto';
+  document.getElementById('plGeo').title=view==='podroz'?'Mój adres':'Najbliższy przystanek';
   document.getElementById('mapTitle').textContent=V.map||'Mapa na żywo';
   if(V.plan) document.getElementById('planTitle').textContent=V.plan;
   const search=document.getElementById('lineSearch'); search.value=''; search.placeholder=V.search;
@@ -1543,7 +1502,7 @@ function transitHead(agency, sub, city, tx){
     :[`Podmiejskie: ${city}`,'Połączenia do pobliskich miejscowości i okolic.'];
   const modes=tx?txModes(tx):L2('autobusy','buses');
   return sub==='rozklad'?[`Rozkład jazdy: ${city}`, tx?'Najbliższe odjazdy z wybranego przystanku, z opóźnieniami na żywo.':'Sprawdź rozkład według przystanku i linii.']
-    :sub==='linie'?[`Linie: ${city}`, tx?'Linie, które teraz kursują w mieście. Wybierz linię, by zobaczyć jej pojazdy na mapie.':'Wszystkie linie i ich pojazdy na mapie.']
+    :sub==='linie'?[`Linie: ${city}`, tx?'Wszystkie linie w mieście i ich pojazdy w trasie. Wybierz linię, by zobaczyć ją na mapie.':'Wszystkie linie i ich pojazdy na mapie.']
     :[`Komunikacja: ${city}`, `${modes[0].toUpperCase()+modes.slice(1)} — połączenia po mieście, rozkłady i pojazdy na mapie.`];
 }
 function setSubpage(sub){
@@ -1748,7 +1707,7 @@ function multiLegBar(P, kind){
   const next=addDays(leg.arrDay||leg.day, Math.round((M.stays[k]||0)/1440)), keep=M.dates[k+1]&&M.dates[k+1]>=(leg.arrDay||leg.day)?M.dates[k+1]:next;
   return `<div class="cs-save multi-next"><div class="cs-choice"><i class="fa-solid fa-route" aria-hidden="true"></i> Etap ${k+1} z ${n}: <b>${esc(P.from)} → ${esc(P.to)}</b> · ${esc(leg.title)}${leg.cost!=null?` · ok. ${zl(leg.cost)}`:''}</div>
     ${last?'':`<label class="multi-date"><span>Następny etap: <b>${esc(M.places[k+1])} → ${esc(M.places[k+2])}</b> — dzień wyjazdu${M.stays[k]?` <small>(postój ${fmtStay(M.stays[k])})</small>`:''}</span><input type="date" class="dp-input" readonly data-multi-date value="${keep}" min="${leg.arrDay||leg.day}" max="${lastPlanDay()}"></label>`}
-    <div class="cs-save-btns"><button type="button" class="btn-grad" data-multi-next="${kind}">${last?'Dalej: zapisz całą podróż':`Dalej: etap ${k+2} — ${esc(M.places[k+1])} → ${esc(M.places[k+2])}`} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div></div>`;
+    <div class="cs-save-btns"><button type="button" class="btn-grad btn-next" data-multi-next="${kind}">${last?'Dalej: zapisz całą podróż':`Dalej: etap ${k+2} — ${esc(M.places[k+1])} → ${esc(M.places[k+2])}`} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div></div>`;
 }
 function renderMultiBar(){
   const el=document.getElementById('multiBar'), M=S.multi;
@@ -1797,10 +1756,11 @@ function saveMultiTrip(status, title){
     trip:{multi:true, legs, home, dest, stops, people, weather, savedAt:new Date().toISOString(), ...stayForTrip('multi',M,{},before)}};
   FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && (x.id===id || (before && x.tid===before.tid)))), item].slice(-50);
   M.savedOk=null; M.saved=item.tid;
-  saveFavorites().then(ok=>{ if(ok!==false && M.saved===item.tid){ M.savedOk=item.tid; if(M.cur==='save') document.getElementById('planResults').innerHTML=multiSaveView(); } }).catch(e=>console.warn('Nie zapisano podróży', e));
+  saveFavorites().then(ok=>{ if(ok!==false && M.saved===item.tid){ M.savedOk=item.tid; if(S.multi===M && M.cur==='save') document.getElementById('planResults').innerHTML=multiSaveView(); } }).catch(e=>console.warn('Nie zapisano podróży', e));
   renderFavorites(); syncStars(); navCounts(); S.editing=null; renderEditBadge();
   document.getElementById('planResults').innerHTML=multiSaveView();
   toast(status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano plan w ulubionych.');
+  finishSaved(item.tid);
 }
 document.getElementById('multiBar')?.addEventListener('click', e=>{
   const M=S.multi; if(!M) return;
@@ -1843,6 +1803,11 @@ function resetPlanner(){
   syncReturn(); planBusy();
 }
 document.getElementById('plReset').addEventListener('click', ()=>{ resetPlanner(); plFrom.focus(); });
+// Zapis („Zapisz moją podróż” albo „Zapisz w ulubionych”) kończy planowanie: czyści planer i otwiera zapisaną podróż.
+function finishSaved(tid){
+  resetPlanner(); document.body.classList.remove('multi-form'); syncReturn();
+  openTrip(tid); window.scrollTo({top:0, behavior:'smooth'});
+}
 document.addEventListener('click', e=>{
   if(!e.target.closest('[data-plan-finish]')) return;
   e.preventDefault(); goPage('podroz'); resetPlanner(); document.body.classList.remove('multi-form'); syncReturn();
@@ -2392,11 +2357,11 @@ function groundNext(P){
   const J=S.plan, st=J?.stages||[P];
   if(st.length>1){
     const picked=st.filter(x=>x.groundPick).length, all=picked===st.length;
-    return `<div class="ground-next ${all?'ready':''}"><span>${all?'<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano połączenia na wszystkich etapach.':`<i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie na każdym etapie (${picked} z ${st.length}): ${st.map((x,k)=>`<b class="${x.groundPick?'ok':''}">${k+1}. ${esc(x.to)}</b>`).join(' · ')}`}</span>${all?`<button type="button" class="btn-grad" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
+    return `<div class="ground-next ${all?'ready':''}"><span>${all?'<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano połączenia na wszystkich etapach.':`<i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie na każdym etapie (${picked} z ${st.length}): ${st.map((x,k)=>`<b class="${x.groundPick?'ok':''}">${k+1}. ${esc(x.to)}</b>`).join(' · ')}`}</span>${all?`<button type="button" class="btn-grad btn-next" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
   }
   const g=P.groundPick, b=P.groundBack;
   if(!g) return '';
-  return `<div class="ground-next ready"><span><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano: <b>${esc(g.title)}</b> · ${esc(groundWhen(g))}${b?` · powrót: <b>${esc(b.title)}</b> ${esc(groundWhen(b))}`:P.round?' · powrót możesz wybrać poniżej':''}</span><button type="button" class="btn-grad" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>`;
+  return `<div class="ground-next ready"><span><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano: <b>${esc(g.title)}</b> · ${esc(groundWhen(g))}${b?` · powrót: <b>${esc(b.title)}</b> ${esc(groundWhen(b))}`:P.round?' · powrót możesz wybrać poniżej':''}</span><button type="button" class="btn-grad btn-next" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>`;
 }
 function groundLegCard(g, label){
   return `<div class="journey-box ground-leg"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-${esc(g.icon)}" aria-hidden="true"></i> ${label}: ${esc(g.title)}</h4></div>
@@ -2446,6 +2411,7 @@ function saveGroundTrip(J, status, title){
   P0.saved=item.tid; renderFavorites(); syncStars(); runPlan(false); navCounts();
   S.editing=null; renderEditBadge();
   toast(status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano plan w ulubionych.');
+  finishSaved(item.tid);
 }
 // Trasa z miejscami pośrednimi: „Rzeszów → Szczecin → Gdańsk → Wrocław”.
 const routeText=f=>[f.from, ...(f.stops||[]), f.to].join(' → ');
@@ -3235,7 +3201,7 @@ function flightCost(P, C){
   return `<div class="fl-cost"><small>Koszt lotów${n>1?' na osobę':''}</small><span>${parts.map(p=>`${p.label} <b>${p.value!=null?eurPln(p.value):'—'}</b>`).join(' + ')}${parts.length>1&&sum!=null?` = <b>${eurPln(sum)}</b>`:''}</span>${n>1&&sum!=null?`<small>za ${peopleText(n)}: <b>${sum*n} zł</b></small>`:''}</div>`;
 }
 function stepNav(back, next, label, middle=''){
-  return `<div class="fl-nav">${back?`<button type="button" class="btn-ghost" data-flight-step="${back}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Wstecz</button>`:'<span></span>'}${middle}${next?`<button type="button" class="btn-grad" data-flight-step="${next}">${label} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
+  return `<div class="fl-nav">${back?`<button type="button" class="btn-ghost" data-flight-step="${back}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Wstecz</button>`:'<span></span>'}${middle}${next?`<button type="button" class="btn-grad btn-next" data-flight-step="${next}">${label} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
 }
 // Zapisany plan: gdy jego lot jest na liście, od razu pokazujemy krok „Plan podróży” z tymi samymi wyborami.
 function applyRestore(P){
@@ -3607,6 +3573,7 @@ function cityPanel(){
   if(CITY.el) return CITY.el;
   const el=document.createElement('section'); el.className='city-panel';
   el.innerHTML=`<div class="cp-head"><h4><i class="fa-solid fa-train-subway" aria-hidden="true"></i> <span class="cp-title">Komunikacja w mieście</span></h4>
+      <button type="button" class="cp-map-toggle" data-cp-map aria-expanded="true"><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> <span>Ukryj mapę</span></button>
       <label class="cp-live"><input type="checkbox" checked data-cp-live> Pojazdy na mapie</label><span class="cp-status" aria-live="polite"></span></div>
     <div class="cp-body">
       <div class="cp-map-wrap"><div class="cp-map"></div><div class="cp-legend">${[['metro','Metro'],['rail','Kolej'],['tram','Tramwaj'],['bus','Autobus'],['ferry','Prom']].map(([k,l])=>`<span><b class="cp-veh-l" style="background:${VCOLORS[k]}"><i class="fa-solid fa-${XMODE[k][0]}" aria-hidden="true"></i></b>${l}</span>`).join('')}<span><b class="cp-veh-l live" style="background:#888"><i class="fa-solid fa-bus" aria-hidden="true"></i></b>na żywo</span></div></div>
@@ -3630,7 +3597,8 @@ function cityPanel(){
   // Podpowiedzi adresów w tym mieście (z tolerancją literówek); wybrana podpowiedź to od razu punkt na mapie.
   for(const which of ['from','to']){ const input=el.querySelector('.cp-form').elements[which]; attachSuggest(input, {streets:true, local:()=>[], near:()=>{ const c=CITY.want?.centre; return c?.lat!=null?[c.lat,c.lon]:null; }, onPick:it=>{ if(it.point){ CITY.ends[which]={at:it.point, label:it.label}; drawEnds(); } }}); }
   el.addEventListener('click', e=>{
-    const pk=e.target.closest('[data-cp-pick]'); if(pk){ CITY.pick=pk.dataset.cpPick; el.classList.add('picking'); setCityStatus(`Kliknij na mapie miejsce „${CITY.pick==='from'?'Skąd':'Dokąd'}”.`); return; }
+    if(e.target.closest('[data-cp-map]')){ setCityMap(el.classList.contains('map-hidden')); return; }
+    const pk=e.target.closest('[data-cp-pick]'); if(pk){ setCityMap(true); CITY.pick=pk.dataset.cpPick; el.classList.add('picking'); setCityStatus(`Kliknij na mapie miejsce „${CITY.pick==='from'?'Skąd':'Dokąd'}”.`); return; }
     if(e.target.closest('[data-cp-swap]')){ const f=el.querySelector('.cp-form'), a=f.from.value; f.from.value=f.to.value; f.to.value=a; [CITY.ends.from,CITY.ends.to]=[CITY.ends.to,CITY.ends.from]; drawEnds(); return; }
     const sv=e.target.closest('[data-cp-save]'); if(sv){ saveLocalTrip(+sv.dataset.cpSave); return; }
     if(e.target.closest('[data-cp-save-walk]')){ saveLocalTrip('walk'); return; }
@@ -3638,6 +3606,18 @@ function cityPanel(){
   });
   return el;
 }
+// Na stronach komunikacji miejskiej mapa jest domyślnie schowana (planer i wyniki są ważniejsze); otwiera ją przycisk
+// „Pokaż mapę”, wskazanie punktu na mapie albo wybór linii. W planie podróży mapa jest widoczna jak wcześniej.
+function setCityMap(on){
+  const el=CITY.el; if(!el) return;
+  el.classList.toggle('map-hidden', !on);
+  if(CTX.on && el.closest('#cityTxPage')) CITY.txMapOpen=on;
+  const b=el.querySelector('[data-cp-map]'); b.setAttribute('aria-expanded', String(on));
+  b.querySelector('span').textContent=on?'Ukryj mapę':'Pokaż mapę';
+  if(!on){ setCityStatus(''); return; }
+  setTimeout(()=>{ if(!CITY.map) return; CITY.map.invalidateSize(); if(CITY.route) CITY.map.fitBounds(CITY.route.getBounds(),{padding:[30,30], maxZoom:16}); loadVehicles(true); },0);
+}
+const cityMapShown=()=>!!CITY.map && !CITY.el?.classList.contains('map-hidden');
 function setCityStatus(text){ const s=CITY.el?.querySelector('.cp-status'); if(s) s.textContent=text; }
 function localNow(zone){ try{ return new Date().toLocaleString('sv-SE',{timeZone:zone}).slice(0,16).replace(' ','T'); }catch{ return ''; } }
 // Po każdym odświeżeniu planu panel trafia z powrotem do kroku 4; poza nim mapa przestaje pytać o pojazdy.
@@ -3663,6 +3643,7 @@ function mountCity(slot=document.querySelector('.city-slot')){
     if(w.airport) setEnd('from',[w.airport.lat,w.airport.lon],`Lotnisko ${w.code}`,true);
     else if(w.home) setEnd('from',[w.home.lat,w.home.lon],w.home.label,true);
   } else if(!CITY.code) CITY.map.setView([w.centre?.lat||RZ_CENTER[0], w.centre?.lon||RZ_CENTER[1]],13);
+  setCityMap(slot.closest('#cityTxPage') ? !!CITY.txMapOpen : true);
   setTimeout(()=>CITY.map.invalidateSize(),0);
   startVehicles();
 }
@@ -3681,7 +3662,7 @@ function drawShape(shape, fit=true){
   for(const s of shape){ const walk=s.kind==='walk';
     L.polyline(s.points,{color:'#fff', weight:walk?5:9, opacity:.9}).addTo(g);
     L.polyline(s.points,{color:walk?'#555':(s.color||VCOLORS[s.kind]||'#333'), weight:walk?3:6, dashArray:walk?'4 7':null, opacity:1}).addTo(g); }
-  CITY.route=g.addTo(CITY.map); if(fit) CITY.map.fitBounds(g.getBounds(),{padding:[30,30], maxZoom:16});
+  CITY.route=g.addTo(CITY.map); if(fit && cityMapShown()) CITY.map.fitBounds(g.getBounds(),{padding:[30,30], maxZoom:16});
 }
 async function placeOf(which){
   const f=CITY.el.querySelector('.cp-form'), text=f[which].value.trim(), known=CITY.ends[which];
@@ -3735,7 +3716,7 @@ function startVehicles(){ if(!CITY.timer){ CITY.timer=setInterval(()=>loadVehicl
 function stopVehicles(){ clearInterval(CITY.timer); clearInterval(CITY.anim); CITY.timer=CITY.anim=null; }
 function clearVehicles(){ CITY.vLayer?.clearLayers(); CITY.vehicles=[]; setCityStatus(''); }
 async function loadVehicles(force){
-  if(!CITY.map || !CITY.live || !CITY.el?.isConnected || !CITY.el.offsetParent || document.hidden || CITY.fetching) return;
+  if(!CITY.map || !CITY.live || !CITY.el?.isConnected || !CITY.map.getContainer().offsetParent || document.hidden || CITY.fetching) return;
   const z=CITY.map.getZoom(), b=CITY.map.getBounds();
   if(z<12){ clearVehicles(); setCityStatus('Przybliż mapę, by zobaczyć pojazdy.'); return; }
   const q={min:`${b.getSouth().toFixed(4)},${b.getWest().toFixed(4)}`, max:`${b.getNorth().toFixed(4)},${b.getEast().toFixed(4)}`, zoom:Math.round(z)};
@@ -3810,7 +3791,7 @@ function syncCityTx(){
   }
   if(S.sub==='linie'){
     page.innerHTML=`<section class="ctx">${head}<div id="ctxLines" class="ctx-lines"></div>
-      <small class="cp-src">${L2('Linie, które kursują w ciągu najbliższej godziny w obrębie miasta (Transitous, otwarte dane GTFS). Liczba to pojazdy w trasie.','Lines running within the next hour in the city (Transitous, open GTFS data). The number is vehicles on the way.')}</small></section>`;
+      <small class="cp-src">${L2('Linie miasta zebrane z otwartych rozkładów GTFS (Transitous) i zapisane w bazie; odświeżane kilka razy dziennie. Liczba to pojazdy w trasie w najbliższych 30 minutach.','City lines collected from open GTFS timetables (Transitous) and stored in the database; refreshed several times a day. The number is vehicles on the way in the next 30 minutes.')}</small></section>`;
     renderCtxLines(); loadCtxLines();
     return;
   }
@@ -3869,7 +3850,7 @@ document.getElementById('cityTxPage')?.addEventListener('click', e=>{
   if(b){ const st=CTX.stops.find(x=>x.id===b.dataset.ctxStop); if(!st) return; CTX.stop=st; store('onward.citystop.'+CTX.city, st); renderCtxStops(); loadCtxBoard(); return; }
   if(e.target.closest('[data-ctx-refresh]')) loadCtxBoard();
   const ln=e.target.closest('[data-ctx-line]');
-  if(ln){ CITY.lineFilter=ln.dataset.ctxLine; CITY.lastBox=''; goPage('ztm',''); return; }
+  if(ln){ CITY.lineFilter=ln.dataset.ctxLine; CITY.lastBox=''; CITY.txMapOpen=true; goPage('ztm',''); return; }
   if(e.target.closest('[data-ctx-unfilter]')){ CITY.lineFilter=''; CITY.lastBox=''; renderCtxFilter(); loadVehicles(true); }
 });
 document.getElementById('cityTxPage')?.addEventListener('change', e=>{
@@ -3893,16 +3874,20 @@ async function loadCtxLines(){
   const d=await fetch('/api/transit/lines?'+new URLSearchParams({city})).then(r=>r.json()).catch(()=>null);
   if(CTX.city!==city) return;
   if(!d || d.error){ CTX.linesErr=d?.error||L2('Lista linii jest chwilowo niedostępna.','The line list is unavailable right now.'); renderCtxLines(); return; }
-  CTX.lines={city, at:Date.now(), list:d.lines||[]}; CTX.linesErr=''; renderCtxLines();
+  CTX.lines={city, at:Date.now(), list:d.lines||[], running:d.running!==false}; CTX.linesErr=''; renderCtxLines();
+  // Zapisana lista bez świeżych pojazdów: serwer właśnie ją odświeża, więc pytamy jeszcze raz za chwilę.
+  if(d.running===false && !CTX.linesRetry){ CTX.linesRetry=setTimeout(()=>{ CTX.linesRetry=null; if(CTX.city===city && CTX.sub==='linie'){ CTX.lines.at=0; loadCtxLines(); } }, 20000); }
 }
 function renderCtxLines(){
   const el=document.getElementById('ctxLines'); if(!el) return;
   if(CTX.linesErr && !CTX.lines){ el.innerHTML=`<div class="empty-note">${esc(CTX.linesErr)}</div>`; return; }
   if(!CTX.lines || CTX.lines.city!==CTX.city){ el.innerHTML=searching(L2('Wczytuję linie…','Loading lines…')); return; }
-  const list=CTX.lines.list; if(!list.length){ el.innerHTML=`<div class="empty-note">${L2('Teraz nie kursuje żadna linia (np. w nocy).','No line is running right now (e.g. at night).')}</div>`; return; }
+  const list=CTX.lines.list, running=CTX.lines.running; if(!list.length){ el.innerHTML=`<div class="empty-note">${L2('Teraz nie kursuje żadna linia (np. w nocy).','No line is running right now (e.g. at night).')}</div>`; return; }
+  // Lista linii miasta jest zapisana w bazie; liczba pojazdów pochodzi z ostatniego sprawdzenia (gdy jest świeże).
+  const note=l=>!running?'':l.vehicles?`${l.vehicles} ${L2('w trasie','on the way')}${l.late?` · <span class="txt-red">${l.late} ${L2('spóźn.','late')}</span>`:''}`:L2('teraz nie kursuje','not running now');
   const KIND=[['metro','Metro','Metro'],['tram','Tramwaje','Trams'],['rail','Kolej miejska','City rail'],['bus','Autobusy','Buses'],['ferry','Promy','Ferries']];
   el.innerHTML=KIND.map(([k,pl,en])=>{ const ls=list.filter(l=>(KIND.some(x=>x[0]===l.kind)?l.kind:'bus')===k); if(!ls.length) return '';
-    return `<div><h4>${L2(pl,en)} · ${ls.length}</h4><div class="lg">${ls.map(l=>`<button type="button" class="ctx-line" data-ctx-line="${esc(l.line)}" title="${esc(L2('Pokaż pojazdy tej linii na mapie','Show this line’s vehicles on the map'))}">${lineChip(l)}<small>${l.vehicles} ${L2('w trasie','on the way')}${l.late?` · <span class="txt-red">${l.late} ${L2('spóźn.','late')}</span>`:''}</small></button>`).join('')}</div></div>`; }).join('');
+    return `<div><h4>${L2(pl,en)} · ${ls.length}</h4><div class="lg">${ls.map(l=>`<button type="button" class="ctx-line${running&&!l.vehicles?' idle':''}" data-ctx-line="${esc(l.line)}" title="${esc(L2('Pokaż pojazdy tej linii na mapie','Show this line’s vehicles on the map'))}">${lineChip(l)}${note(l)?`<small>${note(l)}</small>`:''}</button>`).join('')}</div></div>`; }).join('');
 }
 
 function stageTime(P){
@@ -3926,7 +3911,7 @@ function renderStage(P, R, paged){
   if(!sections.length) sections.push(`<div class="empty-note">${stateIll(assetPaths.noResults)}${P.by?`Wybranymi środkami nie dojedziesz na ${fmtClock(P.by)}. Zmień godzinę albo zaznacz więcej środków transportu.`:'Brak połączeń wybranymi środkami transportu. Zaznacz więcej opcji.'}</div>`);
   if(flightsNeeded && (P.flightStep||1)>=2 && !(groundWizard(P)&&P.groundPick)){ const only=sections.filter(x=>x.includes('data-sec="plane"')); sections.length=0; sections.push(...only); }
   if(P.round && !flightsNeeded) sections.push(tripSection(`Powrót ${fmtDay(P.round.back)} od ${fmtClock(backAt)}`, (back.length||railBack.length?back.map(o=>transitCard(o,P,P.dest,home)).join('')+railBack.map(r=>trainCard(r,P,P.dest,home)).join(''):modes.includes('car')?'':'<div class="empty-note">Brak połączeń komunikacją w dniu powrotu. Wróć tą samą trasą.</div>')+backPager(P,back,railBack)+(modes.includes('car')?carCard(P,'back'):''), 'rotate-left'));
-  return `<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span>${favButton({type:'route',view:'podroz',from:P.from,to:P.to},'Zapisz trasę')}<span class="text-soft">${P.km==null?'':'<span>w linii prostej '+fmtKm(P.km)+'</span> · '}<span>${stageTime(P)}</span>${P.round?` · powrót od ${fmtDay(P.round.back)}`:''}</span></div>`+(groundWizard(P)&&P.single?groundStepBar(P):'')+`<div class="stage-top">${tripWeather(P)}${best?`<div class="trip-best">${esc(bestText(best,P,R))}</div>`:''}${stageEstimate(P,R)}</div>`+sections.join('')+(groundWizard(P)&&P.single?groundNext(P):'');
+  return `<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span><span class="text-soft">${P.km==null?'':'<span>w linii prostej '+fmtKm(P.km)+'</span> · '}<span>${stageTime(P)}</span>${P.round?` · powrót od ${fmtDay(P.round.back)}`:''}</span></div>`+(groundWizard(P)&&P.single?groundStepBar(P):'')+`<div class="stage-top">${tripWeather(P)}${best?`<div class="trip-best">${esc(bestText(best,P,R))}</div>`:''}${stageEstimate(P,R)}</div>`+sections.join('')+(groundWizard(P)&&P.single?groundNext(P):'');
 }
 // Ile pociągów zatrzymuje się na stacji (z rozkładu całego kraju) — żeby wybierać dworce, z których coś jeździ.
 function railStopCounts(){
@@ -4994,6 +4979,7 @@ function saveMyTrip(P, status, title){
   P.saved=item.tid; renderFavorites(); syncStars(); runPlan(false); navCounts();
   S.editing=null; renderEditBadge();
   toast(status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano plan w ulubionych.');
+  finishSaved(item.tid);
 }
 // Moje podróże: oś czasu jak w ulubionych, bez cen do sprawdzania (bilety są już kupione).
 document.getElementById('myTripsPage')?.addEventListener('click', e=>{
@@ -6332,7 +6318,9 @@ function setBusy(input, on){
   if(on && !spin){ spin=document.createElement('span'); spin.className='mini-spin pl-spin'; spin.setAttribute('role','status'); spin.setAttribute('aria-label','Szukam adresu…'); spin.title='Szukam adresu…'; input.after(spin); }
   if(!on && spin) spin.remove();
 }
-function attachSuggest(input, {streets, onPick, local:suggest, near, field}){ // near(): [lat,lon] — podpowiedzi z okolic innego miasta; field(): pole planera
+// Podpowiedzi, które są adresem: ulica (z numerem), miasto, okolica albo miasto za granicą.
+const ADDRESS_KINDS=new Set(['street','address','city','area','lot']);
+function attachSuggest(input, {streets, onPick, local:suggest, near, field, addressOnly}){ // addressOnly(): tylko adresy, bez przystanków i miejsc // near(): [lat,lon] — podpowiedzi z okolic innego miasta; field(): pole planera
   const box=document.createElement('ul'); box.className='suggest-list'; box.id=input.id+'List'; box.setAttribute('role','listbox'); box.hidden=true;
   (input.closest('.pl-field')||input.closest('.cp-field')||input.parentElement).appendChild(box);
   input.setAttribute('role','combobox'); input.setAttribute('aria-autocomplete','list'); input.setAttribute('aria-controls',box.id); input.setAttribute('aria-expanded','false'); input.autocomplete='off';
@@ -6360,7 +6348,8 @@ function attachSuggest(input, {streets, onPick, local:suggest, near, field}){ //
     clearTimeout(timer); const q=input.value.trim(), my=++req;
     if(q.length<2){ items=[]; close(); return; }
     const at=streets ? (near?.()||myBias()) : null;
-    const local=suggest ? suggest(q) : [...abroad(q), ...stopMatches(q, at||(streets?[50.0378,22.0049]:null)).slice(0, streets?3:5).map(label=>({label, kind:'przystanek'}))];
+    const onlyAddr=!!addressOnly?.();
+    const local=suggest ? suggest(q) : onlyAddr ? abroad(q) : [...abroad(q), ...stopMatches(q, at||(streets?[50.0378,22.0049]:null)).slice(0, streets?3:5).map(label=>({label, kind:'przystanek'}))];
     items=local; active=-1; draw();
     if(!streets) return;
     setBusy(input,true);
@@ -6370,7 +6359,8 @@ function attachSuggest(input, {streets, onPick, local:suggest, near, field}){ //
         const {suggestions, places}=await r.json();
         if(my!==req) return;
         // Jak w mapach: najpierw prawdziwe miejsca (sklepy, dworce, ulice, miasta), potem najwyżej dwa pasujące przystanki z rozkładu.
-        const found=suggestions.map((label,i)=>({label, kind:places?.[i]?.kind||'miejsce', main:places?.[i]?.main, sub:places?.[i]?.sub, point:places?.[i]?.point||null}));
+        const found=suggestions.map((label,i)=>({label, kind:places?.[i]?.kind||(onlyAddr?'address':'miejsce'), main:places?.[i]?.main, sub:places?.[i]?.sub, point:places?.[i]?.point||null}))
+          .filter(it=>!onlyAddr || ADDRESS_KINDS.has(it.kind));
         const seen=new Set(found.map(it=>foldText(it.label)));
         items=[...found, ...local.filter(it=>!seen.has(foldText(it.label))).slice(0,2)]; active=-1; draw();
       }catch(e){ console.warn('Podpowiedzi ulic', e); }
@@ -6448,13 +6438,15 @@ function placeTitle(field){ return field==='from'?'Skąd':field==='to'?'Dokąd':
 async function resolvePlace(text, field){
   const q=(text||'').trim(), title=placeTitle(field);
   if(!q) return {error:`Wpisz adres, przystanek lub miasto w polu „${title}”.`};
-  const exact=allStopNames().find(n=>n.toLowerCase()===q.toLowerCase());
+  // „Skąd?” w planerze podróży sprawdzamy tylko jako adres: bez przystanków, stacji i miejsc z mapy.
+  const addrOnly=field==='from' && S.agency==='podroz';
+  const exact=!addrOnly && allStopNames().find(n=>n.toLowerCase()===q.toLowerCase());
   if(exact) return GT.groups.has(exact) ? stopPlace(exact) : stationPlace(exact);
   const abroad=foreignPlaces().find(p=>p.label.toLowerCase()===q.toLowerCase()) || airportPlace(q,false);
   if(abroad) return streetPlace(abroad);
   const chosen=S.placeChoice[field];
   if(chosen && chosen.q===q) return streetPlace(chosen.place, chosen.approximate);
-  const family=stopFamily(q), partialStop=()=>{ if(family) return family; const n=resolveStop(q); if(n) return stopPlace(n); const s=resolveStation(q); return s?stationPlace(s):null; };
+  const family=addrOnly?null:stopFamily(q), partialStop=()=>{ if(addrOnly) return null; if(family) return family; const n=resolveStop(q); if(n) return stopPlace(n); const s=resolveStation(q); return s?stationPlace(s):null; };
   // Wynik musi mieć coś wspólnego z wpisaną nazwą: „Sztokholm” nie może trafić na lokal „Sztokholm” przy Wielkopolskiej 68 w Gdańsku.
   const words=foldName(q.split(',')[0]).split(' ').filter(w=>w.length>=4), related=p=>!words.length || words.some(w=>foldName(p.label).includes(w));
   try{
@@ -6477,7 +6469,7 @@ async function resolvePlace(text, field){
     return partialStop() || (top && related(top) ? streetPlace(top) : {error:`Nie znaleziono miejsca „${q}” (pole „${title}”). Sprawdź pisownię albo wpisz samo miasto.`});
   }catch(e){
     console.warn('Wyszukiwanie miejsc', e);
-    return partialStop() || {error:`Wyszukiwarka adresów jest chwilowo niedostępna. W polu „${title}” wpisz nazwę przystanku.`};
+    return partialStop() || {error:addrOnly?`Wyszukiwarka adresów jest chwilowo niedostępna. Spróbuj ponownie za chwilę.`:`Wyszukiwarka adresów jest chwilowo niedostępna. W polu „${title}” wpisz nazwę przystanku.`};
   }
 }
 function renderPlaceChoice(r){
@@ -6793,18 +6785,41 @@ for(const input of [plDate, document.getElementById('trDate')]){
 document.addEventListener('click', e=>{ const pop=document.getElementById('dpPop'); if(pop && !pop.hidden && !e.target.closest('#dpPop') && !e.target.closest('.dp-input')) closeDatePicker(false); });
 document.querySelectorAll('[data-round]').forEach(b=>b.addEventListener('click', ()=>{ document.body.classList.remove('multi-form'); plRound.checked=b.dataset.round==='1'; syncReturn(); }));
 document.querySelectorAll('[data-trip-kind="multi"]').forEach(b=>b.addEventListener('click', ()=>enterMultiForm()));
-attachSuggest(plFrom, {streets:true, field:()=>'from'});
+attachSuggest(plFrom, {streets:true, field:()=>'from', addressOnly:()=>S.agency==='podroz'});
 attachSuggest(plTo, {streets:true, field:()=>'to'});
 attachSuggest(document.getElementById('ttStop'), {streets:false, onPick:it=>setTimetableStop(it.label)});
 document.getElementById('plSwap').addEventListener('click', ()=>{ const a=plFrom.value; plFrom.value=plTo.value; plTo.value=a; S.placeChoice={from:S.placeChoice.to, to:S.placeChoice.from}; });
 document.getElementById('plGeo').addEventListener('click', ()=>{
   const err=document.getElementById('planErr'); err.textContent='';
+  if(S.agency==='podroz') return fillMyAddress(err);
   if(!GT.loaded){ err.textContent='Rozkład jeszcze się wczytuje.'; return; }
   const places=[...GT.groups.values()].filter(g=>groupInView(g.name));
   const pick=(lat,lon)=>{ let best=null,bd=1e12; for(const g of places){ const d=hav([lat,lon],[g.lat,g.lon]); if(d<bd){bd=d;best=g;} } if(best){ plFrom.value=best.name; err.textContent=`Najbliższy przystanek: ${best.name} (${Math.round(bd)} m)`; } };
   try{ navigator.geolocation.getCurrentPosition(p=>pick(p.coords.latitude,p.coords.longitude), ()=>{ const c=map.getCenter(); pick(c.lat,c.lng); err.textContent+= ' — brak dostępu do lokalizacji, użyto środka mapy.'; }, {timeout:8000}); }
   catch(e){ const c=map.getCenter(); pick(c.lat,c.lng); }
 });
+// Planer podróży: „Skąd?” = adres, pod którym jestem (ulica i numer z dokładnej pozycji), a nie najbliższy przystanek.
+// Bez zgody na lokalizację nic nie zgadujemy ze środka mapy — prosimy o wpisanie adresu.
+function fillMyAddress(err){
+  const btn=document.getElementById('plGeo');
+  if(!navigator.geolocation){ err.textContent=L2('To urządzenie nie podaje lokalizacji. Wpisz adres.','This device does not share its location. Type an address.'); return; }
+  btn.disabled=true; setBusy(plFrom,true);
+  const done=()=>{ btn.disabled=false; setBusy(plFrom,false); };
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const lat=pos.coords.latitude, lon=pos.coords.longitude;
+    try{
+      const r=await fetch('/api/geocode/reverse?'+new URLSearchParams({lat:lat.toFixed(5), lon:lon.toFixed(5)}));
+      const place=r.ok?(await r.json())?.place:null;
+      if(!place?.label) throw new Error('HTTP '+r.status);
+      plFrom.value=place.label;
+      S.placeChoice.from={q:place.label, place:{label:place.label, locality:place.locality||'', points:[[lat,lon]]}};
+      PK.me=[lat,lon];
+      if((pos.coords.accuracy||0)>300) err.textContent=L2(`Lokalizacja jest przybliżona (ok. ${Math.round(pos.coords.accuracy)} m). Sprawdź adres.`,`Your location is approximate (about ${Math.round(pos.coords.accuracy)} m). Check the address.`);
+    }catch(e){ console.warn('Adres z lokalizacji', e); err.textContent=L2('Nie udało się ustalić adresu. Wpisz go ręcznie.','Could not find your address. Type it in.'); }
+    finally{ done(); }
+  }, e=>{ done(); err.textContent=e?.code===1?L2('Przeglądarka nie zezwala na lokalizację. Wpisz adres.','Your browser blocks location. Type an address.'):L2('Nie udało się ustalić położenia. Wpisz adres.','Could not find your position. Type an address.'); },
+  {enableHighAccuracy:true, timeout:15000, maximumAge:0});
+}
 document.getElementById('planResults').addEventListener('input', e=>{ if(e.target.matches('[data-trip-title]')){ const P=S.multi&&!S.plan?S.multi:stageOf(e.target); if(P) P.tripTitle=e.target.value; } });
 document.getElementById('planResults').addEventListener('change', e=>{
   if(e.target.matches('[data-filter-group]')){ S.planView.picked=readFilters(document.getElementById('planFilters')); applyPlanView(); }
@@ -7806,9 +7821,9 @@ function renderWeather(){
   const btn = navigator.geolocation ? `<button type="button" class="wx-here" id="wxHere"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> ${esc(L2('Pokaż dla mojej lokalizacji','Show for my location'))}</button>` : '';
   const why = weatherWhy();
   const here = WX.spot?.picked ? btn
-    : WX.noLoc ? `${why?`<div class="wx-why-text">${esc(why)}</div>`:''}${btn}<form class="wx-pick" id="wxPick"><input type="text" name="q" enterkeyhint="search" autocomplete="off" aria-label="${esc(L2('Miejscowość','Town'))}" placeholder="${esc(L2('np. Tyczyn','e.g. Tyczyn'))}"><button type="submit">${esc(L2('Pokaż','Show'))}</button></form><small class="wx-pick-msg" id="wxPickMsg"></small>`
+    : WX.noLoc ? `${why?wxAlertHtml():''}${btn}<form class="wx-pick" id="wxPick"><input type="text" name="q" enterkeyhint="search" autocomplete="off" aria-label="${esc(L2('Miejscowość','Town'))}" placeholder="${esc(L2('np. Tyczyn','e.g. Tyczyn'))}"><button type="submit">${esc(L2('Pokaż','Show'))}</button></form><small class="wx-pick-msg" id="wxPickMsg"></small>`
     : '';
-  const d=WX.data; if(!d||!d.current){ el.innerHTML=`<div class="cd-label">${WX.spot===undefined?esc(L2('Pogoda','Weather')):weatherTitle()}</div><div class="wx-err">${WX.err?esc(WX.err):'wczytywanie…'}</div>${here}`; return; }
+  const d=WX.data; if(!d||!d.current){ el.innerHTML=`<div class="cd-label">${WX.spot===undefined?esc(L2('Pogoda','Weather')):weatherTitle()}</div><div class="wx-err">${WX.err?esc(WX.err):'wczytywanie…'}</div>${here}`; if(WX.whyOpen) setWxAlert(true); return; }
   const c=d.current; const [desc,ico]=wmo(c.weather_code);
   const h=d.hourly||{}; const hrs=(h.time||[]).map((t,i)=>({t, temp:h.temperature_2m[i], pp:h.precipitation_probability?h.precipitation_probability[i]:null, pr:h.precipitation?h.precipitation[i]:0, code:h.weather_code?h.weather_code[i]:null})).slice(1,5);
   const codes=[c.weather_code, ...hrs.map(x=>x.code)];
@@ -7820,8 +7835,37 @@ function renderWeather(){
       <span class="wx-desc">${esc(desc)}<small>odczuwalna ${Math.round(c.apparent_temperature)}° · wiatr ${Math.round(c.wind_speed_10m)} km/h${c.precipitation?` · opad ${c.precipitation} mm`:''}</small></span></div>
     <div class="wx-hours">${hrs.map(x=>`<span><small>${esc(String(x.t).slice(11,16))}</small>${wmo(x.code)[1]} ${Math.round(x.temp)}°${x.pp!=null?`<small>${x.pp}%</small>`:''}</span>`).join('')}</div>
     <div class="wx-tip ${hard?'hard':wet?'wet':''}">${tip}</div>${here}`;
+  if(WX.whyOpen) setWxAlert(true);
 }
-document.getElementById('wx')?.addEventListener('click', e=>{ if(e.target.closest('#wxHere')) weatherHere(); });
+// Dlaczego nie widać mojej okolicy: czerwony dzwonek obok przycisku, a wyjaśnienie w okienku po kliknięciu.
+function wxAlertHtml(){
+  return `<span class="wx-alert"><button type="button" class="wx-alert-btn" id="wxAlertBtn" aria-haspopup="dialog" aria-expanded="${!!WX.whyOpen}" aria-controls="wxAlertPop" title="${esc(L2('Brak dostępu do lokalizacji','No access to your location'))}"><i class="fa-solid fa-bell" aria-hidden="true"></i><span class="visually-hidden">${esc(L2('Dlaczego nie widać mojej okolicy?','Why is my area not shown?'))}</span></button></span>`;
+}
+// Okienko jest w <body> (position: fixed), bo karta pogody i nagłówek przycinają wszystko, co z nich wystaje.
+function setWxAlert(open){
+  const b=document.getElementById('wxAlertBtn'), why=weatherWhy();
+  WX.whyOpen=open && !!b && !!why;
+  let pop=document.getElementById('wxAlertPop');
+  if(b) b.setAttribute('aria-expanded', String(WX.whyOpen));
+  if(!WX.whyOpen){ if(pop) pop.hidden=true; return; }
+  if(!pop){ pop=document.createElement('div'); pop.id='wxAlertPop'; pop.className='wx-alert-pop'; pop.setAttribute('role','dialog'); document.body.appendChild(pop); }
+  pop.setAttribute('aria-label', L2('Lokalizacja','Location'));
+  pop.innerHTML=`<b><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> ${esc(L2('Brak dostępu do lokalizacji','No access to your location'))}</b>${esc(why)}<button type="button" class="wx-alert-close" data-wx-alert-close aria-label="${esc(L2('Zamknij','Close'))}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
+  pop.hidden=false;
+  const r=b.getBoundingClientRect(), w=pop.offsetWidth;
+  pop.style.top=Math.round(r.bottom+8)+'px'; pop.style.left=Math.round(Math.max(8, Math.min(r.left, innerWidth-w-8)))+'px';
+}
+document.getElementById('wx')?.addEventListener('click', e=>{
+  if(e.target.closest('#wxHere')) weatherHere();
+  if(e.target.closest('#wxAlertBtn')) setWxAlert(!WX.whyOpen);
+});
+document.addEventListener('click', e=>{
+  if(e.target.closest('[data-wx-alert-close]')){ setWxAlert(false); document.getElementById('wxAlertBtn')?.focus(); return; }
+  if(WX.whyOpen && !e.target.closest('.wx-alert, #wxAlertPop')) setWxAlert(false);
+});
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && WX.whyOpen){ setWxAlert(false); document.getElementById('wxAlertBtn')?.focus(); } });
+addEventListener('scroll', ()=>{ if(WX.whyOpen) setWxAlert(false); }, {passive:true});
+addEventListener('resize', ()=>{ if(WX.whyOpen) setWxAlert(true); });
 document.getElementById('wx')?.addEventListener('submit', e=>{ if(e.target.id!=='wxPick') return; e.preventDefault(); weatherPick(e.target.q.value); });
 function weatherBoot(){ clearInterval(WX.timer); renderWeather(); if(CFG.weather===false) return; weatherTick(); WX.timer=setInterval(()=>{ if(!document.hidden) weatherTick(); }, 45*60*1000); }
 

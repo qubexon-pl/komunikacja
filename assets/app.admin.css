@@ -1,0 +1,48 @@
+/* Panel administratora (/admin): układ na bazie app.css (kolory, pasek, przyciski, formularze). */
+.admin-page{min-height:100vh}
+.adm-who{color:rgba(255,255,255,.8); font-size:.84rem; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.admin-page .nav-links{display:flex; gap:14px; margin-left:auto}
+.admin-page .nav-link-btn{color:#fff; text-decoration:none; display:inline-flex; align-items:center; gap:6px}
+.adm-shell{max-width:1040px; margin:0 auto; padding:28px 16px 72px}
+.adm-head{margin-bottom:20px}
+.adm-kicker{display:inline-block; font-size:.72rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--red)}
+.adm-head h1{font-size:clamp(1.6rem,3vw,2.2rem); font-weight:700; margin:4px 0 8px}
+.adm-head p{max-width:68ch; margin:0}
+.adm-stats{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:22px}
+.adm-stat{background:var(--bg-alt); border:1px solid var(--line); border-radius:14px; padding:14px 16px; min-width:0}
+.adm-stat .lbl{display:block; font-size:.76rem; font-weight:600; color:var(--ink-soft)}
+.adm-stat b{display:block; font-size:1.6rem; font-weight:700; line-height:1.2; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.adm-stat b.small-val{font-size:1rem; margin-top:10px}
+.adm-tabs{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px}
+.adm-tab{display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:999px; background:var(--bg-alt); color:var(--ink);
+  padding:9px 16px; font-size:.88rem; font-weight:600}
+.adm-tab:hover{border-color:var(--red); color:var(--red)}
+.adm-tab.on{background:var(--red); border-color:var(--red); color:#fff}
+.adm-card{background:var(--bg-alt); border:1px solid var(--line); border-radius:18px; padding:22px 24px; box-shadow:var(--shadow-soft)}
+.adm-card[hidden]{display:none}
+.adm-h2{font-size:1.02rem; font-weight:700; margin:22px 0 12px; padding-top:18px; border-top:1px solid var(--line)}
+.adm-card .adm-h2:first-of-type,.adm-msg + .adm-h2{margin-top:0; padding-top:0; border-top:0}
+.adm-switches{display:grid; gap:10px; margin:6px 0 4px}
+.adm-actions{display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; margin-top:22px; padding-top:18px; border-top:1px solid var(--line)}
+.adm-actions .small{margin-right:auto}
+.adm-msg{border-radius:10px; padding:10px 14px; margin-bottom:16px; font-size:.9rem}
+.adm-msg[hidden]{display:none}
+.adm-msg.ok{background:color-mix(in srgb,var(--success) 12%,var(--bg-alt)); color:var(--ink); border:1px solid color-mix(in srgb,var(--success) 40%,transparent)}
+.adm-msg.err{background:color-mix(in srgb,var(--error) 12%,var(--bg-alt)); color:var(--ink); border:1px solid color-mix(in srgb,var(--error) 40%,transparent)}
+.adm-msg.info{background:color-mix(in srgb,var(--info) 10%,var(--bg-alt)); color:var(--ink); border:1px solid color-mix(in srgb,var(--info) 35%,transparent)}
+.adm-search{position:relative; max-width:420px; margin-bottom:14px}
+.adm-search i{position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--ink-soft)}
+.adm-search input{padding-left:36px}
+.adm-table{--bs-table-bg:transparent; --bs-table-color:var(--ink); margin-bottom:12px}
+.adm-table th{font-size:.76rem; font-weight:600; color:var(--ink-soft); border-color:var(--line)}
+.adm-table td{vertical-align:middle; border-color:var(--line)}
+.adm-table .form-switch .form-check-input{width:2.6em; height:1.4em; cursor:pointer}
+.adm-badge{display:inline-block; font-size:.68rem; font-weight:700; padding:2px 8px; border-radius:99px; background:var(--soft); color:var(--ink-soft); vertical-align:middle}
+.adm-key{flex:1 1 260px; max-width:420px}
+.admin-page .form-control,.admin-page .form-select{background-color:var(--bg-alt); color:var(--ink); border-color:var(--line)}
+@media (max-width:760px){
+  .adm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .adm-card{padding:18px 16px; border-radius:14px}
+  .admin-page .nav-link-btn .txt,.adm-who{display:none}
+  .adm-actions .small{flex-basis:100%}
+}
