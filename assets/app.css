@@ -3073,3 +3073,19 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 .tp-photos.compact .tp-photo-note{font-size:.76rem}
 .tp-photo.failed > .tp-photo-x{position:absolute; width:32px; height:32px; padding:0; border-radius:50%; font-size:1.1rem; margin:0}
 .tp-photos.compact .tp-photo.failed > .tp-photo-x{width:22px; height:22px; font-size:.85rem}
+
+/* Zdjęcia z podróży trzymane w telefonie: zapis do telefonu (w przeglądarce), znaczek kopii w chmurze i przełącznik chmury */
+.tp-photo-save{position:absolute; top:6px; left:6px; width:32px; height:32px; border:0; border-radius:50%; background:rgba(10,26,52,.75); color:#fff; font-size:.85rem; line-height:1}
+.tp-photo-cloud{position:absolute; left:6px; bottom:6px; display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,.92); color:#2878D0; font-size:.72rem; box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.tp-photo.pending img{opacity:.75}
+.tp-photos-foot{display:flex; flex-direction:column; gap:10px; margin-top:12px}
+.tp-photos-foot > small i{color:var(--ink-soft); margin-right:4px}
+.tp-cloud-switch{display:flex; gap:10px; align-items:flex-start; margin:0; padding:10px 12px; border-radius:12px; background:var(--soft); cursor:pointer}
+.tp-cloud-switch input{flex:none; width:20px; height:20px; margin-top:2px; accent-color:var(--teal,#20A995)}
+.tp-cloud-switch span{display:flex; flex-direction:column; gap:2px; min-width:0; text-align:left}
+.tp-photos-foot,.tp-photo-note{text-align:left}
+.tp-cloud-switch small{color:var(--ink-soft); font-size:.76rem}
+.tp-photos.compact .tp-photo-save,.tp-photos.compact .tp-photo-cloud{width:22px; height:22px; top:3px; left:3px; font-size:.65rem}
+.tp-photos.compact .tp-photo-cloud{top:auto; bottom:3px}
+.tp-photos.compact .tp-photos-foot{margin-top:8px; gap:6px}
+.tp-photos.compact .tp-cloud-switch{padding:8px 10px}
