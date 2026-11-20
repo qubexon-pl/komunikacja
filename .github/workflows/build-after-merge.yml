@@ -77,6 +77,7 @@ jobs:
     env:
       VERSION_CODE: ${{ github.run_number }}
       VERSION_NAME: "1.0.${{ github.run_number }}"
+      PLAY_UPLOAD: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -124,13 +125,14 @@ jobs:
           } > android/keystore.properties
           echo "release=true" >> "$GITHUB_OUTPUT"
 
-      - name: Assemble APK
+      - name: Assemble APK (and the Play Store bundle when signed)
         working-directory: android
         run: |
           chmod +x gradlew
           if [ "${{ steps.signing.outputs.release }}" = "true" ]; then
-            ./gradlew assembleRelease --no-daemon
+            ./gradlew assembleRelease bundleRelease --no-daemon
             cp app/build/outputs/apk/release/app-release.apk ../voyage.apk
+            cp app/build/outputs/bundle/release/app-release.aab ../voyage.aab
           else
             ./gradlew assembleDebug --no-daemon
             cp app/build/outputs/apk/debug/app-debug.apk ../voyage.apk
@@ -139,11 +141,32 @@ jobs:
           # The SHA-1 to register on the Android OAuth client in Google Cloud (native Google sign-in checks it).
           "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs ../voyage.apk 2>/dev/null | grep -i "SHA-1" | head -1 || true
 
+      # Hand-over to the deploy job only: the APK is served from Azure (/download/voyage.apk), not kept on GitHub.
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: voyage.apk
-          retention-days: 14
+          retention-days: 1
+
+      # Until Play upload is set up: the signed bundle for the one manual first upload in Play Console (kept 1 day).
+      - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.release == 'true' && env.PLAY_UPLOAD != 'true'
+        with:
+          name: play-bundle
+          path: voyage.aab
+          retention-days: 1
+
+      # Google Play: once PLAY_SERVICE_ACCOUNT_JSON is set (and the first bundle was uploaded by hand in Play Console),
+      # every merge sends the signed bundle to the chosen track. Status "draft" until the app has passed its first review.
+      - name: Upload to Google Play
+        if: steps.signing.outputs.release == 'true' && env.PLAY_UPLOAD == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: app.podavo.voyage
+          releaseFiles: voyage.aab
+          track: ${{ vars.PLAY_TRACK || 'internal' }}
+          status: ${{ vars.PLAY_RELEASE_STATUS || 'draft' }}
 
   deploy:
     name: Deploy to Azure (podavo-voyage)

@@ -1096,6 +1096,15 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
       }
 
       if (segments[0] === "api") {
+        // What the "Install app" button offers on Android: the Google Play listing once ANDROID_STORE_URL is set
+        // (Azure app setting), otherwise the APK that the deploy put in download/.
+        if (segments[1] === "android-app" && segments.length === 2 && req.method === "GET") {
+          const store = /^https:\/\/play\.google\.com\//.test(process.env.ANDROID_STORE_URL || "") ? process.env.ANDROID_STORE_URL : null;
+          const apk = fs.existsSync(path.resolve(root, `.${ANDROID_APK_PATH}`));
+          res.setHeader("Cache-Control", "no-cache");
+          json(res, 200, { store, apk: apk ? ANDROID_APK_PATH : null });
+          return;
+        }
         if (segments[1] === "health" && req.method === "GET") {
           await database.health();
           json(res, 200, { status: "ok", database: "connected" });

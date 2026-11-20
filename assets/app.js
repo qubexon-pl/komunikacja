@@ -7686,8 +7686,8 @@ openPage(pageFromLocation(), false);
 boot();
 trainsBoot();
 weatherBoot();
-/* „Zainstaluj aplikację”: na telefonie z Androidem przycisk daje prawdziwą aplikację (plik APK z /download/voyage.apk,
-   z krótką instrukcją instalacji), także w wersji dodanej z przeglądarki do ekranu początkowego. Gdzie indziej przycisk pojawia się,
+/* „Zainstaluj aplikację”: na telefonie z Androidem przycisk daje prawdziwą aplikację: stronę w Google Play, gdy jest
+   (ANDROID_STORE_URL na serwerze), a do tego czasu plik APK z /download/voyage.apk z krótką instrukcją instalacji, także w wersji dodanej z przeglądarki do ekranu początkowego. Gdzie indziej przycisk pojawia się,
    gdy przeglądarka pozwala zainstalować stronę (Chrome, Edge), a na iPhonie/iPadzie w Safari pokazuje instrukcję „Do ekranu początkowego”.
    W aplikacji na Androida/iOS przycisku nie ma. */
 (function installApp(){
@@ -7696,13 +7696,13 @@ weatherBoot();
   const standalone=()=>matchMedia('(display-mode: standalone)').matches || navigator.standalone===true || native;
   const ios=/iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
   const android=!native && /android/i.test(navigator.userAgent);
-  const APK='/download/voyage.apk';
-  let apk=false; // the Android app is on the server (checked once, below)
+  let apk=false, store=null; // the Android app: its Google Play page, or the APK on this server (checked once, below)
   let deferred=window.__installPrompt||null;
-  const show=()=>{ btn.hidden= native || !(apk || (!standalone() && (deferred || ios))); };
+  const show=()=>{ btn.hidden= native || !(store || apk || (!standalone() && (deferred || ios))); };
   window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferred=e; window.__installPrompt=e; show(); });
   window.addEventListener('appinstalled', ()=>{ deferred=null; window.__installPrompt=null; show(); });
   btn.addEventListener('click', async ()=>{
+    if(store){ location.href=store; return; }
     if(apk){
       const note=document.getElementById('androidPwaNote'); if(note) note.hidden=!standalone();
       bootstrap.Modal.getOrCreateInstance(document.getElementById('androidModal')).show(); return;
@@ -7712,7 +7712,8 @@ weatherBoot();
     try{ await e.prompt(); }catch(err){}
   });
   if(android){
-    fetch(APK, {method:'HEAD', cache:'no-store'}).then(r=>{ apk=r.ok; show(); }).catch(()=>{});
+    fetch('/api/android-app', {cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{ if(!d) return;
+      store=d.store||null; apk=!!d.apk; if(d.apk) document.getElementById('androidDownload')?.setAttribute('href', d.apk); show(); }).catch(()=>{});
   }
   show();
 })();

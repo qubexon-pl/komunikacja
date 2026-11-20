@@ -132,7 +132,8 @@ npm run ios:open          # Xcode on a Mac
 
 ## Installing the Android app without Google Play
 
-Every merge to `main` builds an APK in CI and deploys it with the website at `/download/voyage.apk`. On an Android
+Every merge to `main` builds an APK in CI and deploys it with the website to Azure at `/download/voyage.apk` (GitHub only
+hands it from the build to the deploy and drops it after a day). On an Android
 phone the **Zainstaluj aplikację** button opens a short guide with a *Pobierz aplikację* link to that file (also from
 the browser version added to the Home Screen); other platforms keep the PWA install. The native app asks for location
 and camera through Android's own permissions.
@@ -151,6 +152,27 @@ Create the keystore once with the `keytool` command below and keep it safe; the 
 key. Without these secrets CI builds a debug APK: it installs, but each build has a different key, so updating means
 uninstalling the old app first. The *Assemble APK* step prints the key's SHA-1: add it to the Android OAuth client in
 Google Cloud so Google sign-in works in the app. `versionCode` is the CI run number.
+
+## Google Play
+
+CI builds a signed bundle (`.aab`) next to the APK whenever the signing secrets above are set. To publish:
+
+1. Create a Google Play developer account (one-off fee) at play.google.com/console and verify your identity.
+2. *Create app*: name podavo.voyage, app, free. Fill in *App content*: privacy policy URL, Data safety (location,
+   photos, e-mail address, account id), content rating, target audience, ads (none), and the store listing
+   (icon 512×512, feature graphic 1024×500, at least 2 phone screenshots, short and full description).
+3. *Test and release → Setup → App signing*: keep Google-managed signing; the key in `ANDROID_KEYSTORE_BASE64` is the
+   **upload key**. Add the *App signing key* SHA-1 shown there to the Android OAuth client in Google Cloud too.
+4. First upload by hand (Play requires it): run *Build and deploy* on `main`, download the `play-bundle` artifact
+   (kept 1 day), and upload `voyage.aab` to *Internal testing*. Add yourself as a tester.
+5. Automatic uploads: in Google Cloud create a service account with a JSON key, invite its e-mail in Play Console
+   (*Users and permissions*, release permissions for this app), and save the JSON as the repository secret
+   `PLAY_SERVICE_ACCOUNT_JSON`. Each merge then sends the bundle to the `internal` track as a draft. Optional repository
+   variables: `PLAY_TRACK` (`internal`, `alpha`, `beta`, `production`) and `PLAY_RELEASE_STATUS` (`completed` once the
+   app has passed its first review).
+6. After the app is live, set the Azure app setting `ANDROID_STORE_URL` to
+   `https://play.google.com/store/apps/details?id=app.podavo.voyage`: the install button on Android then opens Google Play
+   instead of the APK. People with the sideloaded APK uninstall it once (Play signs the app with its own key).
 
 ## Still to do
 
