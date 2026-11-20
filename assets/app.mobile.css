@@ -18,6 +18,9 @@
   img,svg,video,canvas{max-width:100%}
   main.shell{max-width:100%; padding-left:max(12px,env(safe-area-inset-left,0px)) !important; padding-right:max(12px,env(safe-area-inset-right,0px)) !important}
   main.shell > *{min-width:0; max-width:100%}
+  /* Bootstrap rows reach past the shell padding by their gutter; capped at 100% they slid left and the live map
+     sat off-centre (12 px on the left, 28 px on the right). Columns stack on phones, so drop the side gutters. */
+  main.shell > .row{--bs-gutter-x:0; margin-left:0; margin-right:0}
   input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{font-size:16px !important}
   .sec-head{gap:10px; margin-top:20px; margin-bottom:10px}
   .sec-head h2{font-size:1.3rem !important; line-height:1.2; min-width:0; overflow-wrap:anywhere}
@@ -207,6 +210,9 @@
   .modal-footer{flex-wrap:wrap; gap:8px; padding-bottom:12px !important}
   .modal-footer > *{flex:1 1 auto; margin:0 !important; min-height:44px}
   #pickMap,#tripMap{height:42vh !important}
+  /* the route and stop-picker maps keep the same 12 px margin and rounded corners as the maps on the pages */
+  .pick-map-wrap{padding:12px 12px 0}
+  #pickMap,#tripMap{border-radius:12px; border:1px solid var(--line)}
   .ask-btns{flex-wrap:wrap}
   .ask-btns button{flex:1 1 120px; min-width:0; min-height:44px}
 

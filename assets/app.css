@@ -3090,3 +3090,7 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 .tp-photos.compact .tp-photos-foot{margin-top:8px; gap:6px}
 .tp-photos.compact .tp-cloud-switch{padding:8px 10px}
 .wx .cd-label .wx-why{font-size:.8em; font-weight:400; opacity:.8; text-transform:none; letter-spacing:0}
+
+/* ---- mapy na telefonie: jeden palec przewija stronę, dwa przesuwają mapę ---- */
+.two-finger-hint{position:absolute; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center; background:rgba(13,33,64,.55); color:#fff; font-weight:600; font-size:1rem; pointer-events:none; opacity:0; transition:opacity .25s}
+.two-finger-show .two-finger-hint{opacity:1}
