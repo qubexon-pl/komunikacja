@@ -3132,3 +3132,7 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 .wx-pick input::placeholder{color:rgba(255,255,255,.65)}
 .wx-pick button{min-height:36px; padding:6px 14px; border-radius:999px; border:0; background:#fff; color:#173B70; font-weight:600; font-size:.8rem}
 .wx-pick-msg{display:block; margin-top:4px; font-size:.72rem; color:rgba(255,255,255,.8)}
+
+/* ---- mapy na telefonie: jeden palec przewija stronę, dwa przesuwają mapę ---- */
+.two-finger-hint{position:absolute; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center; background:rgba(13,33,64,.55); color:#fff; font-weight:600; font-size:1rem; pointer-events:none; opacity:0; transition:opacity .25s}
+.two-finger-show .two-finger-hint{opacity:1}

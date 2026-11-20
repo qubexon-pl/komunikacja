@@ -769,6 +769,23 @@ function shapeFor(v){
    Mapa
    ============================================================ */
 const isDark = () => document.documentElement.getAttribute('data-theme')==='dark' || (!document.documentElement.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+/* Na telefonie mapa nie łapie przewijania strony: jeden palec przewija stronę, a mapę przesuwa się i przybliża dwoma
+   palcami (jak w Mapach Google osadzonych na stronach). Dotyczy każdej mapy w aplikacji; myszka działa jak dotąd. */
+const TOUCH_MAPS = matchMedia('(hover: none) and (pointer: coarse)').matches;
+if(TOUCH_MAPS) L.Map.addInitHook(function(){
+  const m=this, el=m.getContainer();
+  if(m.dragging) m.dragging.disable();
+  el.classList.add('two-finger-map');
+  const hint=L.DomUtil.create('div','two-finger-hint', el); hint.setAttribute('aria-hidden','true');
+  let timer=null;
+  const showHint=()=>{ hint.textContent=document.documentElement.lang==='en'?'Use two fingers to move the map':'Użyj dwóch palców, aby przesunąć mapę';
+    el.classList.add('two-finger-show'); clearTimeout(timer); timer=setTimeout(()=>el.classList.remove('two-finger-show'), 1200); };
+  const hideHint=()=>{ clearTimeout(timer); el.classList.remove('two-finger-show'); };
+  // Dwa palce: przeciąganie włączone (Leaflet przesuwa i przybliża mapę gestem szczypania). Jeden palec: wyłączone, strona się przewija.
+  el.addEventListener('touchstart', e=>{ if(e.touches.length>1){ m.dragging?.enable(); hideHint(); } else m.dragging?.disable(); }, {passive:true});
+  el.addEventListener('touchmove', e=>{ if(e.touches.length===1 && !el.classList.contains('leaflet-drag-target')) showHint(); else if(e.touches.length>1) hideHint(); }, {passive:true});
+  el.addEventListener('touchend', e=>{ if(e.touches.length===0) m.dragging?.disable(); }, {passive:true});
+});
 const map = L.map('map', {zoomControl:true, preferCanvas:false}).setView(RZ_CENTER, 13);
 map.attributionControl.setPrefix(false);
 let tiles=null;
