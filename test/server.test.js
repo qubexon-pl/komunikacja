@@ -744,3 +744,23 @@ test("the weather where the person is has its own public route and checks the pl
   assert.deepEqual(asked[0], { lat: 50.04, lon: 22 });
   assert.equal((await fetch(`${base}?lat=x&lon=1`)).status, 400);
 });
+
+test("Polish city transport: the city list, stop search and departures are public and failures stay readable", async (t) => {
+  const asked = [];
+  const cityTransit = {
+    stops: async (q) => { asked.push(["stops", q]); return { stops: [{ id: "s1", name: "Rynek" }] }; },
+    departures: async (q) => { asked.push(["departures", q]); if (q.stop === "bad") throw Object.assign(new Error("Wybierz przystanek."), { status: 400 }); throw new Error("Transitous zwrócił HTTP 503."); },
+  };
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, cityTransit });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/transit`;
+  const cities = await (await fetch(`${base}/cities`)).json();
+  assert.ok(cities.cities.some((c) => c.id === "wroclaw" && c.modes.includes("tram")));
+  assert.deepEqual(await (await fetch(`${base}/stops?city=wroclaw&q=Rynek`)).json(), { stops: [{ id: "s1", name: "Rynek" }] });
+  assert.equal((await fetch(`${base}/departures?stop=bad`)).status, 400);
+  const down = await fetch(`${base}/departures?stop=s1`);
+  assert.equal(down.status, 502);
+  assert.deepEqual((await down.json()).departures, []);
+  assert.deepEqual(asked[0], ["stops", { city: "wroclaw", q: "Rynek" }]);
+});

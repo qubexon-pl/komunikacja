@@ -2786,6 +2786,53 @@ body.multi-mode #multiForm{display:none !important}
 .tx-mode.soon{opacity:.55}
 .tx-mode.soon small{font-size:.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; margin-left:2px}
 @media (max-width:700px){ .tx-city{width:100%} .tx-city-btn{width:100%; justify-content:center} }
+.tx-city-head{padding:8px 10px 2px; color:#6B7A90; font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em}
+.tx-live-dot{color:#1a7f4b; font-weight:700}
+.tx-live-dot::before{content:""; display:inline-block; width:6px; height:6px; border-radius:50%; background:#1a7f4b; margin-right:4px; vertical-align:1px}
+
+/* Komunikacja miejska innych miast (Transitous): planer z mapą pojazdów albo odjazdy z przystanku */
+body:not(.citytx-mode) .citytx-part{display:none !important}
+body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribution){display:none !important}
+.ctx{display:flex; flex-direction:column; gap:12px; min-width:0}
+.ctx-head{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px}
+.ctx-head h3{margin:0; font-size:1.15rem; font-weight:800; color:var(--ink, #172B45)}
+.ctx-head h3 i{color:#2878D0; margin-right:4px}
+.ctx-head small{color:var(--ink-soft, #6B7A90); font-size:.82rem}
+.ctx-badge{display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border-radius:999px; font-size:.78rem; font-weight:700; background:var(--bg-alt, #F3F6FA); color:var(--ink-soft, #6B7A90); border:1px solid var(--line, #E3EAF3)}
+.ctx-badge.live{background:#E7F6EE; color:#1a7f4b; border-color:#BFE6CF}
+.ctx .city-panel{margin:0}
+.ctx-search{display:flex; flex-direction:column; gap:4px; max-width:520px}
+.ctx-search label{font-size:.78rem; font-weight:700; color:var(--ink-soft, #6B7A90)}
+.ctx-search .pl-inp{display:flex; align-items:center; gap:8px; border:1px solid var(--line, #E3EAF3); border-radius:12px; padding:0 12px; background:var(--bg, #fff)}
+.ctx-search input{flex:1; min-width:0; min-height:44px; border:0; background:transparent; font:inherit; color:inherit}
+.ctx-search input:focus{outline:none}
+.ctx-search .pl-inp:focus-within{border-color:#2878D0; box-shadow:0 0 0 3px rgba(40,120,208,.18)}
+.ctx-stops{list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px}
+.ctx-stops:empty{display:none}
+.ctx-stops button{display:flex; flex-direction:column; align-items:flex-start; border:1px solid var(--line, #E3EAF3); background:var(--bg, #fff); color:inherit; border-radius:12px; padding:6px 12px; text-align:left}
+.ctx-stops button:hover,.ctx-stops button.on{border-color:#2878D0; background:#E5F1FD; color:#172B45}
+.ctx-stops b{font-size:.88rem} .ctx-stops small{font-size:.72rem; opacity:.75}
+.ctx-none{color:var(--ink-soft, #6B7A90); font-size:.85rem; padding:4px 2px}
+.ctx-board-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px}
+.ctx-board-head b{font-size:1rem}
+.ctx-deps{list-style:none; margin:0; padding:0; border:1px solid var(--line, #E3EAF3); border-radius:14px; overflow:hidden}
+.ctx-deps li{display:grid; grid-template-columns:78px auto minmax(0,1fr) auto; align-items:center; gap:10px; padding:9px 12px; border-top:1px solid var(--line, #E3EAF3)}
+.ctx-deps li:first-child{border-top:0}
+.ctx-deps li.cancelled{opacity:.6}
+.ctx-when{display:flex; flex-direction:column; line-height:1.15; font-variant-numeric:tabular-nums}
+.ctx-when b{font-size:1rem} .ctx-when s{font-size:.75rem; opacity:.65} .ctx-when small{font-size:.7rem; color:var(--ink-soft, #6B7A90)}
+.ctx-head-sign{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600}
+.ctx-head-sign small{font-weight:400; color:var(--ink-soft, #6B7A90)}
+.ctx-st{font-size:.74rem; font-weight:700; padding:2px 8px; border-radius:999px; white-space:nowrap}
+.ctx-st.live{background:#E7F6EE; color:#1a7f4b}
+.ctx-st.cancel{background:#FDECEC; color:#b42318}
+@media (max-width:560px){
+  .ctx-deps li{grid-template-columns:64px minmax(0,1fr) auto; grid-template-areas:"when line st" "when sign sign"; row-gap:2px}
+  .ctx-deps .ctx-when{grid-area:when} .ctx-deps .cs-chip{grid-area:line; justify-self:start} .ctx-deps .ctx-head-sign{grid-area:sign; white-space:normal} .ctx-deps .ctx-st{grid-area:st}
+}
+[data-theme="dark"] .ctx-stops button:hover,[data-theme="dark"] .ctx-stops button.on{background:rgba(40,120,208,.2); color:inherit}
+[data-theme="dark"] .ctx-badge.live,[data-theme="dark"] .ctx-st.live{background:rgba(26,127,75,.22); color:#7ee2a8; border-color:transparent}
+[data-theme="dark"] .ctx-st.cancel{background:rgba(180,35,24,.25); color:#ffb4ab}
 
 /* Udostępnianie: zwarty formularz dodawania osoby (pole nie rośnie w pionie) */
 #peopleBody .tp-invite{align-items:stretch; gap:8px; padding:12px 14px}

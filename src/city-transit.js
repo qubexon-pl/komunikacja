@@ -9,6 +9,7 @@
 
 const crypto = require("node:crypto");
 const { createTransitous, localToUtc, utcToLocal, validZone, kindOf, decodePolyline, itinerary } = require("./transitous");
+const { cityById } = require("./pl-cities");
 
 const PLAN_KEEP_MS = 10 * 60 * 1000;
 const VEHICLES_KEEP_MS = 60 * 1000;
@@ -17,12 +18,24 @@ const GRID = 0.04; // degrees; a map view is widened to this grid
 const MAX_SPAN = 0.24; // degrees; wider views would mean thousands of buses
 const MIN_ZOOM = 12;
 const LOCAL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const STOPS_KEEP_MS = 60 * 60 * 1000;
+const DEPARTURES_KEEP_MS = 30 * 1000;
+const PL_ZONE = "Europe/Warsaw";
 
 const bad = (message) => Object.assign(new Error(message), { status: 400 });
 const point = (text) => {
   const [lat, lon] = String(text || "").split(",").map(Number);
   return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
 };
+
+const km = (a, b) => {
+  const r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLon = (b[1] - a[1]) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+};
+const fold = (text) => String(text || "").toLocaleLowerCase("pl").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ł/g, "l").replace(/\s+/g, " ").trim();
+const hex = (value) => (/^[0-9a-fA-F]{6}$/.test(value || "") ? `#${value}` : null);
+const remember = (map, key, value, max = 500) => { map.set(key, value); if (map.size > max) map.delete(map.keys().next().value); return value; };
 
 // Part of a stop-to-stop ride between two moments, assuming even speed along the line.
 function clip(points, dep, arr, from, to) {
@@ -57,6 +70,67 @@ function createCityTransit({ transitous = null, fetchSource = fetch, now = Date.
   const client = transitous || createTransitous({ fetchSource, now, ...(minGapMs == null ? {} : { minGapMs }) });
   const plans = new Map();
   const views = new Map();
+  const stopLists = new Map();
+  const boards = new Map();
+
+  // Stops of one Polish city whose names match what the traveller typed, nearest the centre first among equals.
+  async function stops({ city, q }) {
+    const c = cityById(city);
+    if (!c) throw bad("Nieznane miasto.");
+    const text = String(q || "").trim().slice(0, 60);
+    if (fold(text).length < 2) return { stops: [] };
+    const id = `${c.id}|${fold(text)}`;
+    const hit = stopLists.get(id);
+    if (hit && now() - hit.fetchedAt < STOPS_KEEP_MS) return hit.result;
+    const body = await client.geocode({ text, type: "STOP", place: `${c.centre[0]},${c.centre[1]}`, placeBias: "5", numResults: "20" });
+    const seen = new Set();
+    const list = [];
+    for (const m of Array.isArray(body) ? body : []) {
+      if (m.type && m.type !== "STOP") continue;
+      if (!Number.isFinite(m.lat) || !Number.isFinite(m.lon) || !m.id) continue;
+      const dist = km(c.centre, [m.lat, m.lon]);
+      if (dist > c.km) continue;
+      const key = `${fold(m.name)}|${m.lat.toFixed(3)},${m.lon.toFixed(3)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({ id: String(m.id), name: m.name || "", at: [Math.round(m.lat * 1e5) / 1e5, Math.round(m.lon * 1e5) / 1e5], km: Math.round(dist * 10) / 10 });
+    }
+    const result = { stops: list.slice(0, 12), city: c.id };
+    remember(stopLists, id, { result, fetchedAt: now() });
+    return result;
+  }
+
+  // Next departures from one stop (and its platforms), with live delays where the operator publishes them.
+  async function departures({ stop, time = "" }) {
+    const stopId = String(stop || "").trim();
+    if (!stopId || stopId.length > 160 || /[\u0000-\u001f]/.test(stopId)) throw bad("Wybierz przystanek.");
+    if (time && !LOCAL_TIME.test(time)) throw bad("Nieprawidłowa godzina.");
+    const at = time ? localToUtc(time, PL_ZONE) : Math.floor(now() / 60000) * 60000;
+    const id = `${stopId}|${Math.floor(at / 60000)}`;
+    const hit = boards.get(id);
+    if (hit && now() - hit.fetchedAt < DEPARTURES_KEEP_MS) return hit;
+    const body = await client.stopTimes({ stopId, n: "30", time: new Date(at).toISOString() });
+    const list = (body?.stopTimes || []).map((s) => {
+      const p = s.place || {};
+      const dep = Date.parse(p.departure || p.arrival), sched = Date.parse(p.scheduledDeparture || p.scheduledArrival);
+      if (!Number.isFinite(dep)) return null;
+      return {
+        line: s.displayName || s.routeShortName || s.tripShortName || "",
+        kind: kindOf(s.mode),
+        color: hex(s.routeColor), textColor: hex(s.routeTextColor),
+        headsign: s.headsign || s.tripTo?.name || "",
+        at: dep,
+        clock: utcToLocal(dep, PL_ZONE).clock,
+        planned: Number.isFinite(sched) ? utcToLocal(sched, PL_ZONE).clock : null,
+        delayMin: s.realTime && Number.isFinite(sched) ? Math.round((dep - sched) / 60000) : 0,
+        live: !!s.realTime,
+        cancelled: !!(s.cancelled || p.cancelled),
+        platform: p.track || p.scheduledTrack || "",
+      };
+    }).filter(Boolean).sort((a, b) => a.at - b.at);
+    const result = { stop: { id: stopId, name: body?.place?.name || "" }, departures: list, zone: PL_ZONE, fetchedAt: now(), source: "Transitous" };
+    return remember(boards, id, result, 300);
+  }
 
   async function plan({ from, to, time = "", zone, arriveBy = false }) {
     const a = point(from), b = point(to);
@@ -117,7 +191,7 @@ function createCityTransit({ transitous = null, fetchSource = fetch, now = Date.
     return pending;
   }
 
-  return { plan, vehicles };
+  return { plan, vehicles, stops, departures };
 }
 
 module.exports = { createCityTransit, clip };

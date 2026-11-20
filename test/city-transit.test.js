@@ -144,3 +144,62 @@ test("when the address search fails, the city centre comes from Transitous and i
   assert.equal(transitousAsked, 1); // the centre is kept
   assert.ok(planned >= 3);
 });
+
+test("stops of a Polish city are searched near its centre, and stops in other cities are left out", async () => {
+  const asked = [];
+  const transitous = { geocode: async (q) => { asked.push(q); return [
+    { type: "STOP", id: "pl-warszawa_7013", name: "Centrum", lat: 52.2306, lon: 21.0107 },
+    { type: "STOP", id: "pl-warszawa_7014", name: "Centrum", lat: 52.2306, lon: 21.0107 }, // same stop twice: shown once
+    { type: "STOP", id: "pl-lodz_1", name: "Centrum", lat: 51.7592, lon: 19.456 }, // Łódź, far away
+    { type: "ADDRESS", id: "a", name: "Centralna", lat: 52.23, lon: 21.01 },
+  ]; } };
+  const city = createCityTransit({ transitous });
+  const r = await city.stops({ city: "warszawa", q: "Centrum" });
+  assert.equal(asked[0].type, "STOP");
+  assert.equal(asked[0].place, "52.2297,21.0122");
+  assert.deepEqual(r.stops.map((s) => s.id), ["pl-warszawa_7013"]);
+  await city.stops({ city: "warszawa", q: "centrum " }); // the same words again: the kept answer
+  assert.equal(asked.length, 1);
+  assert.deepEqual(await city.stops({ city: "warszawa", q: "C" }), { stops: [] });
+  await assert.rejects(city.stops({ city: "atlantyda", q: "Centrum" }), { status: 400 });
+});
+
+test("departures from a stop are in Polish local time, with live delays and cancellations", async () => {
+  const asked = [];
+  const t0 = Date.parse("2026-11-20T11:00:00Z");
+  const transitous = { stopTimes: async (q) => { asked.push(q); return { place: { name: "Centrum" }, stopTimes: [
+    { mode: "TRAM", displayName: "25", headsign: "Banacha", routeColor: "C2185B", realTime: true, place: { departure: "2026-11-20T11:07:00Z", scheduledDeparture: "2026-11-20T11:04:00Z", track: "08" } },
+    { mode: "BUS", routeShortName: "175", headsign: "Lotnisko Chopina", realTime: false, place: { departure: "2026-11-20T11:02:00Z", scheduledDeparture: "2026-11-20T11:02:00Z" } },
+    { mode: "SUBWAY", displayName: "M1", headsign: "Kabaty", realTime: true, cancelled: true, place: { departure: "2026-11-20T11:10:00Z", scheduledDeparture: "2026-11-20T11:10:00Z" } },
+  ] }; } };
+  const city = createCityTransit({ transitous, now: () => t0 });
+  const r = await city.departures({ stop: "pl-warszawa_7013" });
+  assert.equal(asked[0].stopId, "pl-warszawa_7013");
+  assert.equal(asked[0].time, "2026-11-20T11:00:00.000Z");
+  assert.deepEqual(r.departures.map((d) => [d.line, d.kind, d.clock, d.planned, d.delayMin, d.live, d.cancelled]), [
+    ["175", "bus", "12:02", "12:02", 0, false, false],
+    ["25", "tram", "12:07", "12:04", 3, true, false],
+    ["M1", "metro", "12:10", "12:10", 0, true, true],
+  ]);
+  assert.equal(r.departures[1].color, "#C2185B");
+  assert.equal(r.departures[1].platform, "08");
+  assert.equal(r.stop.name, "Centrum");
+  await city.departures({ stop: "pl-warszawa_7013" });
+  assert.equal(asked.length, 1); // kept for 30 s
+  await assert.rejects(city.departures({ stop: "" }), { status: 400 });
+  await assert.rejects(city.departures({ stop: "x", time: "jutro" }), { status: 400 });
+});
+
+test("every Polish city has a centre, a search radius and what runs there", () => {
+  const { CITIES, publicCities } = require("../src/pl-cities");
+  assert.ok(CITIES.length >= 30);
+  assert.equal(new Set(CITIES.map((c) => c.id)).size, CITIES.length);
+  assert.equal(new Set(CITIES.map((c) => c.name)).size, CITIES.length);
+  for (const c of CITIES) {
+    assert.ok(c.centre[0] > 49 && c.centre[0] < 55 && c.centre[1] > 14 && c.centre[1] < 24.2, c.name);
+    assert.ok(c.km >= 5 && c.km <= 40, c.name);
+    assert.ok(c.modes.length && c.modes.every((m) => ["metro", "tram", "bus", "trolleybus", "rail"].includes(m)), c.name);
+  }
+  assert.ok(!CITIES.some((c) => c.name === "Rzeszów")); // Rzeszów has its own pages
+  for (const name of ["Warszawa", "Kraków", "Wrocław", "Gdańsk", "Poznań", "Łódź"]) assert.ok(publicCities().some((c) => c.name === name), name);
+});
