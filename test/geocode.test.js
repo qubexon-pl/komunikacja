@@ -332,3 +332,29 @@ test("suggestions match every typed word, a station is marked as one, and street
   assert.deepEqual((await suggest.places("Głów")).map((place) => place.label), ["Rzeszów Główny", "Kraków Główny"]);
   assert.equal((await suggest.places("Głów", [52.52, 13.4]))[0].label, "Główna, Berlin");
 });
+
+test("the address at a point is the street and house number there, at the person's own position", async () => {
+  const urls = [];
+  const geocode = createGeocoder({
+    minGapMs: 0,
+    fetchSource: async (url) => {
+      urls.push(String(url));
+      return response({ address: { road: "Promykowa", house_number: "32", city: "Rzeszów", county: "Rzeszów" } });
+    },
+  });
+  const place = await geocode.reverse(50.02311, 21.97012);
+  assert.equal(place.label, "Promykowa 32, Rzeszów");
+  assert.equal(place.exact, true);
+  assert.deepEqual(place.points, [[50.02311, 21.97012]]);
+  assert.match(urls[0], /\/reverse\?/);
+  assert.match(urls[0], /zoom=18/);
+  // The same spot again comes from the cache.
+  await geocode.reverse(50.02311, 21.97012);
+  assert.equal(urls.length, 1);
+});
+
+test("a point outside a street still names the town, and bad coordinates are refused", async () => {
+  const geocode = createGeocoder({ minGapMs: 0, fetchSource: async () => response({ address: { village: "Tyczyn" } }) });
+  assert.equal((await geocode.reverse(49.96, 22.03)).label, "Tyczyn");
+  await assert.rejects(geocode.reverse(120, 22), /położenie/);
+});

@@ -1360,6 +1360,9 @@ function setView(view, push, sub='', kind=FAVF.kind){
   S.agency=view; S.query=''; S.plan=null; S.placeChoice={}; planReq++; planBusy();
   document.body.dataset.view=view; map.invalidateSize();
   document.getElementById('heroLead').textContent=V.lead;
+  // Na stronie podróży „Skąd?” to zawsze adres (ulica z numerem albo miasto), bez przystanków i miejsc z mapy.
+  plFrom.placeholder=view==='podroz'?'Adres lub miasto':'Adres, przystanek, stacja lub miasto';
+  document.getElementById('plGeo').title=view==='podroz'?'Mój adres':'Najbliższy przystanek';
   document.getElementById('mapTitle').textContent=V.map||'Mapa na żywo';
   if(V.plan) document.getElementById('planTitle').textContent=V.plan;
   const search=document.getElementById('lineSearch'); search.value=''; search.placeholder=V.search;
@@ -1748,7 +1751,7 @@ function multiLegBar(P, kind){
   const next=addDays(leg.arrDay||leg.day, Math.round((M.stays[k]||0)/1440)), keep=M.dates[k+1]&&M.dates[k+1]>=(leg.arrDay||leg.day)?M.dates[k+1]:next;
   return `<div class="cs-save multi-next"><div class="cs-choice"><i class="fa-solid fa-route" aria-hidden="true"></i> Etap ${k+1} z ${n}: <b>${esc(P.from)} → ${esc(P.to)}</b> · ${esc(leg.title)}${leg.cost!=null?` · ok. ${zl(leg.cost)}`:''}</div>
     ${last?'':`<label class="multi-date"><span>Następny etap: <b>${esc(M.places[k+1])} → ${esc(M.places[k+2])}</b> — dzień wyjazdu${M.stays[k]?` <small>(postój ${fmtStay(M.stays[k])})</small>`:''}</span><input type="date" class="dp-input" readonly data-multi-date value="${keep}" min="${leg.arrDay||leg.day}" max="${lastPlanDay()}"></label>`}
-    <div class="cs-save-btns"><button type="button" class="btn-grad" data-multi-next="${kind}">${last?'Dalej: zapisz całą podróż':`Dalej: etap ${k+2} — ${esc(M.places[k+1])} → ${esc(M.places[k+2])}`} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div></div>`;
+    <div class="cs-save-btns"><button type="button" class="btn-grad btn-next" data-multi-next="${kind}">${last?'Dalej: zapisz całą podróż':`Dalej: etap ${k+2} — ${esc(M.places[k+1])} → ${esc(M.places[k+2])}`} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div></div>`;
 }
 function renderMultiBar(){
   const el=document.getElementById('multiBar'), M=S.multi;
@@ -1797,10 +1800,11 @@ function saveMultiTrip(status, title){
     trip:{multi:true, legs, home, dest, stops, people, weather, savedAt:new Date().toISOString(), ...stayForTrip('multi',M,{},before)}};
   FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && (x.id===id || (before && x.tid===before.tid)))), item].slice(-50);
   M.savedOk=null; M.saved=item.tid;
-  saveFavorites().then(ok=>{ if(ok!==false && M.saved===item.tid){ M.savedOk=item.tid; if(M.cur==='save') document.getElementById('planResults').innerHTML=multiSaveView(); } }).catch(e=>console.warn('Nie zapisano podróży', e));
+  saveFavorites().then(ok=>{ if(ok!==false && M.saved===item.tid){ M.savedOk=item.tid; if(S.multi===M && M.cur==='save') document.getElementById('planResults').innerHTML=multiSaveView(); } }).catch(e=>console.warn('Nie zapisano podróży', e));
   renderFavorites(); syncStars(); navCounts(); S.editing=null; renderEditBadge();
   document.getElementById('planResults').innerHTML=multiSaveView();
   toast(status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano plan w ulubionych.');
+  finishSaved(item.tid);
 }
 document.getElementById('multiBar')?.addEventListener('click', e=>{
   const M=S.multi; if(!M) return;
@@ -1843,6 +1847,11 @@ function resetPlanner(){
   syncReturn(); planBusy();
 }
 document.getElementById('plReset').addEventListener('click', ()=>{ resetPlanner(); plFrom.focus(); });
+// Zapis („Zapisz moją podróż” albo „Zapisz w ulubionych”) kończy planowanie: czyści planer i otwiera zapisaną podróż.
+function finishSaved(tid){
+  resetPlanner(); document.body.classList.remove('multi-form'); syncReturn();
+  openTrip(tid); window.scrollTo({top:0, behavior:'smooth'});
+}
 document.addEventListener('click', e=>{
   if(!e.target.closest('[data-plan-finish]')) return;
   e.preventDefault(); goPage('podroz'); resetPlanner(); document.body.classList.remove('multi-form'); syncReturn();
@@ -2392,11 +2401,11 @@ function groundNext(P){
   const J=S.plan, st=J?.stages||[P];
   if(st.length>1){
     const picked=st.filter(x=>x.groundPick).length, all=picked===st.length;
-    return `<div class="ground-next ${all?'ready':''}"><span>${all?'<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano połączenia na wszystkich etapach.':`<i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie na każdym etapie (${picked} z ${st.length}): ${st.map((x,k)=>`<b class="${x.groundPick?'ok':''}">${k+1}. ${esc(x.to)}</b>`).join(' · ')}`}</span>${all?`<button type="button" class="btn-grad" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
+    return `<div class="ground-next ${all?'ready':''}"><span>${all?'<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano połączenia na wszystkich etapach.':`<i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie na każdym etapie (${picked} z ${st.length}): ${st.map((x,k)=>`<b class="${x.groundPick?'ok':''}">${k+1}. ${esc(x.to)}</b>`).join(' · ')}`}</span>${all?`<button type="button" class="btn-grad btn-next" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
   }
   const g=P.groundPick, b=P.groundBack;
   if(!g) return '';
-  return `<div class="ground-next ready"><span><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano: <b>${esc(g.title)}</b> · ${esc(groundWhen(g))}${b?` · powrót: <b>${esc(b.title)}</b> ${esc(groundWhen(b))}`:P.round?' · powrót możesz wybrać poniżej':''}</span><button type="button" class="btn-grad" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>`;
+  return `<div class="ground-next ready"><span><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano: <b>${esc(g.title)}</b> · ${esc(groundWhen(g))}${b?` · powrót: <b>${esc(b.title)}</b> ${esc(groundWhen(b))}`:P.round?' · powrót możesz wybrać poniżej':''}</span><button type="button" class="btn-grad btn-next" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>`;
 }
 function groundLegCard(g, label){
   return `<div class="journey-box ground-leg"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-${esc(g.icon)}" aria-hidden="true"></i> ${label}: ${esc(g.title)}</h4></div>
@@ -2446,6 +2455,7 @@ function saveGroundTrip(J, status, title){
   P0.saved=item.tid; renderFavorites(); syncStars(); runPlan(false); navCounts();
   S.editing=null; renderEditBadge();
   toast(status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano plan w ulubionych.');
+  finishSaved(item.tid);
 }
 // Trasa z miejscami pośrednimi: „Rzeszów → Szczecin → Gdańsk → Wrocław”.
 const routeText=f=>[f.from, ...(f.stops||[]), f.to].join(' → ');
@@ -3235,7 +3245,7 @@ function flightCost(P, C){
   return `<div class="fl-cost"><small>Koszt lotów${n>1?' na osobę':''}</small><span>${parts.map(p=>`${p.label} <b>${p.value!=null?eurPln(p.value):'—'}</b>`).join(' + ')}${parts.length>1&&sum!=null?` = <b>${eurPln(sum)}</b>`:''}</span>${n>1&&sum!=null?`<small>za ${peopleText(n)}: <b>${sum*n} zł</b></small>`:''}</div>`;
 }
 function stepNav(back, next, label, middle=''){
-  return `<div class="fl-nav">${back?`<button type="button" class="btn-ghost" data-flight-step="${back}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Wstecz</button>`:'<span></span>'}${middle}${next?`<button type="button" class="btn-grad" data-flight-step="${next}">${label} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
+  return `<div class="fl-nav">${back?`<button type="button" class="btn-ghost" data-flight-step="${back}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Wstecz</button>`:'<span></span>'}${middle}${next?`<button type="button" class="btn-grad btn-next" data-flight-step="${next}">${label} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
 }
 // Zapisany plan: gdy jego lot jest na liście, od razu pokazujemy krok „Plan podróży” z tymi samymi wyborami.
 function applyRestore(P){
@@ -3945,7 +3955,7 @@ function renderStage(P, R, paged){
   if(!sections.length) sections.push(`<div class="empty-note">${stateIll(assetPaths.noResults)}${P.by?`Wybranymi środkami nie dojedziesz na ${fmtClock(P.by)}. Zmień godzinę albo zaznacz więcej środków transportu.`:'Brak połączeń wybranymi środkami transportu. Zaznacz więcej opcji.'}</div>`);
   if(flightsNeeded && (P.flightStep||1)>=2 && !(groundWizard(P)&&P.groundPick)){ const only=sections.filter(x=>x.includes('data-sec="plane"')); sections.length=0; sections.push(...only); }
   if(P.round && !flightsNeeded) sections.push(tripSection(`Powrót ${fmtDay(P.round.back)} od ${fmtClock(backAt)}`, (back.length||railBack.length?back.map(o=>transitCard(o,P,P.dest,home)).join('')+railBack.map(r=>trainCard(r,P,P.dest,home)).join(''):modes.includes('car')?'':'<div class="empty-note">Brak połączeń komunikacją w dniu powrotu. Wróć tą samą trasą.</div>')+backPager(P,back,railBack)+(modes.includes('car')?carCard(P,'back'):''), 'rotate-left'));
-  return `<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span>${favButton({type:'route',view:'podroz',from:P.from,to:P.to},'Zapisz trasę')}<span class="text-soft">${P.km==null?'':'<span>w linii prostej '+fmtKm(P.km)+'</span> · '}<span>${stageTime(P)}</span>${P.round?` · powrót od ${fmtDay(P.round.back)}`:''}</span></div>`+(groundWizard(P)&&P.single?groundStepBar(P):'')+`<div class="stage-top">${tripWeather(P)}${best?`<div class="trip-best">${esc(bestText(best,P,R))}</div>`:''}${stageEstimate(P,R)}</div>`+sections.join('')+(groundWizard(P)&&P.single?groundNext(P):'');
+  return `<div class="plan-head"><span>${esc(P.from)} <span class="txt-red">→</span> ${esc(P.to)}</span><span class="text-soft">${P.km==null?'':'<span>w linii prostej '+fmtKm(P.km)+'</span> · '}<span>${stageTime(P)}</span>${P.round?` · powrót od ${fmtDay(P.round.back)}`:''}</span></div>`+(groundWizard(P)&&P.single?groundStepBar(P):'')+`<div class="stage-top">${tripWeather(P)}${best?`<div class="trip-best">${esc(bestText(best,P,R))}</div>`:''}${stageEstimate(P,R)}</div>`+sections.join('')+(groundWizard(P)&&P.single?groundNext(P):'');
 }
 // Ile pociągów zatrzymuje się na stacji (z rozkładu całego kraju) — żeby wybierać dworce, z których coś jeździ.
 function railStopCounts(){
@@ -5013,6 +5023,7 @@ function saveMyTrip(P, status, title){
   P.saved=item.tid; renderFavorites(); syncStars(); runPlan(false); navCounts();
   S.editing=null; renderEditBadge();
   toast(status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano plan w ulubionych.');
+  finishSaved(item.tid);
 }
 // Moje podróże: oś czasu jak w ulubionych, bez cen do sprawdzania (bilety są już kupione).
 document.getElementById('myTripsPage')?.addEventListener('click', e=>{
@@ -6296,7 +6307,9 @@ function setBusy(input, on){
   if(on && !spin){ spin=document.createElement('span'); spin.className='mini-spin pl-spin'; spin.setAttribute('role','status'); spin.setAttribute('aria-label','Szukam adresu…'); spin.title='Szukam adresu…'; input.after(spin); }
   if(!on && spin) spin.remove();
 }
-function attachSuggest(input, {streets, onPick, local:suggest, near, field}){ // near(): [lat,lon] — podpowiedzi z okolic innego miasta; field(): pole planera
+// Podpowiedzi, które są adresem: ulica (z numerem), miasto, okolica albo miasto za granicą.
+const ADDRESS_KINDS=new Set(['street','address','city','area','lot']);
+function attachSuggest(input, {streets, onPick, local:suggest, near, field, addressOnly}){ // addressOnly(): tylko adresy, bez przystanków i miejsc // near(): [lat,lon] — podpowiedzi z okolic innego miasta; field(): pole planera
   const box=document.createElement('ul'); box.className='suggest-list'; box.id=input.id+'List'; box.setAttribute('role','listbox'); box.hidden=true;
   (input.closest('.pl-field')||input.closest('.cp-field')||input.parentElement).appendChild(box);
   input.setAttribute('role','combobox'); input.setAttribute('aria-autocomplete','list'); input.setAttribute('aria-controls',box.id); input.setAttribute('aria-expanded','false'); input.autocomplete='off';
@@ -6324,7 +6337,8 @@ function attachSuggest(input, {streets, onPick, local:suggest, near, field}){ //
     clearTimeout(timer); const q=input.value.trim(), my=++req;
     if(q.length<2){ items=[]; close(); return; }
     const at=streets ? (near?.()||myBias()) : null;
-    const local=suggest ? suggest(q) : [...abroad(q), ...stopMatches(q, at||(streets?[50.0378,22.0049]:null)).slice(0, streets?3:5).map(label=>({label, kind:'przystanek'}))];
+    const onlyAddr=!!addressOnly?.();
+    const local=suggest ? suggest(q) : onlyAddr ? abroad(q) : [...abroad(q), ...stopMatches(q, at||(streets?[50.0378,22.0049]:null)).slice(0, streets?3:5).map(label=>({label, kind:'przystanek'}))];
     items=local; active=-1; draw();
     if(!streets) return;
     setBusy(input,true);
@@ -6334,7 +6348,8 @@ function attachSuggest(input, {streets, onPick, local:suggest, near, field}){ //
         const {suggestions, places}=await r.json();
         if(my!==req) return;
         // Jak w mapach: najpierw prawdziwe miejsca (sklepy, dworce, ulice, miasta), potem najwyżej dwa pasujące przystanki z rozkładu.
-        const found=suggestions.map((label,i)=>({label, kind:places?.[i]?.kind||'miejsce', main:places?.[i]?.main, sub:places?.[i]?.sub, point:places?.[i]?.point||null}));
+        const found=suggestions.map((label,i)=>({label, kind:places?.[i]?.kind||(onlyAddr?'address':'miejsce'), main:places?.[i]?.main, sub:places?.[i]?.sub, point:places?.[i]?.point||null}))
+          .filter(it=>!onlyAddr || ADDRESS_KINDS.has(it.kind));
         const seen=new Set(found.map(it=>foldText(it.label)));
         items=[...found, ...local.filter(it=>!seen.has(foldText(it.label))).slice(0,2)]; active=-1; draw();
       }catch(e){ console.warn('Podpowiedzi ulic', e); }
@@ -6412,13 +6427,15 @@ function placeTitle(field){ return field==='from'?'Skąd':field==='to'?'Dokąd':
 async function resolvePlace(text, field){
   const q=(text||'').trim(), title=placeTitle(field);
   if(!q) return {error:`Wpisz adres, przystanek lub miasto w polu „${title}”.`};
-  const exact=allStopNames().find(n=>n.toLowerCase()===q.toLowerCase());
+  // „Skąd?” w planerze podróży sprawdzamy tylko jako adres: bez przystanków, stacji i miejsc z mapy.
+  const addrOnly=field==='from' && S.agency==='podroz';
+  const exact=!addrOnly && allStopNames().find(n=>n.toLowerCase()===q.toLowerCase());
   if(exact) return GT.groups.has(exact) ? stopPlace(exact) : stationPlace(exact);
   const abroad=foreignPlaces().find(p=>p.label.toLowerCase()===q.toLowerCase()) || airportPlace(q,false);
   if(abroad) return streetPlace(abroad);
   const chosen=S.placeChoice[field];
   if(chosen && chosen.q===q) return streetPlace(chosen.place, chosen.approximate);
-  const family=stopFamily(q), partialStop=()=>{ if(family) return family; const n=resolveStop(q); if(n) return stopPlace(n); const s=resolveStation(q); return s?stationPlace(s):null; };
+  const family=addrOnly?null:stopFamily(q), partialStop=()=>{ if(addrOnly) return null; if(family) return family; const n=resolveStop(q); if(n) return stopPlace(n); const s=resolveStation(q); return s?stationPlace(s):null; };
   // Wynik musi mieć coś wspólnego z wpisaną nazwą: „Sztokholm” nie może trafić na lokal „Sztokholm” przy Wielkopolskiej 68 w Gdańsku.
   const words=foldName(q.split(',')[0]).split(' ').filter(w=>w.length>=4), related=p=>!words.length || words.some(w=>foldName(p.label).includes(w));
   try{
@@ -6441,7 +6458,7 @@ async function resolvePlace(text, field){
     return partialStop() || (top && related(top) ? streetPlace(top) : {error:`Nie znaleziono miejsca „${q}” (pole „${title}”). Sprawdź pisownię albo wpisz samo miasto.`});
   }catch(e){
     console.warn('Wyszukiwanie miejsc', e);
-    return partialStop() || {error:`Wyszukiwarka adresów jest chwilowo niedostępna. W polu „${title}” wpisz nazwę przystanku.`};
+    return partialStop() || {error:addrOnly?`Wyszukiwarka adresów jest chwilowo niedostępna. Spróbuj ponownie za chwilę.`:`Wyszukiwarka adresów jest chwilowo niedostępna. W polu „${title}” wpisz nazwę przystanku.`};
   }
 }
 function renderPlaceChoice(r){
@@ -6757,18 +6774,41 @@ for(const input of [plDate, document.getElementById('trDate')]){
 document.addEventListener('click', e=>{ const pop=document.getElementById('dpPop'); if(pop && !pop.hidden && !e.target.closest('#dpPop') && !e.target.closest('.dp-input')) closeDatePicker(false); });
 document.querySelectorAll('[data-round]').forEach(b=>b.addEventListener('click', ()=>{ document.body.classList.remove('multi-form'); plRound.checked=b.dataset.round==='1'; syncReturn(); }));
 document.querySelectorAll('[data-trip-kind="multi"]').forEach(b=>b.addEventListener('click', ()=>enterMultiForm()));
-attachSuggest(plFrom, {streets:true, field:()=>'from'});
+attachSuggest(plFrom, {streets:true, field:()=>'from', addressOnly:()=>S.agency==='podroz'});
 attachSuggest(plTo, {streets:true, field:()=>'to'});
 attachSuggest(document.getElementById('ttStop'), {streets:false, onPick:it=>setTimetableStop(it.label)});
 document.getElementById('plSwap').addEventListener('click', ()=>{ const a=plFrom.value; plFrom.value=plTo.value; plTo.value=a; S.placeChoice={from:S.placeChoice.to, to:S.placeChoice.from}; });
 document.getElementById('plGeo').addEventListener('click', ()=>{
   const err=document.getElementById('planErr'); err.textContent='';
+  if(S.agency==='podroz') return fillMyAddress(err);
   if(!GT.loaded){ err.textContent='Rozkład jeszcze się wczytuje.'; return; }
   const places=[...GT.groups.values()].filter(g=>groupInView(g.name));
   const pick=(lat,lon)=>{ let best=null,bd=1e12; for(const g of places){ const d=hav([lat,lon],[g.lat,g.lon]); if(d<bd){bd=d;best=g;} } if(best){ plFrom.value=best.name; err.textContent=`Najbliższy przystanek: ${best.name} (${Math.round(bd)} m)`; } };
   try{ navigator.geolocation.getCurrentPosition(p=>pick(p.coords.latitude,p.coords.longitude), ()=>{ const c=map.getCenter(); pick(c.lat,c.lng); err.textContent+= ' — brak dostępu do lokalizacji, użyto środka mapy.'; }, {timeout:8000}); }
   catch(e){ const c=map.getCenter(); pick(c.lat,c.lng); }
 });
+// Planer podróży: „Skąd?” = adres, pod którym jestem (ulica i numer z dokładnej pozycji), a nie najbliższy przystanek.
+// Bez zgody na lokalizację nic nie zgadujemy ze środka mapy — prosimy o wpisanie adresu.
+function fillMyAddress(err){
+  const btn=document.getElementById('plGeo');
+  if(!navigator.geolocation){ err.textContent=L2('To urządzenie nie podaje lokalizacji. Wpisz adres.','This device does not share its location. Type an address.'); return; }
+  btn.disabled=true; setBusy(plFrom,true);
+  const done=()=>{ btn.disabled=false; setBusy(plFrom,false); };
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const lat=pos.coords.latitude, lon=pos.coords.longitude;
+    try{
+      const r=await fetch('/api/geocode/reverse?'+new URLSearchParams({lat:lat.toFixed(5), lon:lon.toFixed(5)}));
+      const place=r.ok?(await r.json())?.place:null;
+      if(!place?.label) throw new Error('HTTP '+r.status);
+      plFrom.value=place.label;
+      S.placeChoice.from={q:place.label, place:{label:place.label, locality:place.locality||'', points:[[lat,lon]]}};
+      PK.me=[lat,lon];
+      if((pos.coords.accuracy||0)>300) err.textContent=L2(`Lokalizacja jest przybliżona (ok. ${Math.round(pos.coords.accuracy)} m). Sprawdź adres.`,`Your location is approximate (about ${Math.round(pos.coords.accuracy)} m). Check the address.`);
+    }catch(e){ console.warn('Adres z lokalizacji', e); err.textContent=L2('Nie udało się ustalić adresu. Wpisz go ręcznie.','Could not find your address. Type it in.'); }
+    finally{ done(); }
+  }, e=>{ done(); err.textContent=e?.code===1?L2('Przeglądarka nie zezwala na lokalizację. Wpisz adres.','Your browser blocks location. Type an address.'):L2('Nie udało się ustalić położenia. Wpisz adres.','Could not find your position. Type an address.'); },
+  {enableHighAccuracy:true, timeout:15000, maximumAge:0});
+}
 document.getElementById('planResults').addEventListener('input', e=>{ if(e.target.matches('[data-trip-title]')){ const P=S.multi&&!S.plan?S.multi:stageOf(e.target); if(P) P.tripTitle=e.target.value; } });
 document.getElementById('planResults').addEventListener('change', e=>{
   if(e.target.matches('[data-filter-group]')){ S.planView.picked=readFilters(document.getElementById('planFilters')); applyPlanView(); }
@@ -7770,9 +7810,9 @@ function renderWeather(){
   const btn = navigator.geolocation ? `<button type="button" class="wx-here" id="wxHere"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> ${esc(L2('Pokaż dla mojej lokalizacji','Show for my location'))}</button>` : '';
   const why = weatherWhy();
   const here = WX.spot?.picked ? btn
-    : WX.noLoc ? `${why?`<div class="wx-why-text">${esc(why)}</div>`:''}${btn}<form class="wx-pick" id="wxPick"><input type="text" name="q" enterkeyhint="search" autocomplete="off" aria-label="${esc(L2('Miejscowość','Town'))}" placeholder="${esc(L2('np. Tyczyn','e.g. Tyczyn'))}"><button type="submit">${esc(L2('Pokaż','Show'))}</button></form><small class="wx-pick-msg" id="wxPickMsg"></small>`
+    : WX.noLoc ? `${why?wxAlertHtml():''}${btn}<form class="wx-pick" id="wxPick"><input type="text" name="q" enterkeyhint="search" autocomplete="off" aria-label="${esc(L2('Miejscowość','Town'))}" placeholder="${esc(L2('np. Tyczyn','e.g. Tyczyn'))}"><button type="submit">${esc(L2('Pokaż','Show'))}</button></form><small class="wx-pick-msg" id="wxPickMsg"></small>`
     : '';
-  const d=WX.data; if(!d||!d.current){ el.innerHTML=`<div class="cd-label">${WX.spot===undefined?esc(L2('Pogoda','Weather')):weatherTitle()}</div><div class="wx-err">${WX.err?esc(WX.err):'wczytywanie…'}</div>${here}`; return; }
+  const d=WX.data; if(!d||!d.current){ el.innerHTML=`<div class="cd-label">${WX.spot===undefined?esc(L2('Pogoda','Weather')):weatherTitle()}</div><div class="wx-err">${WX.err?esc(WX.err):'wczytywanie…'}</div>${here}`; if(WX.whyOpen) setWxAlert(true); return; }
   const c=d.current; const [desc,ico]=wmo(c.weather_code);
   const h=d.hourly||{}; const hrs=(h.time||[]).map((t,i)=>({t, temp:h.temperature_2m[i], pp:h.precipitation_probability?h.precipitation_probability[i]:null, pr:h.precipitation?h.precipitation[i]:0, code:h.weather_code?h.weather_code[i]:null})).slice(1,5);
   const codes=[c.weather_code, ...hrs.map(x=>x.code)];
@@ -7784,8 +7824,37 @@ function renderWeather(){
       <span class="wx-desc">${esc(desc)}<small>odczuwalna ${Math.round(c.apparent_temperature)}° · wiatr ${Math.round(c.wind_speed_10m)} km/h${c.precipitation?` · opad ${c.precipitation} mm`:''}</small></span></div>
     <div class="wx-hours">${hrs.map(x=>`<span><small>${esc(String(x.t).slice(11,16))}</small>${wmo(x.code)[1]} ${Math.round(x.temp)}°${x.pp!=null?`<small>${x.pp}%</small>`:''}</span>`).join('')}</div>
     <div class="wx-tip ${hard?'hard':wet?'wet':''}">${tip}</div>${here}`;
+  if(WX.whyOpen) setWxAlert(true);
 }
-document.getElementById('wx')?.addEventListener('click', e=>{ if(e.target.closest('#wxHere')) weatherHere(); });
+// Dlaczego nie widać mojej okolicy: czerwony dzwonek obok przycisku, a wyjaśnienie w okienku po kliknięciu.
+function wxAlertHtml(){
+  return `<span class="wx-alert"><button type="button" class="wx-alert-btn" id="wxAlertBtn" aria-haspopup="dialog" aria-expanded="${!!WX.whyOpen}" aria-controls="wxAlertPop" title="${esc(L2('Brak dostępu do lokalizacji','No access to your location'))}"><i class="fa-solid fa-bell" aria-hidden="true"></i><span class="visually-hidden">${esc(L2('Dlaczego nie widać mojej okolicy?','Why is my area not shown?'))}</span></button></span>`;
+}
+// Okienko jest w <body> (position: fixed), bo karta pogody i nagłówek przycinają wszystko, co z nich wystaje.
+function setWxAlert(open){
+  const b=document.getElementById('wxAlertBtn'), why=weatherWhy();
+  WX.whyOpen=open && !!b && !!why;
+  let pop=document.getElementById('wxAlertPop');
+  if(b) b.setAttribute('aria-expanded', String(WX.whyOpen));
+  if(!WX.whyOpen){ if(pop) pop.hidden=true; return; }
+  if(!pop){ pop=document.createElement('div'); pop.id='wxAlertPop'; pop.className='wx-alert-pop'; pop.setAttribute('role','dialog'); document.body.appendChild(pop); }
+  pop.setAttribute('aria-label', L2('Lokalizacja','Location'));
+  pop.innerHTML=`<b><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> ${esc(L2('Brak dostępu do lokalizacji','No access to your location'))}</b>${esc(why)}<button type="button" class="wx-alert-close" data-wx-alert-close aria-label="${esc(L2('Zamknij','Close'))}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
+  pop.hidden=false;
+  const r=b.getBoundingClientRect(), w=pop.offsetWidth;
+  pop.style.top=Math.round(r.bottom+8)+'px'; pop.style.left=Math.round(Math.max(8, Math.min(r.left, innerWidth-w-8)))+'px';
+}
+document.getElementById('wx')?.addEventListener('click', e=>{
+  if(e.target.closest('#wxHere')) weatherHere();
+  if(e.target.closest('#wxAlertBtn')) setWxAlert(!WX.whyOpen);
+});
+document.addEventListener('click', e=>{
+  if(e.target.closest('[data-wx-alert-close]')){ setWxAlert(false); document.getElementById('wxAlertBtn')?.focus(); return; }
+  if(WX.whyOpen && !e.target.closest('.wx-alert, #wxAlertPop')) setWxAlert(false);
+});
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && WX.whyOpen){ setWxAlert(false); document.getElementById('wxAlertBtn')?.focus(); } });
+addEventListener('scroll', ()=>{ if(WX.whyOpen) setWxAlert(false); }, {passive:true});
+addEventListener('resize', ()=>{ if(WX.whyOpen) setWxAlert(true); });
 document.getElementById('wx')?.addEventListener('submit', e=>{ if(e.target.id!=='wxPick') return; e.preventDefault(); weatherPick(e.target.q.value); });
 function weatherBoot(){ clearInterval(WX.timer); renderWeather(); if(CFG.weather===false) return; weatherTick(); WX.timer=setInterval(()=>{ if(!document.hidden) weatherTick(); }, 45*60*1000); }
 

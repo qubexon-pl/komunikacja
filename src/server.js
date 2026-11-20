@@ -72,7 +72,7 @@ const ANDROID_APK_PATH = "/download/voyage.apk";
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, reverse: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -1088,6 +1088,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
   // stored answers and only asked from the outside service when nothing fresh is stored.
   const keep = createStoredAnswers(snapshots);
   const DAY_MS = 86400000;
+  const reverseGeocode = typeof geocode?.reverse === "function" ? geocode.reverse : null;
   geocode = keep.wrap("geo", 30 * DAY_MS, geocode, (q, o) => [String(q || "").trim().toLowerCase(), !!o?.world], (v) => !!v?.places?.length);
   drive = keep.wrap("drive", 30 * DAY_MS, drive, (a, b) => [a, b]);
   findPath = keep.wrap("path", 30 * DAY_MS, findPath, (m, a, b) => [m, a, b], (v) => Array.isArray(v) && v.length > 1);
@@ -1143,6 +1144,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         const publicRoute = req.method === "GET" && (
           (segments[1] === "streets" && segments.length === 2)
           || (segments[1] === "geocode" && segments.length === 2)
+          || (segments[1] === "geocode" && segments.length === 3 && segments[2] === "reverse")
           || (segments[1] === "feeds" && segments[2] === "fetch" && segments.length === 3)
           || (segments[1] === "timetable" && segments.length === 3 && AGENCIES.has(segments[2]))
           || (segments[1] === "schedule" && segments.length === 3 && AGENCIES.has(segments[2]))
@@ -1161,6 +1163,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "rates" && segments.length === 2)
         ) ? (segments[1] === "feeds" ? "feeds"
           : segments[1] === "airport-transfers" ? (segments[2] === "options" ? "transfer-options" : segments[2] ? "transfer-trips" : "transfers")
+          : segments[1] === "geocode" && segments[2] === "reverse" ? "reverse"
           : segments[1] === "transit" ? ({ plan: "city-plan", cities: "city-list", stops: "city-stops", departures: "departures", lines: "city-lines" }[segments[2]] || "vehicles")
           : segments[1]) : null;
         if (publicRoute && !takePublicRequest(req, publicRoute)) {
@@ -1341,6 +1344,26 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
               console.error("Address search failed too:", fallbackError.message);
               json(res, 502, { error: "Podpowiedzi ulic są chwilowo niedostępne." });
             }
+          }
+          return;
+        }
+        if (segments[1] === "geocode" && segments[2] === "reverse" && segments.length === 3 && req.method === "GET") {
+          const lat = Number(url.searchParams.get("lat"));
+          const lon = Number(url.searchParams.get("lon"));
+          if (!url.searchParams.get("lat") || !url.searchParams.get("lon") || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+            json(res, 400, { error: "Podaj położenie." });
+            return;
+          }
+          if (!reverseGeocode) {
+            json(res, 503, { error: "Wyszukiwarka adresów jest chwilowo niedostępna." });
+            return;
+          }
+          try {
+            const place = await reverseGeocode(lat, lon);
+            json(res, place ? 200 : 404, place ? { place } : { error: "Nie znaleziono adresu w tym miejscu." });
+          } catch (error) {
+            console.error("Reverse geocoding failed:", error.message);
+            json(res, 502, { error: "Wyszukiwarka adresów jest chwilowo niedostępna." });
           }
           return;
         }
