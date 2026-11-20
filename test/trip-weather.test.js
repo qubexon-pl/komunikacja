@@ -74,3 +74,15 @@ test("the weather where the person is still comes when the town name cannot be f
   assert.equal(here.place, null);
   assert.equal(here.current.temperature_2m, 20);
 });
+
+test("the town name is the village or small town the person is in, not the nearest city", async () => {
+  let asked = "";
+  const fetchSource = async (u) => {
+    const url = String(u);
+    if (url.includes("nominatim")) { asked = url; return new Response(JSON.stringify({ address: { village: "Mogielnica", municipality: "gmina Boguchwała", county: "powiat rzeszowski", city: "Rzeszów" } })); }
+    return new Response(JSON.stringify({ current: { temperature_2m: 2, weather_code: 3 } }));
+  };
+  const here = await createTripWeather({ fetchSource, now: () => 0 }).current({ lat: 49.99, lon: 21.93 });
+  assert.equal(here.place, "Mogielnica");
+  assert.match(asked, /zoom=14/);
+});

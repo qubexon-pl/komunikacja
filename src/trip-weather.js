@@ -78,11 +78,13 @@ function createTripWeather({ fetchSource = fetch, now = Date.now } = {}) {
     if (now() - lastNameAt < 1100) return null;
     lastNameAt = now();
     try {
-      const url = "https://nominatim.openstreetmap.org/reverse?" + new URLSearchParams({ lat: lat.toFixed(2), lon: lon.toFixed(2), format: "jsonv2", zoom: "10", "accept-language": "pl" });
+      // Zoom 14 reaches villages and small towns; at city level (10) a point in Tyczyn or Mogielnica came back as Rzeszów.
+      const url = "https://nominatim.openstreetmap.org/reverse?" + new URLSearchParams({ lat: lat.toFixed(2), lon: lon.toFixed(2), format: "jsonv2", zoom: "14", addressdetails: "1", "accept-language": "pl" });
       const response = await fetchSource(url, { headers: { "User-Agent": "komunikacja-rzeszow/1.0" }, signal: AbortSignal.timeout(4000) });
       if (!response.ok) return null;
       const a = (await response.json())?.address || {};
-      const name = a.city || a.town || a.village || a.municipality || a.county || null;
+      // The smallest named settlement first; never the county, which reads like the nearest big city.
+      const name = a.village || a.town || a.city || a.hamlet || a.suburb || null;
       return typeof name === "string" && name.trim() ? name.trim().slice(0, 80) : null;
     } catch {
       return null;
@@ -112,7 +114,8 @@ function createTripWeather({ fetchSource = fetch, now = Date.now } = {}) {
     const body = await response.json();
     if (!body?.current) throw Object.assign(new Error("Open-Meteo nie podał pogody."), { status: 502 });
     const value = { current: body.current, hourly: body.hourly || {}, timezone: body.timezone || null, place };
-    nowCache.set(key, { at: now(), value });
+    // Without a name (Nominatim busy) the answer is kept only briefly, so the name is asked again soon.
+    nowCache.set(key, { at: place ? now() : now() - NOW_KEEP_MS + 2 * 60 * 1000, value });
     if (nowCache.size > 500) nowCache.clear();
     return value;
   }
