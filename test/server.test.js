@@ -203,6 +203,39 @@ test("authentication endpoints enforce same-origin requests and set HttpOnly coo
   assert.match(accepted.headers.get("set-cookie"), /SameSite=Lax/);
 });
 
+test("the Android app reaches the API from its own origin and signs in with a bearer token", async (t) => {
+  const baseUrl = await startServer(t, {});
+  const app = "https://localhost";
+  const preflight = await fetch(`${baseUrl}/api/auth/login`, { method: "OPTIONS", headers: { Origin: app, "Access-Control-Request-Method": "POST" } });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-origin"), app);
+  assert.match(preflight.headers.get("access-control-allow-headers"), /Authorization/);
+
+  const login = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: app, "X-Auth-Mode": "token" },
+    body: JSON.stringify({ email: "rider@example.com", password: "example password" }),
+  });
+  assert.equal(login.status, 200);
+  assert.equal(login.headers.get("access-control-allow-origin"), app);
+  assert.equal((await login.json()).token, "new-session");
+
+  const me = await fetch(`${baseUrl}/api/auth/me`, { headers: { Origin: app, Authorization: "Bearer test-session" } });
+  assert.equal((await me.json()).user.email, "rider@example.com");
+
+  // Other sites get no CORS access, no token in the body, and a bearer token from them is not a session.
+  const site = "https://attacker.example";
+  const other = await fetch(`${baseUrl}/api/auth/me`, { headers: { Origin: site, Authorization: "Bearer test-session" } });
+  assert.equal(other.headers.get("access-control-allow-origin"), null);
+  assert.equal((await other.json()).user, null);
+  const web = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: baseUrl },
+    body: JSON.stringify({ email: "rider@example.com", password: "example password" }),
+  });
+  assert.equal((await web.json()).token, undefined);
+});
+
 test("sign-in by e-mail code: the code request sets no session, the right code signs in", async (t) => {
   const calls = [];
   const baseUrl = await startServer(t, {}, {
