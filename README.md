@@ -50,6 +50,14 @@ The planner's last step, before saving, has a Nocleg section for the destination
 
 Visitors who are not signed in land on a welcome page (`welcome.html`, served at `/` for them and always at `/welcome`); signed-in users get the app at `/` as before, and `/plan` always opens the app. The guided tour (`assets/app.tour.js`, same walk-through as in Podavo Clean) is offered once per device on the first visit, and can be reopened from the `?` button in the top bar, from the Konto menu, or with `/plan?tour=1`.
 
+## Admin page and shared settings
+
+Administrators open `/admin` (also from the Admin menu in the app). Everyone else is sent back to the app, and visitors who are not signed in to the login page. A person is an administrator when `dbo.AppUser.is_admin` is set or their e-mail is in `ADMIN_EMAILS`; the page lets an administrator grant or remove the first (not their own, and not for addresses in `ADMIN_EMAILS`).
+
+Settings that used to live in each browser (data sources, map tiles, thresholds, trains, weather, demo mode) are now set once on the admin page and apply to every user, on the web and in the apps. The server keeps only the values that differ from the defaults in [`assets/app.defaults.js`](./assets/app.defaults.js), as one row of `dbo.AppSetting` (`app_settings`), served by `GET /api/settings` and changed by `PUT /api/settings` (administrators only). Open tabs pick up a change within five minutes or when they come back into view. The PKP PLK key is replaced on the same page.
+
+On a computer (mouse or touchpad), the app and the admin page sign the user out after an hour without activity, with a warning two minutes before. Administrators can change the time or turn it off under Sesja. Phones and the Android/iOS apps stay signed in.
+
 ## Database design
 
 The schema in [`database/schema.sql`](./database/schema.sql) separates agencies, routes, stops, services, service calendars, service exceptions, trips, stop times, shapes, shape points, and feed import metadata. Account data is separated into users, local credentials, external identities, sessions, and short-lived email challenges; pending registrations are stored separately and do not create an account before email verification. Composite primary and foreign keys keep IDs scoped to their agency and enforce the timetable relationships. The source URL is represented in storage only by a SHA-256 hash.

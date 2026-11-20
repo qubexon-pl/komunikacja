@@ -8,6 +8,7 @@
 <script src="/assets/app.native.js"></script>
 <script src="/assets/i18n.js"></script>
 <script src="/assets/app.cities.js"></script>
+<script src="/assets/app.defaults.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300..800&display=swap" rel="stylesheet">
@@ -45,14 +46,14 @@
         <button class="nav-link-btn dropdown-toggle" id="adminMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="oi oi-settings" aria-hidden="true"></i> <span class="txt">Admin</span></button>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminMenu">
           <li><button class="dropdown-item" id="refreshBtn" type="button" title="Odśwież teraz"><span class="ico">↻</span> Odśwież</button></li>
-          <li><button class="dropdown-item" id="settingsBtn" type="button"><i class="oi oi-settings" aria-hidden="true"></i> Ustawienia</button></li>
+          <li class="admin-only admin-link"><a class="dropdown-item" href="/admin"><i class="oi oi-settings" aria-hidden="true"></i> Panel administratora</a></li>
         </ul>
       </div>
       <div class="dropdown">
         <button class="nav-link-btn dropdown-toggle" id="userMenu" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-regular fa-user" aria-hidden="true"></i> <span id="currentUser">Konto</span></button>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
           <li class="guest-only"><a class="dropdown-item" id="loginLink" href="/login">Zaloguj się</a></li>
-          <li class="phone-only"><button class="dropdown-item" type="button" data-proxy="settingsBtn"><i class="oi oi-settings" aria-hidden="true"></i> Ustawienia</button></li>
+          <li class="phone-only admin-only admin-link"><a class="dropdown-item" href="/admin"><i class="oi oi-settings" aria-hidden="true"></i> Panel administratora</a></li>
           <li class="install-item" hidden><button class="dropdown-item" id="installBtn" type="button"><i class="fa-solid fa-download ico" aria-hidden="true"></i> Pobierz aplikację</button></li>
           <li><button class="dropdown-item" id="aboutBtn" type="button" data-bs-toggle="modal" data-bs-target="#aboutModal"><i class="fa-solid fa-circle-info ico" aria-hidden="true"></i> O aplikacji</button></li>
           <li><button class="dropdown-item" id="tourBtn" type="button"><i class="fa-regular fa-compass ico" aria-hidden="true"></i> Przewodnik po aplikacji</button></li>
@@ -451,105 +452,6 @@
         <span class="kicker">Komunikaty</span><h4>Alerty, utrudnienia i stan danych</h4>
       </div>
       <div class="modal-body p-3 p-md-4" id="alertsBody"></div>
-    </div>
-  </div>
-</div>
-
-<!-- Settings modal -->
-<div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-hero">
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
-        <span class="kicker">Konfiguracja</span><h4>Źródła danych i progi</h4>
-      </div>
-      <div class="modal-body p-3 p-md-4">
-        <form id="settingsForm">
-          <div class="mb-3">
-            <label class="form-label" for="sThr">Próg „spóźniony” (na czerwono): <span id="sThrLbl">3</span> min</label>
-            <input type="range" class="form-range" min="1" max="10" step="1" id="sThr">
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="sRefresh">Odświeżanie co: <span id="sRefreshLbl">20</span> s</label>
-            <input type="range" class="form-range" min="10" max="60" step="5" id="sRefresh">
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="sTiles">Podkład mapy</label>
-            <select class="form-select" id="sTiles">
-              <option value="esri">Esri — ulice (darmowy, bez klucza)</option>
-              <option value="osm">OpenStreetMap</option>
-              <option value="hot">OpenStreetMap HOT</option>
-              <option value="sat">Esri — zdjęcia satelitarne</option>
-              <option value="carto">CARTO Voyager (może wymagać klucza)</option>
-              <option value="google">Google Maps + natężenie ruchu (własny klucz API)</option>
-            </select>
-            <div id="gBox" class="mt-2">
-              <input class="form-control" id="sGkey" placeholder="Klucz API Google Maps (AIza…)" spellcheck="false" autocomplete="off">
-              <div class="form-check form-switch mt-2">
-                <input class="form-check-input" type="checkbox" id="sTraffic">
-                <label class="form-check-label" for="sTraffic">Pokaż natężenie ruchu na drogach</label>
-              </div>
-              <div class="form-text text-soft">Klucz utworzysz w Google Cloud Console (włącz „Maps JavaScript API”). Wymaga konta rozliczeniowego; przy prywatnym użyciu zwykle mieści się w darmowym limicie. Klucz jest zapisywany tylko w tej przeglądarce.</div>
-            </div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="sRt">GTFS-Realtime (pozycje + opóźnienia), jeden URL na linię — próbowane po kolei</label>
-            <textarea class="form-control" id="sRt" rows="3" spellcheck="false"></textarea>
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="sStatic">GTFS rozkład jazdy (.zip), jeden URL na linię</label>
-            <textarea class="form-control" id="sStatic" rows="3" spellcheck="false"></textarea>
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="sProxy">Pośrednik CORS</label>
-            <select class="form-select" id="sProxy">
-              <option value="auto">Automatycznie (najpierw bezpośrednio, potem serwer aplikacji)</option>
-              <option value="custom">Własny prefiks proxy</option>
-            </select>
-            <input class="form-control mt-2" id="sProxyCustom" placeholder="np. https://moj-proxy.example/?url=" spellcheck="false">
-            <div class="form-text text-soft">Przeglądarka pobiera dane prosto z serwerów ZTM/MPK. Jeśli serwer nie zezwala na CORS, dane pobierze serwer aplikacji.</div>
-          </div>
-          <div class="set-group">
-            <div class="form-check form-switch mb-2">
-              <input class="form-check-input" type="checkbox" id="sPks">
-              <label class="form-check-label" for="sPks"><b>Komunikacja podmiejska</b> (PKS Rzeszów) — linie na mapie i w wyszukiwarce</label>
-            </div>
-            <label class="form-label" for="sPksRt">Komunikacja podmiejska · GTFS-Realtime (jeden URL na linię)</label>
-            <textarea class="form-control mb-2" id="sPksRt" rows="2" spellcheck="false"></textarea>
-            <label class="form-label" for="sPksStatic">Komunikacja podmiejska · rozkład GTFS .zip (jeden URL na linię)</label>
-            <textarea class="form-control" id="sPksStatic" rows="2" spellcheck="false"></textarea>
-            <div class="form-text text-soft">Domyślne adresy pochodzą z kmrzeszow.live i z ich kopii na mpkrzeszow.pl. Dokładne linki („Pobierz plik”) znajdziesz na kmrzeszow.live/otwartedane — wklej je tutaj.</div>
-          </div>
-          <div class="set-group">
-            <div class="form-check form-switch mb-2">
-              <input class="form-check-input" type="checkbox" id="sTrains">
-              <label class="form-check-label" for="sTrains"><b>Pociągi</b> — rozkład i pociągi na mapie w całej Polsce</label>
-            </div>
-            <div class="form-text text-soft">Dane kolejowe pobiera serwer dla wszystkich użytkowników.</div>
-            <div id="plkAdmin" class="mt-2" hidden>
-              <label class="form-label" for="sPlk">Klucz API „Otwarte Dane Kolejowe” PKP PLK</label>
-              <div class="d-flex gap-2">
-                <input class="form-control" id="sPlk" type="password" placeholder="wklej klucz (bezpłatny)" spellcheck="false" autocomplete="off">
-                <button class="btn-ghost" type="button" id="sPlkSave">Zapisz dla wszystkich</button>
-              </div>
-              <div class="form-text text-soft" id="sPlkNote" role="status"></div>
-              <div class="form-text text-soft">Darmowy klucz po rejestracji na pdp-api.plk-sa.pl. Pakiet Basic: 100 zapytań/h i 1000 dziennie. Serwer odświeża dane co 20 min, ok. 350 zapytań dziennie, niezależnie od liczby użytkowników.</div>
-            </div>
-          </div>
-          <div class="form-check form-switch mb-3">
-            <input class="form-check-input" type="checkbox" id="sWeather">
-            <label class="form-check-label" for="sWeather"><b>Pogoda</b> (Open-Meteo, bez klucza)</label>
-          </div>
-          <div class="form-check form-switch mb-3">
-            <input class="form-check-input" type="checkbox" id="sDemo">
-            <label class="form-check-label" for="sDemo">Wymuś tryb demo (symulowane autobusy)</label>
-          </div>
-          <div class="d-flex gap-2 justify-content-end">
-            <button type="button" class="btn-ghost" id="resetSettings">Domyślne</button>
-            <button type="submit" class="btn-grad">Zapisz i przeładuj</button>
-          </div>
-        </form>
-      </div>
     </div>
   </div>
 </div>

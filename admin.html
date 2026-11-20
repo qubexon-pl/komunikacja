@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Panel administratora · podavo.voyage</title>
+<script>try{const t=JSON.parse(localStorage.getItem('rzbus.theme'));if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+<script src="/assets/app.defaults.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300..800&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#173B70">
+<link rel="icon" type="image/svg+xml" href="/assets/onward/logos/mark-transparent.svg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+<link rel="stylesheet" href="/assets/onward/css/tokens.css">
+<link rel="stylesheet" href="/assets/app.css">
+<link rel="stylesheet" href="/assets/app.admin.css">
+</head>
+<body class="admin-page">
+
+<nav class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/plan"><img class="brand-wordmark" src="/assets/onward/logos/wordmark-on-dark.svg" alt="podavo.voyage" width="230" height="32"></a>
+    <div class="nav-links">
+      <span class="adm-who" id="admWho"></span>
+      <a class="nav-link-btn" href="/plan"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> <span class="txt">Wróć do aplikacji</span></a>
+    </div>
+  </div>
+</nav>
+
+<main class="adm-shell">
+  <header class="adm-head">
+    <span class="adm-kicker">podavo.voyage</span>
+    <h1>Panel administratora</h1>
+    <p class="text-soft">Ustawienia zapisane tutaj obowiązują wszystkich użytkowników, w przeglądarce i w aplikacji. Otwarte karty pobierają zmiany w ciągu kilku minut, nowe od razu.</p>
+  </header>
+
+  <section class="adm-stats" aria-label="Podsumowanie">
+    <div class="adm-stat"><span class="lbl">Użytkownicy</span><b id="stUsers">–</b></div>
+    <div class="adm-stat"><span class="lbl">Nowi w 30 dni</span><b id="stRecent">–</b></div>
+    <div class="adm-stat"><span class="lbl">Administratorzy</span><b id="stAdmins">–</b></div>
+    <div class="adm-stat"><span class="lbl">Ustawienia zmienione</span><b id="stUpdated" class="small-val">–</b></div>
+  </section>
+
+  <nav class="adm-tabs" role="tablist" aria-label="Sekcje panelu">
+    <button type="button" role="tab" class="adm-tab on" data-tab="settings" aria-selected="true"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Ustawienia dla wszystkich</button>
+    <button type="button" role="tab" class="adm-tab" data-tab="users" aria-selected="false"><i class="fa-solid fa-users" aria-hidden="true"></i> Użytkownicy</button>
+    <button type="button" role="tab" class="adm-tab" data-tab="keys" aria-selected="false"><i class="fa-solid fa-key" aria-hidden="true"></i> Klucze</button>
+  </nav>
+
+  <!-- Wspólne ustawienia -->
+  <section class="adm-card" id="tab-settings" role="tabpanel">
+    <form id="settingsForm" novalidate>
+      <div class="adm-msg" id="settingsMsg" role="status" aria-live="polite" hidden></div>
+
+      <h2 class="adm-h2">Sesja</h2>
+      <div class="mb-3">
+        <label class="form-label" for="sIdle">Wyloguj na komputerze po bezczynności</label>
+        <select class="form-select" id="sIdle">
+          <option value="0">Nigdy</option>
+          <option value="15">15 minut</option>
+          <option value="30">30 minut</option>
+          <option value="60">1 godzina</option>
+          <option value="120">2 godziny</option>
+          <option value="240">4 godziny</option>
+          <option value="480">8 godzin</option>
+        </select>
+        <div class="form-text text-soft">Dotyczy przeglądarki na komputerze (mysz lub touchpad). Na telefonie i w aplikacji użytkownik zostaje zalogowany. Dwie minuty wcześniej aplikacja ostrzega.</div>
+      </div>
+
+      <h2 class="adm-h2">Mapa i odświeżanie</h2>
+      <div class="row g-3 mb-3">
+        <div class="col-md-6">
+          <label class="form-label" for="sThr">Próg „spóźniony” (na czerwono): <span id="sThrLbl">3</span> min</label>
+          <input type="range" class="form-range" min="1" max="10" step="1" id="sThr">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="sRefresh">Odświeżanie co: <span id="sRefreshLbl">20</span> s</label>
+          <input type="range" class="form-range" min="10" max="60" step="5" id="sRefresh">
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="sTiles">Podkład mapy</label>
+        <select class="form-select" id="sTiles">
+          <option value="esri">Esri — ulice (darmowy, bez klucza)</option>
+          <option value="osm">OpenStreetMap</option>
+          <option value="hot">OpenStreetMap HOT</option>
+          <option value="sat">Esri — zdjęcia satelitarne</option>
+          <option value="carto">CARTO Voyager (może wymagać klucza)</option>
+          <option value="google">Google Maps + natężenie ruchu (klucz API)</option>
+        </select>
+        <div id="gBox" class="mt-2">
+          <input class="form-control" id="sGkey" placeholder="Klucz API Google Maps (AIza…)" spellcheck="false" autocomplete="off">
+          <div class="form-check form-switch mt-2">
+            <input class="form-check-input" type="checkbox" id="sTraffic">
+            <label class="form-check-label" for="sTraffic">Pokaż natężenie ruchu na drogach</label>
+          </div>
+          <div class="form-text text-soft">Klucz trafia do przeglądarek wszystkich użytkowników (tak działa Maps JavaScript API). W Google Cloud Console ogranicz go do adresu tej strony.</div>
+        </div>
+      </div>
+
+      <h2 class="adm-h2">Źródła danych</h2>
+      <div class="mb-3">
+        <label class="form-label" for="sRt">Komunikacja miejska · GTFS-Realtime (pozycje + opóźnienia), jeden URL na linię, próbowane po kolei</label>
+        <textarea class="form-control" id="sRt" rows="2" spellcheck="false"></textarea>
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="sStatic">Komunikacja miejska · rozkład GTFS .zip, jeden URL na linię</label>
+        <textarea class="form-control" id="sStatic" rows="2" spellcheck="false"></textarea>
+      </div>
+      <div class="set-group">
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" id="sPks">
+          <label class="form-check-label" for="sPks"><b>Komunikacja podmiejska</b> (PKS Rzeszów): linie na mapie i w wyszukiwarce</label>
+        </div>
+        <label class="form-label" for="sPksRt">GTFS-Realtime PKS (jeden URL na linię)</label>
+        <textarea class="form-control mb-2" id="sPksRt" rows="2" spellcheck="false"></textarea>
+        <label class="form-label" for="sPksStatic">Rozkład GTFS .zip PKS (jeden URL na linię)</label>
+        <textarea class="form-control" id="sPksStatic" rows="2" spellcheck="false"></textarea>
+        <div class="form-text text-soft">Dokładne linki („Pobierz plik”) są na kmrzeszow.live/otwartedane.</div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="sProxy">Pośrednik CORS</label>
+        <select class="form-select" id="sProxy">
+          <option value="auto">Automatycznie (najpierw bezpośrednio, potem serwer aplikacji)</option>
+          <option value="custom">Własny prefiks proxy</option>
+        </select>
+        <input class="form-control mt-2" id="sProxyCustom" placeholder="np. https://moj-proxy.example/?url=" spellcheck="false">
+      </div>
+      <div class="adm-switches">
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="sTrains"><label class="form-check-label" for="sTrains"><b>Pociągi</b>: rozkład i pociągi na mapie w całej Polsce</label></div>
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="sWeather"><label class="form-check-label" for="sWeather"><b>Pogoda</b> (Open-Meteo, bez klucza)</label></div>
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="sDemo"><label class="form-check-label" for="sDemo">Wymuś tryb demo (symulowane autobusy) dla wszystkich</label></div>
+      </div>
+
+      <div class="adm-actions">
+        <span class="text-soft small" id="settingsMeta"></span>
+        <button type="button" class="btn-ghost" id="resetSettings">Przywróć domyślne</button>
+        <button type="submit" class="btn-grad" id="saveSettings">Zapisz dla wszystkich</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Użytkownicy -->
+  <section class="adm-card" id="tab-users" role="tabpanel" hidden>
+    <div class="adm-msg" id="usersMsg" role="status" aria-live="polite" hidden></div>
+    <div class="adm-search">
+      <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+      <input class="form-control" id="userSearch" type="search" placeholder="Szukaj po imieniu lub e-mailu" autocomplete="off">
+    </div>
+    <div class="table-responsive">
+      <table class="table adm-table">
+        <thead><tr><th>Użytkownik</th><th>Dołączył(a)</th><th class="text-end">Administrator</th></tr></thead>
+        <tbody id="usersBody"><tr><td colspan="3" class="text-soft">Wczytuję…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="form-text text-soft mb-0">Osoby z listy ADMIN_EMAILS w konfiguracji serwera są administratorami zawsze; ich uprawnienia zmienia się w ustawieniach aplikacji w Azure. Nie możesz odebrać uprawnień samemu sobie.</p>
+  </section>
+
+  <!-- Klucze -->
+  <section class="adm-card" id="tab-keys" role="tabpanel" hidden>
+    <h2 class="adm-h2">Klucz API „Otwarte Dane Kolejowe” PKP PLK</h2>
+    <p class="text-soft small">Serwer pobiera dane kolejowe dla wszystkich użytkowników. Darmowy klucz po rejestracji na pdp-api.plk-sa.pl (pakiet Basic: 100 zapytań/h i 1000 dziennie). Zapisanego klucza nie da się odczytać, tylko zastąpić.</p>
+    <div class="d-flex gap-2 flex-wrap">
+      <input class="form-control adm-key" id="sPlk" type="password" placeholder="wklej klucz" spellcheck="false" autocomplete="off">
+      <button class="btn-grad" type="button" id="sPlkSave">Zapisz dla wszystkich</button>
+    </div>
+    <div class="form-text text-soft" id="sPlkNote" role="status"></div>
+  </section>
+</main>
+
+<script src="/assets/app.admin.js"></script>
+</body>
+</html>
