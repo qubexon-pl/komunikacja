@@ -38,7 +38,6 @@
       <span class="nav-sep" aria-hidden="true"></span>
       <a class="nav-fav nav-trips" id="myTripsLink" href="/my-trips" title="Moje podróże"><i class="oi oi-suitcase" aria-hidden="true"></i> <span>Podróże</span><b class="nav-count" id="myTripsCount" hidden></b></a>
       <a class="nav-fav" id="favLink" href="/favourites"><i class="oi oi-star" aria-hidden="true"></i> <span>Ulubione</span><b class="nav-count" id="favCount" hidden></b></a>
-      <button class="nav-link-btn install-btn" id="installBtn" type="button" title="Zainstaluj aplikację" aria-label="Zainstaluj aplikację" hidden><i class="fa-solid fa-download" aria-hidden="true"></i> <span class="txt">Zainstaluj aplikację</span></button>
       <button class="nav-link-btn tour-btn" id="tourHelp" type="button" data-tour="help" title="Przewodnik po aplikacji" aria-label="Przewodnik po aplikacji"><i class="fa-regular fa-circle-question" aria-hidden="true"></i></button>
       <div class="lang-switch" role="group" aria-label="Zmień język"><button type="button" data-lang="pl" lang="pl" aria-pressed="true">PL</button><button type="button" data-lang="en" lang="en" aria-pressed="false">EN</button></div>
       <button class="nav-link-btn" id="alertsBtn" type="button"><i class="oi oi-bell" aria-hidden="true"></i> <span class="txt">Komunikaty</span> <span class="badge-num" id="alertsCount" hidden>0</span></button>
@@ -54,7 +53,7 @@
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
           <li class="guest-only"><a class="dropdown-item" id="loginLink" href="/login">Zaloguj się</a></li>
           <li class="phone-only"><button class="dropdown-item" type="button" data-proxy="settingsBtn"><i class="oi oi-settings" aria-hidden="true"></i> Ustawienia</button></li>
-          <li class="phone-only"><button class="dropdown-item" type="button" data-proxy="refreshBtn"><span class="ico">↻</span> Odśwież</button></li>
+          <li class="install-item" hidden><button class="dropdown-item" id="installBtn" type="button"><i class="fa-solid fa-download ico" aria-hidden="true"></i> Pobierz aplikację</button></li>
           <li><button class="dropdown-item" id="aboutBtn" type="button" data-bs-toggle="modal" data-bs-target="#aboutModal"><i class="fa-solid fa-circle-info ico" aria-hidden="true"></i> O aplikacji</button></li>
           <li><button class="dropdown-item" id="tourBtn" type="button"><i class="fa-regular fa-compass ico" aria-hidden="true"></i> Przewodnik po aplikacji</button></li>
           <li><button class="dropdown-item" id="themeBtn" type="button" title="Motyw">Motyw</button></li>

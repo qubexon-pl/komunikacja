@@ -122,21 +122,36 @@
     });
   };
 
-  /* ---------- keyboard: keep the field you type in above it (browser and apps) ----------
-     Chrome and the Android app shrink the page when the keyboard opens, but do not always scroll the focused field
-     back into sight (it can end up under the keyboard or the bottom bar). After the keyboard settles we check where
-     the field is and scroll the nearest scrolling box (a dialog body, or the page) so it sits in the upper part of
-     what is still visible, leaving room for the place suggestions under it. If the app's web view is not resized
-     at all, the part the keyboard covers is added as space at the bottom (--kb-overlap) so the page can scroll. */
-  (function keepFieldAboveKeyboard(){
+  /* ---------- keyboard: the field you type in goes up to just under the top bar (browser and apps) ----------
+     On a phone the top bar (logo, PL/EN, Konto) and the bottom menu always stay on screen; pages, dialogs and the
+     keyboard use the space between them. Their heights are kept in --app-top and --app-bottom for the CSS.
+     When you tap a field, once the keyboard has opened we scroll the nearest scrolling box (a dialog body, or the
+     page) so the field sits right under the top bar (or the top of the dialog), with the place suggestions below it.
+     While you type, the page gets extra room at the bottom (.kb-room) so even the last field can go up that far.
+     If the app's web view is not resized at all, the part the keyboard covers is --kb-overlap. */
+  (function keepFieldUnderHeader(){
     const root = document.documentElement;
     const NO_KEYBOARD = /^(button|submit|reset|checkbox|radio|range|color|file|image|hidden|date|time|datetime-local|month|week)$/;
     const isTyping = (el) => !!el && el.nodeType === 1 && (el.tagName === 'TEXTAREA' || el.isContentEditable ||
       (el.tagName === 'INPUT' && !NO_KEYBOARD.test(el.type)));
+    const phone = () => window.matchMedia('(max-width:760px)').matches;
+    const touch = () => window.matchMedia('(pointer:coarse)').matches || navigator.maxTouchPoints > 0;
     let nativeKb = 0;                   // keyboard height from the app plugin, in CSS px
     let fullH = window.innerHeight, fullW = window.innerWidth; // page height without the keyboard
-    let overlap = 0, timer = 0;
+    let overlap = 0, timer = 0, roomTimer = 0, roomEl = null;
     const vv = window.visualViewport;
+
+    /* top bar and bottom menu heights, for dialogs and sheets that sit between them */
+    function bars(){
+      const top = document.querySelector('.topbar'), nav = document.querySelector('.bottom-nav');
+      const navH = nav && getComputedStyle(nav).display !== 'none' ? nav.offsetHeight : 0;
+      if(top) root.style.setProperty('--app-top', top.offsetHeight + 'px');
+      root.style.setProperty('--app-bottom', navH + 'px');
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      bars();
+      if(window.ResizeObserver){ const ro = new ResizeObserver(bars); document.querySelectorAll('.topbar, .bottom-nav').forEach(el => ro.observe(el)); }
+    });
 
     function measure(){
       if(window.innerWidth !== fullW){ fullW = window.innerWidth; fullH = window.innerHeight; }
@@ -152,26 +167,31 @@
       return open;
     }
 
-    function stickyTop(el){
-      if(el.closest('.modal, .tour, .ask-layer, .rng-pop, .dp-pop')) return 0;
+    // Where the field should end up: under the top bar on the page, under the top of the scrolling body in a dialog.
+    function topLimit(el){
       const bar = document.querySelector('.topbar');
-      if(!bar) return 0;
-      const pos = getComputedStyle(bar).position;
-      return (pos === 'sticky' || pos === 'fixed') ? Math.max(0, bar.getBoundingClientRect().bottom) : 0;
+      let top = 0;
+      if(bar){ const pos = getComputedStyle(bar).position; if(pos === 'sticky' || pos === 'fixed') top = Math.max(0, bar.getBoundingClientRect().bottom); }
+      const box = el.closest('.modal-body, .modal');
+      if(box) top = Math.max(top, box.getBoundingClientRect().top);
+      if(vv) top = Math.max(top, vv.offsetTop);
+      return top;
     }
 
-    function reveal(){
-      const el = document.activeElement;
-      if(!isTyping(el) || !el.isConnected) return;
-      if(!measure()) return;            // no keyboard: nothing to do
-      let top = vv ? vv.offsetTop : 0;
-      let bottom = Math.min(vv ? vv.offsetTop + vv.height : window.innerHeight, window.innerHeight - overlap);
-      top = Math.max(top, stickyTop(el));
-      const r = el.getBoundingClientRect();
-      const gap = 12;
-      if(r.top >= top + gap && r.bottom <= bottom - gap) return;   // already fully visible
-      // put the field near the top of the visible part, so suggestions fit below it
-      let delta = r.top - (top + Math.max(gap, Math.min(72, (bottom - top) * 0.15)));
+    // Extra room under the content while typing, so the field can scroll up even at the end of the page or dialog.
+    function giveRoom(el){
+      clearTimeout(roomTimer);
+      const box = el.closest('.modal-body') || document.body;
+      if(roomEl && roomEl !== box) roomEl.classList.remove('kb-room');
+      roomEl = box; box.classList.add('kb-room');
+    }
+    function takeRoom(){
+      // later, so a tap on a place suggestion lands before the page gets shorter
+      clearTimeout(roomTimer);
+      roomTimer = setTimeout(() => { if(isTyping(document.activeElement)) return; roomEl?.classList.remove('kb-room'); roomEl = null; }, 700);
+    }
+
+    function scrollBy(el, delta){
       for(let p = el.parentElement; p && Math.abs(delta) > 1 && p !== document.body && p !== root; p = p.parentElement){
         const oy = getComputedStyle(p).overflowY;
         if(!/(auto|scroll)/.test(oy) || p.scrollHeight <= p.clientHeight) continue;
@@ -182,27 +202,61 @@
       if(Math.abs(delta) > 1) window.scrollBy(0, delta);
     }
 
+    function reveal(){
+      const el = document.activeElement;
+      if(!isTyping(el) || !el.isConnected) return;
+      const open = measure();
+      const onPhone = phone() && touch();
+      if(!open && !onPhone) return;    // a computer without an on-screen keyboard: nothing to do
+      // small pop-ups (calendar, tour, questions) only need the field visible
+      if(el.closest('.tour, .ask-layer, .rng-pop, .dp-pop, .dropdown-menu')){
+        const r = el.getBoundingClientRect(), top = topLimit(el), bottom = Math.min(vv ? vv.offsetTop + vv.height : window.innerHeight, window.innerHeight - overlap);
+        if(r.top < top + 8) scrollBy(el, r.top - top - 8); else if(r.bottom > bottom - 8) scrollBy(el, r.bottom - bottom + 8);
+        return;
+      }
+      if(onPhone) giveRoom(el);
+      // the whole field with its label goes up, not only the text box
+      let top = el.getBoundingClientRect().top;
+      for(const sel of ['.pl-field', '.ctx-search', 'label', '.cp-field']){
+        const box = el.closest(sel);
+        if(box && box.getBoundingClientRect().height < 160){ top = Math.min(top, box.getBoundingClientRect().top); break; }
+      }
+      // a label written just above the field (not around it) goes up with it
+      const lab = el.labels && el.labels[0];
+      if(lab && !lab.contains(el)){ const lt = lab.getBoundingClientRect().top; if(lt < top && top - lt < 80) top = lt; }
+      const delta = top - (topLimit(el) + 8);
+      if(Math.abs(delta) > 2) scrollBy(el, delta);
+    }
+
     function later(ms){ clearTimeout(timer); timer = setTimeout(reveal, ms); }
 
     document.addEventListener('focusin', (e) => {
       if(!isTyping(e.target)) return;
+      if(phone() && touch()) giveRoom(e.target);
       later(320);                       // after the keyboard has opened
       setTimeout(reveal, 700);          // and once more if it was slow
     });
     // tapping a field that is already focused brings the keyboard back without a new focus event
     document.addEventListener('click', (e) => { if(isTyping(e.target) && e.target === document.activeElement) later(320); }, true);
-    document.addEventListener('focusout', () => setTimeout(() => { if(!isTyping(document.activeElement)) measure(); }, 50));
-    const onResize = () => { measure(); if(isTyping(document.activeElement)) later(80); };
+    document.addEventListener('focusout', () => setTimeout(() => { if(!isTyping(document.activeElement)){ measure(); takeRoom(); } }, 50));
+    const onResize = () => { bars(); measure(); if(isTyping(document.activeElement)) later(80); };
     window.addEventListener('resize', onResize);
     if(vv) vv.addEventListener('resize', onResize);
 
     if(native && P.Keyboard){
       P.Keyboard.addListener('keyboardWillShow', (info) => { nativeKb = (info && info.keyboardHeight) || 1; root.classList.add('keyboard-open'); });
-      P.Keyboard.addListener('keyboardDidShow', (info) => { nativeKb = (info && info.keyboardHeight) || nativeKb || 1; later(30); });
+      P.Keyboard.addListener('keyboardDidShow', (info) => { nativeKb = (info && info.keyboardHeight) || nativeKb || 1; measure(); later(30); });
       P.Keyboard.addListener('keyboardWillHide', () => { nativeKb = 0; measure(); });
       P.Keyboard.addListener('keyboardDidHide', () => { nativeKb = 0; measure(); });
     }
   })();
+
+  /* ---------- phone: the bottom menu and the logo close an open dialog before they take you somewhere ---------- */
+  document.addEventListener('click', (e) => {
+    if(!e.target.closest || !e.target.closest('.bottom-nav a, .topbar a.brand')) return;
+    if(!window.bootstrap) return;
+    document.querySelectorAll('.modal.show').forEach(m => window.bootstrap.Modal.getInstance(m)?.hide());
+  }, true);
 
   /* ---------- pull down to refresh (the app, and the web app on the Home Screen) ----------
      A firm swipe down at the top of the page reloads it with fresh data. Browsers have their own, so only installed. */
