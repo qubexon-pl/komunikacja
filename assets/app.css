@@ -3134,3 +3134,59 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 /* ---- mapy na telefonie: jeden palec przewija stronę, dwa przesuwają mapę ---- */
 .two-finger-hint{position:absolute; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center; background:rgba(13,33,64,.55); color:#fff; font-weight:600; font-size:1rem; pointer-events:none; opacity:0; transition:opacity .25s}
 .two-finger-show .two-finger-hint{opacity:1}
+
+/* ---- Strona podróży: szczegóły pod przyciskami z ikonami, a każdy otwiera okno (etapy przebiegu też) ---- */
+.tp-tools{display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin:14px 0}
+.tp-tool{display:flex; align-items:center; gap:12px; min-width:0; padding:12px 14px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); color:var(--ink); box-shadow:var(--shadow-soft); text-align:left; font:inherit; cursor:pointer; transition:border-color .15s, transform .15s}
+.tp-tool:hover{border-color:color-mix(in srgb,var(--gold) 60%,var(--line)); transform:translateY(-1px)}
+.tp-tool:focus-visible{outline:2px solid var(--gold); outline-offset:2px}
+.tp-tool.on{border-color:var(--gold)}
+.tp-tool-ic{flex:none; display:inline-flex; align-items:center; justify-content:center; width:42px; height:42px; border-radius:12px; background:color-mix(in srgb,var(--gold) 16%,var(--bg-alt)); color:var(--gold); font-size:1.1rem}
+.tp-tool-tx{display:flex; flex-direction:column; min-width:0}
+.tp-tool-tx b{font-size:.92rem; line-height:1.2}
+.tp-tool-tx small{color:var(--ink-soft); font-size:.78rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.tp-sheet-layer{position:fixed; inset:0; z-index:1050; display:flex; align-items:center; justify-content:center; padding:24px; background:rgba(15,30,60,.45); opacity:0; transition:opacity .15s}
+.tp-sheet-layer.show{opacity:1}
+.tp-sheet{display:flex; flex-direction:column; width:min(760px,100%); max-height:min(88vh,100%); border-radius:18px; background:var(--bg); box-shadow:0 24px 60px rgba(15,30,60,.3); transform:translateY(10px) scale(.985); transition:transform .15s; overflow:hidden}
+.tp-sheet-layer.show .tp-sheet{transform:none}
+.tp-sheet-map,.tp-sheet-city{width:min(1040px,100%)}
+.tp-sheet-bar{display:flex; align-items:center; gap:10px; padding:10px 12px 0 16px}
+.tp-sheet-bar h4{flex:1 1 auto; margin:0; font-size:1.05rem} .tp-sheet-bar h4 i{color:var(--gold)}
+.tp-sheet-bar > span{flex:1 1 auto}
+.tp-sheet-back{display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:4px 12px; font-size:.84rem}
+.tp-sheet-x{flex:none; width:40px; height:40px; border:0; border-radius:50%; background:var(--soft); color:var(--ink); font-size:1.1rem}
+.tp-sheet-x:hover{background:color-mix(in srgb,var(--ink) 10%,var(--soft))}
+.tp-sheet-body{flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; padding:10px 16px 16px}
+.tp-sheet-body > .tp-sec,.tp-sheet-body > .cost-card,.tp-sheet-body > .tp-photos,.tp-sheet-body > .tp-map-box,.tp-sheet-body > .tp-city{margin:0; padding:0; border:0; border-radius:0; background:none; box-shadow:none}
+.tp-sheet-body > .cost-card > h4{display:none}
+.tp-sheet-body > .tp-photos .tp-photos-head h4{display:none}
+.tp-sheet-body > .tp-photos .tp-photos-head{justify-content:flex-start}
+.tp-sheet-map .tp-map{height:min(62vh,560px)}
+.tp-sheet-nav{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid var(--line)}
+.tp-sheet-nav .btn-ghost{display:inline-flex; align-items:center; gap:6px; min-height:38px; padding:6px 12px; font-size:.84rem}
+@media (max-width:760px){
+  .tp-tools{grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px}
+  .tp-tool{flex-direction:column; align-items:flex-start; gap:8px; padding:12px}
+  .tp-tool-ic{width:38px; height:38px; font-size:1rem}
+  .tp-sheet-layer{top:var(--app-top,56px); bottom:calc(var(--app-bottom,62px) + var(--kb-overlap,0px)); padding:0; align-items:stretch}
+  .tp-sheet,.tp-sheet-map,.tp-sheet-city{width:100%; max-height:100%; border-radius:0; transform:translateY(16px)}
+  .tp-sheet-map .tp-map{height:calc(100vh - var(--app-top,56px) - var(--app-bottom,62px) - 110px)}
+}
+/* zdjęcia: kafelek dodawanego i usuwanego zdjęcia z paskiem postępu */
+.tp-photo.adding{display:flex; align-items:center; justify-content:center; background:color-mix(in srgb,var(--gold) 10%,var(--soft))}
+.tp-photo-spin{width:26px; height:26px; border:3px solid color-mix(in srgb,var(--gold) 30%,transparent); border-top-color:var(--gold); border-radius:50%; animation:tp-spin .8s linear infinite}
+@keyframes tp-spin{to{transform:rotate(360deg)}}
+.tp-photo.removing img{opacity:.45; filter:grayscale(.6)}
+.tp-photo.removing,.tp-photo.adding{transition:opacity .2s, transform .2s}
+.tp-photo.gone{opacity:0; transform:scale(.9)}
+.tp-photo-busy .tp-photo-bar i{transition:width .3s ease}
+.tp-photo.removing .tp-photo-busy .tp-photo-bar i{background:var(--red,#DC5555)}
+.tp-photo-bar.indeterminate i{width:40%; animation:tp-indet 1.1s ease-in-out infinite}
+@keyframes tp-indet{0%{transform:translateX(-100%)} 100%{transform:translateX(250%)}}
+.tp-photo-busy{background:linear-gradient(transparent,rgba(10,26,52,.85)) !important}
+.tp-photo.adding .tp-photo-busy{color:#fff}
+@media (prefers-reduced-motion: reduce){ .tp-photo-spin,.tp-photo-bar.indeterminate i{animation-duration:3s} }
+.tp-sheet{position:relative}
+.tp-sheet-step .tp-sheet-bar{position:absolute; top:10px; right:10px; padding:0; z-index:1}
+.tp-sheet-step .tp-sheet-body{padding-top:16px}
+.tp-sheet-step .tp-panel > h4{padding-right:48px; min-height:32px; display:flex; align-items:center; gap:6px}

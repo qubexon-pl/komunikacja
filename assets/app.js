@@ -1321,7 +1321,7 @@ const OLD_HASH={'#rozklad':'#timetable', '#podroze':'#trips', '#autobusy':'#buse
 const pageHash=()=>OLD_HASH[location.hash]||location.hash;
 const FAVF={kind:'all'};
 // Moje podróże (/my-trips) i strona jednej zapisanej podróży (/trip?id=…).
-const TRIPV={id:'', city:false, map:false};
+const TRIPV={id:'', city:false, map:false, sheet:'', back:''};
 // Moje podróże mają dwie zakładki: nadchodzące (domyślnie) i archiwum minionych (/my-trips#archive).
 const MYT={tab:'upcoming'};
 function pageFromLocation(){
@@ -1550,7 +1550,7 @@ function setSubpage(sub){
   if((sub==='rozklad'||sub==='linie') && S.agency==='podroz') sub='';
   if(sub==='kierunki' && S.agency!=='podroz') sub='';
   if((sub==='moje'||sub==='trip') && S.agency!=='podroz') sub='';
-  if(S.sub==='trip' && sub!=='trip'){ document.getElementById('tripPage').innerHTML=''; TRIPV.city=false; stopVehicles(); }
+  if(S.sub==='trip' && sub!=='trip'){ document.getElementById('tripPage').innerHTML=''; TRIPV.city=false; TRIPV.sheet=''; TRIPV.map=false; stopVehicles(); }
   S.sub=sub;
   const V=VIEWS[S.agency];
   document.body.classList.toggle('tt-mode', sub==='rozklad' && !(S.agency==='ztm' && txCity())); // odjazdy innych miast mają własną stronę
@@ -4957,7 +4957,7 @@ function hashText(t){ let h=5381; for(let i=0;i<t.length;i++) h=((h<<5)+h+t.char
 const tidOf=f=>f.tid||('k'+hashText(favKey(f))).padEnd(6,'0');
 const newTid=()=>(Math.random().toString(36).slice(2)+Date.now().toString(36)).slice(0,12);
 function findTrip(id){ return id?FAV.items.find(f=>f.type==='trip' && tidOf(f)===id)||sharedTrip(id)||null:null; }
-function openTrip(id, opts={}){ TRIPV.id=id; TRIPV.city=false; TRIPV.cityAt=undefined; TRIPV.step='go'; TRIPV.map=false; PEOPLE.invite=!!opts.invite; PEOPLE.open=!!opts.invite; PEOPLE.adding=!!opts.invite; goPage('podroz','trip'); }
+function openTrip(id, opts={}){ TRIPV.id=id; TRIPV.city=false; TRIPV.cityAt=undefined; TRIPV.step='go'; TRIPV.map=false; TRIPV.sheet=''; TRIPV.back=''; PEOPLE.invite=!!opts.invite; PEOPLE.open=!!opts.invite; PEOPLE.adding=!!opts.invite; goPage('podroz','trip'); }
 // Jak podróż wyglądała w chwili zapisu: loty, dojazd na lotnisko, wybrany dojazd do centrum, cel i lotnisko docelowe.
 function tripSnapshot(P, f, o, d){
   const p=P.dest?.points?.[0], pt=Array.isArray(p)?{lat:p[0], lon:p[1]}:p, t=XFER.get(f.to);
@@ -5396,7 +5396,6 @@ function renderTripPage(){
   const today=ymdOf(0), day=T?.out?.day||(T?.ground||T?.multi?groundDates(f)?.day:'')||fl?.day, back=T?.ret?.day||(T?.ground||T?.multi?groundDates(f)?.back:'')||fl?.back||'';
   const stay=day&&back?Math.round((Date.parse(back)-Date.parse(day))/86400000)+1:0;
   const when=!day?'':(back||day)<today?'minęła':day<=today?'trwa':`za ${Math.round((Date.parse(day)-Date.parse(today))/86400000)} dni`;
-  const photosSlot=f.tid&&!f.shared?'<section class="tp-photos compact" id="tripPhotos" aria-live="polite"></section>':'';
   const head=`<div class="tp-head">
     <div class="tp-title">${f.shared?`<span class="tp-status shared"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępnił(a)','Shared by')}: ${esc(f.shared.ownerName)}</span> `:SHARED.mine[f.tid]?.length?`<span class="tp-status shared"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępniona','Shared with')}: ${esc(SHARED.mine[f.tid].join(', '))}</span> `:''}<span class="tp-status ${booked?'booked':'planned'}">${booked?'<i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Moja podróż':'<i class="fa-regular fa-bookmark" aria-hidden="true"></i> Plan w ulubionych'}</span>
       <h3>${f.title?esc(f.title):`${esc(f.from)} <span class="txt-red">→</span> ${esc(f.to)}`}</h3>${f.title||f.stops?.length?`<div class="tp-route">${(f.title?[f.from, ...(f.stops||[]), f.to]:f.stops).map(esc).join(' <span class="txt-red">→</span> ')}</div>`:''}
@@ -5408,8 +5407,8 @@ function renderTripPage(){
       ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-remove><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Usuń</button>'}
       <a class="tp-back" href="${booked?(when==='minęła'?'/my-trips#archive':'/my-trips'):'/favourites#trips'}" ${booked?`data-go-mytrips="${when==='minęła'?'archive':''}"`:'data-fav-goto'}><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${booked?(when==='minęła'?'Archiwum':'Moje podróże'):'Ulubione'}</a>
     </div></div>`+
-    (booked&&when!=='minęła'?`<div class="tp-ready"><img src="${assetPaths.readyToGo}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>${T?.ground||T?.multi?'Przygotuj się do wyjazdu: sprawdź poniżej przebieg podróży i pogodę po drodze. Bilety kupisz u przewoźników.':'Przygotuj się do wyjazdu: sprawdź poniżej dojazd na lotnisko, lot i drogę do centrum. Bilety i rezerwacje potwierdzisz u przewoźników.'}</p>${photosSlot}</div>`
-      :!booked?`<div class="tp-ready"><img src="${assetPaths.journeyPlanned}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>To plan zapisany w ulubionych. Sprawdź ceny i dojazdy, a gdy podróż będzie pewna, zapisz ją jako swoją.</p>${photosSlot}</div>`:'');
+    (booked&&when!=='minęła'?`<div class="tp-ready"><img src="${assetPaths.readyToGo}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>${T?.ground||T?.multi?'Przygotuj się do wyjazdu: sprawdź poniżej przebieg podróży i pogodę po drodze. Bilety kupisz u przewoźników.':'Przygotuj się do wyjazdu: sprawdź poniżej dojazd na lotnisko, lot i drogę do centrum. Bilety i rezerwacje potwierdzisz u przewoźników.'}</p></div>`
+      :!booked?`<div class="tp-ready"><img src="${assetPaths.journeyPlanned}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>To plan zapisany w ulubionych. Sprawdź ceny i dojazdy, a gdy podróż będzie pewna, zapisz ją jako swoją.</p></div>`:'');
   if(!T){
     page.innerHTML=`<div class="tp">${head}<div class="tp-card"><h4><i class="fa-solid fa-plane" aria-hidden="true"></i> Lot</h4>${fl?`<div class="tp-flight"><b>${esc(fl.from)} → ${esc(fl.to)}</b><small>${longDay(fl.day,{weekday:'short', day:'numeric', month:'long'})}${fl.back?` – powrót ${longDay(fl.back,{day:'numeric', month:'long'})}`:''}${f.flight?.price?` · zapisano za ${f.flight.price} zł`:''}</small></div>`:''}
       <div class="empty-note">Ta podróż została zapisana, zanim strona podróży powstała. Otwórz ją w planerze i zapisz ponownie na ostatnim kroku, aby zobaczyć tu cały plan.</div></div></div>`;
@@ -5418,31 +5417,92 @@ function renderTripPage(){
   if(T.ground||T.multi){
     // Tak jak przy samolocie: nocleg w miejscu docelowym i komunikacja w mieście — zmienia się tylko środek transportu.
     const dest=T.dest?.label||f.to;
-    const cityBox=cityExploreBox(f,T); // plan zwiedzania w każdym mieście podróży
-    page.innerHTML=`<div class="tp">${head}${groundFlow(T)}
-      ${groundStepPanel(T,f)}
-      <div class="plan-extra tp-extra">${costCard(groundCosts(T))}${tripMapBox()}</div>
-      ${cityBox}${f.tid && booked && when==='minęła'?'<section class="tp-photos" id="tripPhotos" aria-live="polite"></section>':''}</div>`;
-    if(TRIPV.map) mountTripMap(f,T);
-    if(f.tid && FAV.user && SHARED.ok){ if(PEOPLE.key!==`${tripOwner(f)}|${f.tid}`) PEOPLE.data=null; watchPeople(f,T); } else clearInterval(PEOPLE.timer);
-    if(f.tid && window.TripPhotos) window.TripPhotos.mount(document.getElementById('tripPhotos'), f.tid);
-    mountTripCity(f,T,day,back);
+    const flow=groundFlow(T);
+    paintTripPage(page, f, T, head, flow, ()=>groundStepPanel(T,f), groundCosts(T), cityExploreBox(f,T), day, back);
     return;
   }
   const city=T.centre?.label||T.airport?.city||f.to, old=!T.access?.steps;
   const n=T.people||1;
   const price=booked?(T.total!=null?`<div class="tp-total">Loty razem: <b>${T.total*(T.people||1)} zł</b>${(T.people||1)>1?` <small>(${T.people} × ${T.total} zł)</small>`:''}</div>`:''):(fl?savedPriceHtml(favKey(f), fl, f.flight?.price):'');
-  const cityBox=cityExploreBox(f,T);
-  page.innerHTML=`<div class="tp">${head}${tripFlow(T)}
-    ${old?'<div class="fl-mismatch" role="status"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <span>Ta podróż została zapisana wcześniej, bez kroków dojazdu i miejsc na mapie. Otwórz ją w planerze („Edytuj w planerze”) i zapisz ponownie na ostatnim kroku, aby zobaczyć wszystkie szczegóły.</span></div>':''}
-    ${tripStepPanel(T,f,price)}
-    <div class="plan-extra tp-extra">${costCard(tripCostsWithHotel(T))}${tripMapBox()}</div>
-    ${cityBox}${f.tid && booked && when==='minęła'?'<section class="tp-photos" id="tripPhotos" aria-live="polite"></section>':''}</div>`;
-  if(TRIPV.map) mountTripMap(f,T);
+  const note=old?'<div class="fl-mismatch" role="status"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <span>Ta podróż została zapisana wcześniej, bez kroków dojazdu i miejsc na mapie. Otwórz ją w planerze („Edytuj w planerze”) i zapisz ponownie na ostatnim kroku, aby zobaczyć wszystkie szczegóły.</span></div>':'';
+  paintTripPage(page, f, T, head, tripFlow(T)+note, ()=>tripStepPanel(T,f,price), tripCostsWithHotel(T), cityExploreBox(f,T), day, back);
+}
+/* ---------- Strona podróży: przebieg podróży (etapy) zostaje na stronie, a reszta jest pod przyciskami z ikonami.
+   Etap i każdy przycisk otwierają okno ze szczegółami na środku ekranu (na telefonie na cały ekran), więc strona
+   nie przewija się w dół ani nie skacze. Okno jest częścią strony podróży: gdy strona się odświeża (zapis hotelu,
+   plan od AI), okno zostaje otwarte w tym samym miejscu. ---------- */
+const TP_SHEETS={get cost(){ return ['wallet',L2('Koszt podróży','Trip cost')]; }, get photos(){ return ['images',L2('Zdjęcia z podróży','Trip photos')]; }, get hotel(){ return ['bed',L2('Nocleg','Accommodation')]; }, get map(){ return ['map',L2('Mapa podróży','Trip map')]; }, get city(){ return ['landmark',L2('Plan zwiedzania','Sightseeing plan')]; }};
+function tripTools(f, T, costs, cityBox){
+  const tool=(key,sub,extra='')=>{ const [icon,label]=TP_SHEETS[key], on=TRIPV.sheet===key||(key==='hotel'&&TRIPV.sheet==='step'&&TRIPV.step==='hotel');
+    return `<button type="button" class="tp-tool ${on?'on':''}" data-tp-sheet="${key}" aria-haspopup="dialog"><span class="tp-tool-ic"><i class="fa-solid fa-${icon}" aria-hidden="true"></i></span><span class="tp-tool-tx"><b>${label}</b><small${extra}>${sub}</small></span></button>`; };
+  const h=T.hotel, stays=(T.stopHotels||[]).length+(h?1:0), cities=tripCities(T,f), planned=allLocalItems(T).length;
+  const out=[];
+  if(costs?.rows?.length) out.push(tool('cost', `${costs.missing?'od ':'ok. '}${costs.total} zł${(costs.people||1)>1?` · ${peopleText(costs.people)}`:''}`));
+  if(f.tid && !f.shared) out.push(tool('photos', L2('Dodaj i przeglądaj','Add and browse'), ' data-tp-photo-count'));
+  out.push(tool('hotel', h?esc(h.name)+(stays>1?` +${stays-1}`:''):L2('Dodaj hotel','Add a stay')));
+  out.push(tool('map', L2('Trasa i uczestnicy','Route and people')));
+  if(cityBox) out.push(tool('city', planned?`${planned} ${planned===1?'punkt':planned<5?'punkty':'punktów'}`:esc(cities.map(c=>c.label).slice(0,2).join(', '))||L2('Miejsca i dojazdy','Places and rides')));
+  return `<nav class="tp-tools" aria-label="${L2('Szczegóły podróży','Trip details')}">${out.join('')}</nav>`;
+}
+function tripSheetBody(f, T, flow, stepPanel, costs, cityBox){
+  const k=TRIPV.sheet;
+  if(k==='step'){
+    const keys=[...flow.matchAll(/data-tp-step="(\w+)"/g)].map(m=>m[1]).filter((x,i,a)=>a.indexOf(x)===i), i=keys.indexOf(TRIPV.step||'go');
+    const lab=key=>(flow.match(new RegExp(`data-tp-step="${key}"[^>]*>(?:<i[^>]*></i>)?<small>([^<]*)</small>`))||[])[1]||'';
+    const nav=keys.length>1?`<div class="tp-sheet-nav">${i>0?`<button type="button" class="btn-ghost" data-tp-step="${keys[i-1]}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${esc(lab(keys[i-1]))}</button>`:'<span></span>'}<small class="text-soft">${i+1} / ${keys.length}</small>${i>=0&&i<keys.length-1?`<button type="button" class="btn-ghost" data-tp-step="${keys[i+1]}">${esc(lab(keys[i+1]))} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:'<span></span>'}</div>`:'';
+    return stepPanel()+nav;
+  }
+  if(k==='cost') return costCard(costs);
+  if(k==='photos') return '<section class="tp-photos" id="tripPhotos" aria-live="polite"></section>';
+  if(k==='map') return `<section class="tp-map-box tp-map-sheet"><div class="tp-map-slot"></div><small class="text-soft">${L2('Kliknij etap podróży, a potem „Na mapie”, aby pokazać go na mapie.','Open a stage and press “On the map” to show it here.')}</small></section>`;
+  if(k==='city') return cityBox;
+  return '';
+}
+function paintTripPage(page, f, T, head, flow, stepPanel, costs, cityBox, day, back){
+  if(TRIPV.sheet==='hotel'){ TRIPV.sheet='step'; TRIPV.step='hotel'; }
+  if(TRIPV.sheet==='city' && !cityBox) TRIPV.sheet='';
+  if(TRIPV.sheet==='photos' && !(f.tid && !f.shared)) TRIPV.sheet='';
+  if(TRIPV.sheet==='cost' && !costs?.rows?.length) TRIPV.sheet='';
+  TRIPV.map=TRIPV.sheet==='map';
+  if(TRIPV.sheet!=='city') TRIPV.city=false;
+  // Odświeżenie strony nie może jej przewinąć: zostaje to samo miejsce na stronie i w otwartym oknie.
+  const y=window.scrollY, was=page.querySelector('.tp-sheet'), wasKey=was?.dataset.sheet, wasTop=page.querySelector('.tp-sheet-body')?.scrollTop||0;
+  const key=TRIPV.sheet==='step'?'step:'+(TRIPV.step||'go'):TRIPV.sheet;
+  const body=TRIPV.sheet?tripSheetBody(f,T,flow,stepPanel,costs,cityBox):'';
+  const sheet=TRIPV.sheet?`<div class="tp-sheet-layer${was?' show':''}" data-tp-sheet-layer><div class="tp-sheet tp-sheet-${TRIPV.sheet}" data-sheet="${esc(key)}" role="dialog" aria-modal="true" aria-label="${esc(TRIPV.sheet==='step'?L2('Etap podróży','Trip stage'):TP_SHEETS[TRIPV.sheet]?.[1]||'')}">
+      <div class="tp-sheet-bar">${TRIPV.back?`<button type="button" class="btn-ghost tp-sheet-back" data-tp-sheet-back><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${L2('Wróć','Back')}</button>`:''}${TRIPV.sheet!=='step'&&TP_SHEETS[TRIPV.sheet]?`<h4><i class="fa-solid fa-${TP_SHEETS[TRIPV.sheet][0]}" aria-hidden="true"></i> ${TP_SHEETS[TRIPV.sheet][1]}</h4>`:'<span></span>'}<button type="button" class="tp-sheet-x" data-tp-sheet-close aria-label="${L2('Zamknij','Close')}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>
+      <div class="tp-sheet-body">${body}</div></div></div>`:'';
+  page.innerHTML=`<div class="tp">${head}${flow}${tripTools(f,T,costs,cityBox)}</div>${sheet}`;
+  if(window.scrollY!==y) window.scrollTo(0,y);
+  const layer=page.querySelector('[data-tp-sheet-layer]');
+  if(layer){
+    if(wasKey===key) layer.querySelector('.tp-sheet-body').scrollTop=wasTop;
+    if(!was){ requestAnimationFrame(()=>layer.classList.add('show')); layer.querySelector('[data-tp-sheet-close]').focus({preventScroll:true}); }
+  }
+  if(TRIPV.map){ mountTripMap(f,T); setTimeout(()=>TRIPMAP.map?.invalidateSize(), 220); }
   if(f.tid && FAV.user && SHARED.ok){ if(PEOPLE.key!==`${tripOwner(f)}|${f.tid}`) PEOPLE.data=null; watchPeople(f,T); } else clearInterval(PEOPLE.timer);
-  if(f.tid && window.TripPhotos) window.TripPhotos.mount(document.getElementById('tripPhotos'), f.tid);
+  if(f.tid && window.TripPhotos){
+    const box=document.getElementById('tripPhotos'); if(box) window.TripPhotos.mount(box, f.tid);
+    const cnt=page.querySelector('[data-tp-photo-count]');
+    if(cnt && window.TripPhotos.count) window.TripPhotos.count(f.tid).then(n=>{ if(n && cnt.isConnected) cnt.textContent=`${n} ${n===1?'zdjęcie':n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?'zdjęcia':'zdjęć'}`; }).catch(()=>{});
+  }
   mountTripCity(f,T,day,back);
 }
+function openTripSheet(key, back=''){
+  TRIPV.back=back;
+  if(key.startsWith('step:')){ TRIPV.sheet='step'; TRIPV.step=key.slice(5); } else TRIPV.sheet=key;
+  renderTripPage();
+}
+function closeTripSheet(){
+  if(!TRIPV.sheet) return;
+  const layer=document.querySelector('#tripPage [data-tp-sheet-layer]');
+  const done=()=>{ TRIPV.sheet=''; TRIPV.back=''; TRIPV.map=false; TRIPMAP.el?.remove(); renderTripPage(); };
+  if(layer){ layer.classList.remove('show'); setTimeout(done, 150); } else done();
+}
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Escape' || !TRIPV.sheet || S.sub!=='trip' || document.querySelector('.ask-layer, .modal.show')) return;
+  e.preventDefault(); closeTripSheet();
+});
 /* ---------- Plan zwiedzania: w każdym mieście docelowym podróży (w jedną stronę, w obie i w etapach)
    zapisane przejazdy po mieście — miejsce, wybrane połączenie komunikacją, godzina — dodawane po kolei. ---------- */
 // Miasta podróży, w których można się poruszać: przy samolocie miasto przylotu, bez samolotu każdy przystanek i cel.
@@ -5961,24 +6021,16 @@ function tripMapBox(){
 }
 function showTripPageMap(){
   const f=findTrip(TRIPV.id); if(!f?.trip) return false;
-  if(!TRIPV.map){
-    TRIPV.map=true;
-    const box=document.querySelector('#tripPage .tp-map-box'); if(box) box.outerHTML=tripMapBox();
-    mountTripMap(f, f.trip); drawPeople(f.trip);
-  }
+  if(TRIPV.sheet!=='map'){ const from=TRIPV.sheet==='step'?'step:'+(TRIPV.step||'go'):TRIPV.sheet; openTripSheet('map', from); drawPeople(f.trip); }
   return true;
 }
 // Chowa mapę podróży; kafelki przestają się wczytywać, a mapa wraca po „Pokaż mapę podróży”.
 function hideTripPageMap(){
-  if(!TRIPV.map) return;
-  TRIPV.map=false;
-  TRIPMAP.el?.remove();
-  const box=document.querySelector('#tripPage .tp-map-box'); if(box) box.outerHTML=tripMapBox();
+  if(TRIPV.sheet==='map') closeTripSheet();
 }
 function showOnTripMap(key, scroll=true, open=false){
   if(!TRIPV.map && !(open && showTripPageMap())) return;
   const m=TRIPMAP.map; if(!m) return;
-  if(scroll) TRIPMAP.el.scrollIntoView({behavior:'smooth', block:'center'});
   const groups={access:['home','out-from'], xfer:['out-to','board','centre'], 'ret-to':['ret-to','home'], ground:['home','centre']};
   const names=groups[key]||[key], marks=names.map(n=>TRIPMAP.marks[n]).filter(Boolean);
   if(!marks.length) return;
@@ -5990,7 +6042,7 @@ PEOPLE_EL.addEventListener('change', e=>{
 });
 PEOPLE_EL.addEventListener('click', e=>{
   const f=findTrip(TRIPV.id); if(!f) return;
-  const person=e.target.closest('[data-person]'); if(person){ PEOPLE.focus=person.dataset.person; peopleModal?.hide(); showTripPageMap(); setTimeout(()=>{ TRIPMAP.el?.scrollIntoView({behavior:'smooth', block:'center'}); drawPeople(f.trip); }, 250); return; }
+  const person=e.target.closest('[data-person]'); if(person){ PEOPLE.focus=person.dataset.person; peopleModal?.hide(); showTripPageMap(); setTimeout(()=>drawPeople(f.trip), 250); return; }
   const rm=e.target.closest('[data-person-remove]'); if(rm){
     askConfirm(L2(`Usunąć ${rm.dataset.personName||'tę osobę'} z tej podróży?`,`Remove ${rm.dataset.personName||'this person'} from this trip?`), {detail:L2('Ta osoba przestanie widzieć podróż i lokalizacje uczestników.','They will no longer see the trip or anyone’s location.'), ok:L2('Usuń z podróży','Remove from trip'), danger:true})
       .then(ok=>{ if(ok) fetch(tripApi(f)+'/members/'+encodeURIComponent(rm.dataset.personRemove),{method:'DELETE'}).then(()=>{ loadShared(); refreshPeople(f,f.trip); }); });
@@ -6078,10 +6130,13 @@ document.getElementById('tripPage').addEventListener('click', e=>{
   const lo=e.target.closest('[data-lp-sort]'); if(lo){ sortLocalTrips(f, lo.dataset.lpSort); return; }
   const ls=e.target.closest('[data-lp-show]'); if(ls){ showLocalTrip(f, ls.dataset.lpShow); return; }
   if(e.target.closest('[data-tp-city]')){ TRIPV.city=!TRIPV.city; renderTripPage(); if(TRIPV.city) setTimeout(()=>document.querySelector('#tripPage .city-panel')?.scrollIntoView({behavior:'smooth', block:'start'}),80); return; }
-  const ts=e.target.closest('[data-tp-step]'); if(ts){ TRIPV.step=ts.dataset.tpStep; renderTripPage(); const TT=findTrip(TRIPV.id)?.trip; showOnTripMap((TT?.ground||TT?.multi?GSTEP_MAP:STEP_MAP)[TRIPV.step], false); return; }
-  const tm=e.target.closest('[data-tp-map]'); if(tm){ showOnTripMap(tm.dataset.tpMap, true, true); return; }
+  const ts=e.target.closest('[data-tp-step]'); if(ts){ openTripSheet('step:'+ts.dataset.tpStep); return; }
+  const sh=e.target.closest('[data-tp-sheet]'); if(sh){ openTripSheet(sh.dataset.tpSheet); return; }
+  if(e.target.closest('[data-tp-sheet-close]') || e.target.matches('[data-tp-sheet-layer]')){ closeTripSheet(); return; }
+  if(e.target.closest('[data-tp-sheet-back]')){ openTripSheet(TRIPV.back||''); return; }
+  const tm=e.target.closest('[data-tp-map]'); if(tm){ showOnTripMap(tm.dataset.tpMap, false, true); return; }
   if(e.target.closest('[data-tp-map-hide]')){ hideTripPageMap(); return; }
-  if(e.target.closest('[data-tp-map-show]')){ showTripPageMap(); setTimeout(()=>TRIPMAP.el?.scrollIntoView({behavior:'smooth', block:'center'}),50); return; }
+  if(e.target.closest('[data-tp-map-show]')){ showTripPageMap(); return; }
   if(e.target.closest('[data-tp-hotel-search]')){ searchHotels(f); return; }
   const ha=e.target.closest('[data-tp-hotel-add]'); if(ha){ const st=HOT.get(tidOf(f)), h=st?.hotels?.find(x=>String(x.id)===ha.dataset.tpHotelAdd), q=hotelQuery(f.trip); if(h){ setTripHotel(f,{...h, checkin:q?.checkin||'', checkout:q?.checkout||''}); toast(`Dodano hotel: ${h.name}.`); } return; }
   if(e.target.closest('[data-tp-hotel-remove]')){ askConfirm(L2('Usunąć hotel z tej podróży?','Remove the hotel from this trip?'), {detail:f.trip?.hotel?.name||'', ok:L2('Usuń hotel','Remove hotel'), danger:true}).then(ok=>{ if(!ok) return; const {hotel, ...rest}=f.trip; f.trip=rest; saveFavorites().catch(err=>console.warn('Nie zapisano', err)); TRIPMAP.key=''; renderTripPage(); }); return; }

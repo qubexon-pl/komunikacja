@@ -156,14 +156,53 @@
     if(again) retryTimer = setTimeout(run, RETRY_MS);
   }
 
+  // A small copy (about 400 px) that the trip page shows instead of the full photo: a phone photo of several MB takes
+  // long to decode, and the grid shows dozens of them. The full photo stays as it was (saving, cloud copy).
+  const THUMB = 400;
+  async function makeThumb(blob){
+    try{
+      let bmp;
+      if(window.createImageBitmap){ bmp = await createImageBitmap(blob); }
+      else {
+        bmp = await new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = URL.createObjectURL(blob); });
+      }
+      const w = bmp.width, h = bmp.height, k = Math.min(1, THUMB / Math.min(w, h));
+      const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      if(bmp.close) bmp.close(); else if(bmp.src) URL.revokeObjectURL(bmp.src);
+      return await new Promise(resolve => c.toBlob(resolve, 'image/jpeg', 0.8));
+    }catch(e){ return null; } // HEIC and other formats the browser cannot read: the full photo is shown instead
+  }
+  // Photos saved before thumbnails existed get one in the background, one at a time.
+  let thumbing = Promise.resolve();
+  function backfillThumbs(list, tripId){
+    const missing = list.filter(p => p.thumb === undefined);
+    if(!missing.length) return;
+    thumbing = thumbing.then(async () => {
+      for(const p of missing){
+        const cur = await getLocal(p.id); if(!cur || cur.thumb !== undefined) continue;
+        cur.thumb = await makeThumb(cur.blob); await putLocal(cur); dropUrl(cur.id);
+      }
+      changed(tripId);
+    }).catch(() => {});
+  }
+
   // A new photo is kept on this device; with the cloud option on it is also queued for upload.
+  const adding = new Map(); // trip id -> photos being added right now (shown as tiles with a progress bar)
   async function add(tripId, file, caption){
     if(!file) return;
-    const p = { id: newId(), tripId, blob: file, type: file.type || 'image/jpeg', size: file.size, caption: caption || '', takenAt: new Date().toISOString(), cloud: '', serverId: null };
-    await putLocal(p);
-    if(cloudOn()){ await enqueue(p); run(); }
-    changed(tripId);
+    adding.set(tripId, (adding.get(tripId) || 0) + 1); changed(tripId);
+    try{
+      const p = { id: newId(), tripId, blob: file, type: file.type || 'image/jpeg', size: file.size, caption: caption || '', takenAt: new Date().toISOString(), cloud: '', serverId: null };
+      p.thumb = await makeThumb(file);
+      await putLocal(p);
+      if(cloudOn()){ await enqueue(p); run(); }
+    } finally {
+      const n = (adding.get(tripId) || 1) - 1; if(n > 0) adding.set(tripId, n); else adding.delete(tripId);
+      changed(tripId);
+    }
   }
+  async function count(tripId){ return (await locals()).filter(x => x.tripId === tripId).length; }
 
   window.addEventListener('online', run);
   document.addEventListener('visibilitychange', () => { if(!document.hidden) run(); });
@@ -197,7 +236,23 @@
     return url;
   }
   const localUrls = new Map(); // local id -> object URL
-  const localUrl = (p) => { if(!localUrls.has(p.id)) localUrls.set(p.id, URL.createObjectURL(p.blob)); return localUrls.get(p.id); };
+  const localUrl = (p) => { if(!localUrls.has(p.id)) localUrls.set(p.id, URL.createObjectURL(p.thumb || p.blob)); return localUrls.get(p.id); };
+  const dropUrl = (id) => { if(localUrls.has(id)){ URL.revokeObjectURL(localUrls.get(id)); localUrls.delete(id); } };
+  // Photos in the cloud list, kept for a short while so that adding or removing a photo repaints at once
+  // instead of waiting for the server each time.
+  const cloudLists = new Map(); // trip id -> { at, photos }
+  const CLOUD_LIST_MS = 30000;
+  // Photos being removed: id -> percent done. The tile stays with a progress bar until the photo is gone everywhere.
+  const removing = new Map();
+  const busyHtml = (pct, text) => `<figcaption class="tp-photo-busy"><span class="tp-photo-bar"><i style="width:${pct}%"></i></span>${esc(text)}</figcaption>`;
+  function showRemoving(box, id, pct){
+    removing.set(id, pct);
+    const fig = box && box.querySelector(`figure[data-id="${CSS.escape(id)}"]`); if(!fig) return;
+    fig.classList.add('removing');
+    let cap = fig.querySelector('.tp-photo-busy');
+    if(!cap){ fig.querySelectorAll('figcaption,button').forEach(x => x.remove()); fig.insertAdjacentHTML('beforeend', busyHtml(0, t('Usuwanie…', 'Removing…'))); cap = fig.querySelector('.tp-photo-busy'); cap.offsetWidth; }
+    cap.querySelector('i').style.width = pct + '%';
+  }
 
   // What the cloud copy is doing: a short label on the photo and, while it waits, one sentence under the photos.
   // The photo is on the phone in every case, so nothing is lost.
@@ -218,12 +273,19 @@
     const mine = (await locals()).filter(x => x.tripId === tripId).sort((a, b) => String(a.takenAt).localeCompare(String(b.takenAt)));
     const queue = new Map((await queued()).filter(x => x.tripId === tripId).map(x => [x.id, x]));
     // Photos already in the cloud but not on this device (taken on another phone, or before this version).
-    let cloudOnly = [];
-    if(signedIn() && navigator.onLine){
-      const r = await api(`/api/photos?tripId=${encodeURIComponent(tripId)}`).catch(() => ({ ok: false }));
-      const here = new Set(mine.map(p => p.serverId).filter(Boolean));
-      if(r.ok) cloudOnly = r.body.photos.filter(p => p.status === 'ready' && !here.has(p.id));
+    // The page is painted at once from the last list; a fresh list from the server repaints it when it comes.
+    const listed = cloudLists.get(tripId);
+    if(signedIn() && navigator.onLine && (!listed || Date.now() - listed.at > CLOUD_LIST_MS) && !box.dataset.listing){
+      box.dataset.listing = '1';
+      api(`/api/photos?tripId=${encodeURIComponent(tripId)}`).catch(() => ({ ok: false })).then(r => {
+        delete box.dataset.listing;
+        cloudLists.set(tripId, { at: Date.now(), photos: r.ok ? (r.body.photos || []) : (listed ? listed.photos : []) });
+        if(r.ok) render(box, tripId);
+      });
     }
+    const here = new Set(mine.map(p => p.serverId).filter(Boolean));
+    const cloudOnly = signedIn() ? ((listed && listed.photos) || []).filter(p => p.status === 'ready' && !here.has(p.id)) : [];
+    backfillThumbs(mine, tripId);
     if(!box.isConnected) return;
     let note = null;
     const localHtml = mine.map(p => {
@@ -236,12 +298,15 @@
         cls = q.state === 'failed' ? 'failed' : stuck ? 'waiting' : 'pending';
         badge = `<figcaption><span class="tp-photo-bar"><i style="width:${pct}%"></i></span>${esc(label.short)}</figcaption>`;
       } else if(p.cloud === 'done') badge = `<span class="tp-photo-cloud" title="${t('Kopia jest w chmurze', 'Copied to the cloud')}"><i class="fa-solid fa-cloud" aria-hidden="true"></i></span>`;
-      return `<figure class="tp-photo ${cls}"><img data-local="${esc(p.id)}" alt="${esc(p.caption || t('Zdjęcie z podróży', 'Trip photo'))}">${badge}
+      if(removing.has(p.id)) return `<figure class="tp-photo removing" data-id="${esc(p.id)}"><img data-local="${esc(p.id)}" alt="" decoding="async">${busyHtml(removing.get(p.id), t('Usuwanie…', 'Removing…'))}</figure>`;
+      return `<figure class="tp-photo ${cls}" data-id="${esc(p.id)}"><img data-local="${esc(p.id)}" decoding="async" alt="${esc(p.caption || t('Zdjęcie z podróży', 'Trip photo'))}">${badge}
         <button type="button" class="tp-photo-x" data-photo-remove="${esc(p.id)}" aria-label="${t('Usuń zdjęcie z podróży', 'Remove photo from the trip')}">×</button>
         ${isNative() ? '' : `<button type="button" class="tp-photo-save" data-photo-save="${esc(p.id)}" title="${t('Zapisz w telefonie', 'Save to phone')}" aria-label="${t('Zapisz w telefonie', 'Save to phone')}"><i class="fa-solid fa-download" aria-hidden="true"></i></button>`}</figure>`;
     }).join('');
-    const cloudHtml = cloudOnly.map(p => `<figure class="tp-photo"><img data-photo="${esc(p.id)}" alt="${esc(p.caption || t('Zdjęcie z podróży', 'Trip photo'))}"><span class="tp-photo-cloud" title="${t('Tylko w chmurze', 'Only in the cloud')}"><i class="fa-solid fa-cloud" aria-hidden="true"></i></span><button type="button" class="tp-photo-x" data-photo-delete="${esc(p.id)}" aria-label="${t('Usuń zdjęcie', 'Delete photo')}">×</button></figure>`).join('');
+    const cloudHtml = cloudOnly.map(p => removing.has(p.id) ? `<figure class="tp-photo removing" data-id="${esc(p.id)}"><img data-photo="${esc(p.id)}" alt="">${busyHtml(removing.get(p.id), t('Usuwanie…', 'Removing…'))}</figure>` : `<figure class="tp-photo" data-id="${esc(p.id)}"><img data-photo="${esc(p.id)}" alt="${esc(p.caption || t('Zdjęcie z podróży', 'Trip photo'))}"><span class="tp-photo-cloud" title="${t('Tylko w chmurze', 'Only in the cloud')}"><i class="fa-solid fa-cloud" aria-hidden="true"></i></span><button type="button" class="tp-photo-x" data-photo-delete="${esc(p.id)}" aria-label="${t('Usuń zdjęcie', 'Delete photo')}">×</button></figure>`).join('');
     const noteHtml = note ? `<p class="tp-photo-note ${note.failed ? 'err' : ''}" role="status"><i class="fa-solid fa-${note.failed ? 'circle-exclamation' : 'circle-info'}" aria-hidden="true"></i> <span>${note.text}</span>${note.retry ? ` <button type="button" class="btn-ghost tp-photo-retry" data-photo-retry="all"><i class="fa-solid fa-rotate" aria-hidden="true"></i> ${t('Wyślij teraz', 'Send now')}</button>` : ''}</p>` : '';
+    const n = adding.get(tripId) || 0;
+    const addingHtml = Array.from({ length: n }, () => `<figure class="tp-photo adding" aria-label="${t('Dodawanie zdjęcia', 'Adding a photo')}"><span class="tp-photo-spin" aria-hidden="true"></span><figcaption class="tp-photo-busy"><span class="tp-photo-bar indeterminate"><i></i></span>${t('Dodawanie…', 'Adding…')}</figcaption></figure>`).join('');
     const where = isNative()
       ? t('Zdjęcia zostają w telefonie: zdjęcie z aparatu trafia też do galerii.', 'Photos stay on your phone: camera shots also go to your gallery.')
       : t('Zdjęcia zostają na tym urządzeniu. Przycisk ⤓ na zdjęciu zapisze je w telefonie.', 'Photos stay on this device. The ⤓ button on a photo saves it to your phone.');
@@ -251,13 +316,21 @@
     box.innerHTML = `<div class="tp-photos-head"><h4>${t('Zdjęcia z podróży', 'Trip photos')}</h4>
       <div class="tp-photos-btns">${phone() ? `<button type="button" class="btn-grad" data-photo-take="camera"><i class="oi oi-camera" aria-hidden="true"></i> ${t('Zrób zdjęcie', 'Take a photo')}</button>
       <button type="button" class="btn-ghost" data-photo-take="gallery"><i class="fa-regular fa-images" aria-hidden="true"></i> ${t('Z galerii', 'From gallery')}</button>`
-        : `<button type="button" class="btn-grad" data-photo-take="gallery"><i class="fa-regular fa-images" aria-hidden="true"></i> ${t('Dodaj zdjęcie', 'Add a photo')}</button>`}</div></div>
-      ${localHtml || cloudHtml ? `<div class="tp-photo-grid">${localHtml}${cloudHtml}</div>${noteHtml}` : `<p class="text-soft">${t('Nie ma jeszcze zdjęć.', 'No photos yet.')}</p>`}
+        : `<button type="button" class="btn-grad" data-photo-take="gallery" ${n ? 'aria-busy="true"' : ''}><i class="fa-${n ? 'solid fa-spinner fa-spin' : 'regular fa-images'}" aria-hidden="true"></i> ${n ? t('Dodawanie…', 'Adding…') : t('Dodaj zdjęcia', 'Add photos')}</button>`}</div></div>
+      ${localHtml || cloudHtml || addingHtml ? `<div class="tp-photo-grid">${localHtml}${cloudHtml}${addingHtml}</div>${noteHtml}` : `<p class="text-soft">${t('Nie ma jeszcze zdjęć.', 'No photos yet.')}</p>`}
       <div class="tp-photos-foot"><small class="text-soft"><i class="fa-solid fa-mobile-screen" aria-hidden="true"></i> ${where}</small>${cloudRow}</div>`;
     for(const img of box.querySelectorAll('img[data-local]')){ const p = mine.find(x => x.id === img.dataset.local); if(p) img.src = localUrl(p); }
     for(const img of box.querySelectorAll('img[data-photo]')) thumb(img.dataset.photo).then(src => { if(src) img.src = src; });
   }
 
+  // The bar reaches the end, the tile fades out, then the grid is painted without it.
+  const dropCloud = (tripId, serverId) => { const l = cloudLists.get(tripId); if(l) l.photos = l.photos.filter(x => x.id !== serverId); };
+  async function finishRemoving(box, tripId, id){
+    await new Promise(r => setTimeout(r, 350));
+    box.querySelector(`figure[data-id="${CSS.escape(id)}"]`)?.classList.add('gone');
+    await new Promise(r => setTimeout(r, 200));
+    removing.delete(id); changed(tripId);
+  }
   const ask = (msg, opts) => window.askConfirm ? window.askConfirm(msg, opts) : Promise.resolve(confirm(msg));
 
   function mount(box, tripId){
@@ -271,7 +344,13 @@
     });
     box.addEventListener('click', async (e) => {
       const take = e.target.closest('[data-photo-take]');
-      if(take){ try{ await add(tripId, await window.ONWARD.pickPhoto(take.dataset.photoTake)); }catch(err){ if(!/cancel/i.test(String(err && err.message))) console.warn('photo', err); } return; }
+      if(take){
+        try{
+          const pick = window.ONWARD.pickPhotos && take.dataset.photoTake === 'gallery' && !isNative() ? window.ONWARD.pickPhotos() : window.ONWARD.pickPhoto(take.dataset.photoTake).then(f => f ? [f] : []);
+          for(const file of await pick) await add(tripId, file);
+        }catch(err){ if(!/cancel/i.test(String(err && err.message))) console.warn('photo', err); }
+        return;
+      }
       const save = e.target.closest('[data-photo-save]');
       if(save){ const p = await getLocal(save.dataset.photoSave); if(p) saveToPhone(p); return; }
       const rm = e.target.closest('[data-photo-remove]');
@@ -281,14 +360,20 @@
         const ok = await ask(t('Usunąć to zdjęcie z podróży?', 'Remove this photo from the trip?'), { ok: t('Usuń zdjęcie', 'Remove photo'), danger: true,
           detail: (isNative() ? t('Kopia w galerii telefonu zostaje.', 'The copy in your phone gallery stays.') + ' ' : '') + (inCloud ? t('Usuniemy też kopię w chmurze.', 'The cloud copy is deleted too.') : '') });
         if(!ok) return;
+        showRemoving(box, p.id, 15);
         await unqueue(p.id).catch(() => {});
         await removeLocal(p.id);
-        if(localUrls.has(p.id)){ URL.revokeObjectURL(localUrls.get(p.id)); localUrls.delete(p.id); }
-        if(inCloud) await api(`/api/photos/${p.serverId}`, { method: 'DELETE' }).catch(() => {});
-        render(box, tripId); return;
+        showRemoving(box, p.id, inCloud ? 45 : 100);
+        if(inCloud){ const wait = setTimeout(() => showRemoving(box, p.id, 85), 60); await api(`/api/photos/${p.serverId}`, { method: 'DELETE' }).catch(() => {}); clearTimeout(wait); dropCloud(tripId, p.serverId); showRemoving(box, p.id, 100); }
+        await finishRemoving(box, tripId, p.id); dropUrl(p.id); return;
       }
       const del = e.target.closest('[data-photo-delete]');
-      if(del && await ask(t('Usunąć to zdjęcie z chmury?', 'Delete this photo from the cloud?'), { ok: t('Usuń zdjęcie', 'Delete photo'), danger: true })){ await api(`/api/photos/${del.dataset.photoDelete}`, { method: 'DELETE' }).catch(() => {}); render(box, tripId); return; }
+      if(del && await ask(t('Usunąć to zdjęcie z chmury?', 'Delete this photo from the cloud?'), { ok: t('Usuń zdjęcie', 'Delete photo'), danger: true })){
+        const id = del.dataset.photoDelete;
+        showRemoving(box, id, 20); setTimeout(() => removing.has(id) && showRemoving(box, id, 85), 60);
+        await api(`/api/photos/${id}`, { method: 'DELETE' }).catch(() => {});
+        dropCloud(tripId, id); showRemoving(box, id, 100); await finishRemoving(box, tripId, id); return;
+      }
       const retry = e.target.closest('[data-photo-retry]');
       if(retry){
         retry.disabled = true;
@@ -300,6 +385,6 @@
     run();
   }
 
-  window.TripPhotos = { mount, add, run, cloudAllowed, setCloud };
+  window.TripPhotos = { mount, add, run, cloudAllowed, setCloud, count };
   if(document.readyState !== 'loading') setTimeout(run, 2000); else document.addEventListener('DOMContentLoaded', () => setTimeout(run, 2000));
 })();
