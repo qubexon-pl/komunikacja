@@ -122,6 +122,88 @@
     });
   };
 
+  /* ---------- keyboard: keep the field you type in above it (browser and apps) ----------
+     Chrome and the Android app shrink the page when the keyboard opens, but do not always scroll the focused field
+     back into sight (it can end up under the keyboard or the bottom bar). After the keyboard settles we check where
+     the field is and scroll the nearest scrolling box (a dialog body, or the page) so it sits in the upper part of
+     what is still visible, leaving room for the place suggestions under it. If the app's web view is not resized
+     at all, the part the keyboard covers is added as space at the bottom (--kb-overlap) so the page can scroll. */
+  (function keepFieldAboveKeyboard(){
+    const root = document.documentElement;
+    const NO_KEYBOARD = /^(button|submit|reset|checkbox|radio|range|color|file|image|hidden|date|time|datetime-local|month|week)$/;
+    const isTyping = (el) => !!el && el.nodeType === 1 && (el.tagName === 'TEXTAREA' || el.isContentEditable ||
+      (el.tagName === 'INPUT' && !NO_KEYBOARD.test(el.type)));
+    let nativeKb = 0;                   // keyboard height from the app plugin, in CSS px
+    let fullH = window.innerHeight, fullW = window.innerWidth; // page height without the keyboard
+    let overlap = 0, timer = 0;
+    const vv = window.visualViewport;
+
+    function measure(){
+      if(window.innerWidth !== fullW){ fullW = window.innerWidth; fullH = window.innerHeight; }
+      if(!nativeKb && !isTyping(document.activeElement)) fullH = window.innerHeight;
+      else fullH = Math.max(fullH, window.innerHeight);
+      const shrunk = fullH - Math.min(window.innerHeight, vv ? vv.height : window.innerHeight);
+      // the app reports the keyboard; if the page did not shrink by that much, the rest covers the page
+      const covered = nativeKb ? nativeKb - (fullH - window.innerHeight) : 0;
+      overlap = covered > 100 ? covered : 0;
+      root.style.setProperty('--kb-overlap', overlap + 'px');
+      const open = nativeKb > 0 || (isTyping(document.activeElement) && shrunk > 150);
+      root.classList.toggle('keyboard-open', open);
+      return open;
+    }
+
+    function stickyTop(el){
+      if(el.closest('.modal, .tour, .ask-layer, .rng-pop, .dp-pop')) return 0;
+      const bar = document.querySelector('.topbar');
+      if(!bar) return 0;
+      const pos = getComputedStyle(bar).position;
+      return (pos === 'sticky' || pos === 'fixed') ? Math.max(0, bar.getBoundingClientRect().bottom) : 0;
+    }
+
+    function reveal(){
+      const el = document.activeElement;
+      if(!isTyping(el) || !el.isConnected) return;
+      if(!measure()) return;            // no keyboard: nothing to do
+      let top = vv ? vv.offsetTop : 0;
+      let bottom = Math.min(vv ? vv.offsetTop + vv.height : window.innerHeight, window.innerHeight - overlap);
+      top = Math.max(top, stickyTop(el));
+      const r = el.getBoundingClientRect();
+      const gap = 12;
+      if(r.top >= top + gap && r.bottom <= bottom - gap) return;   // already fully visible
+      // put the field near the top of the visible part, so suggestions fit below it
+      let delta = r.top - (top + Math.max(gap, Math.min(72, (bottom - top) * 0.15)));
+      for(let p = el.parentElement; p && Math.abs(delta) > 1 && p !== document.body && p !== root; p = p.parentElement){
+        const oy = getComputedStyle(p).overflowY;
+        if(!/(auto|scroll)/.test(oy) || p.scrollHeight <= p.clientHeight) continue;
+        const before = p.scrollTop;
+        p.scrollTop = before + delta;
+        delta -= p.scrollTop - before;
+      }
+      if(Math.abs(delta) > 1) window.scrollBy(0, delta);
+    }
+
+    function later(ms){ clearTimeout(timer); timer = setTimeout(reveal, ms); }
+
+    document.addEventListener('focusin', (e) => {
+      if(!isTyping(e.target)) return;
+      later(320);                       // after the keyboard has opened
+      setTimeout(reveal, 700);          // and once more if it was slow
+    });
+    // tapping a field that is already focused brings the keyboard back without a new focus event
+    document.addEventListener('click', (e) => { if(isTyping(e.target) && e.target === document.activeElement) later(320); }, true);
+    document.addEventListener('focusout', () => setTimeout(() => { if(!isTyping(document.activeElement)) measure(); }, 50));
+    const onResize = () => { measure(); if(isTyping(document.activeElement)) later(80); };
+    window.addEventListener('resize', onResize);
+    if(vv) vv.addEventListener('resize', onResize);
+
+    if(native && P.Keyboard){
+      P.Keyboard.addListener('keyboardWillShow', (info) => { nativeKb = (info && info.keyboardHeight) || 1; root.classList.add('keyboard-open'); });
+      P.Keyboard.addListener('keyboardDidShow', (info) => { nativeKb = (info && info.keyboardHeight) || nativeKb || 1; later(30); });
+      P.Keyboard.addListener('keyboardWillHide', () => { nativeKb = 0; measure(); });
+      P.Keyboard.addListener('keyboardDidHide', () => { nativeKb = 0; measure(); });
+    }
+  })();
+
   if(!native){
     // The install offer can come before the page script is ready: keep it until the "Install app" button asks for it.
     window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); window.__installPrompt = e; });
@@ -154,13 +236,9 @@
     });
   }
 
-  /* ---------- status bar, keyboard and splash ---------- */
+  /* ---------- status bar and splash (the keyboard is handled above) ---------- */
   document.addEventListener('DOMContentLoaded', () => {
     try{ P.StatusBar?.setStyle({ style: 'DARK' }); if(ON.platform === 'android') P.StatusBar?.setBackgroundColor({ color: '#173B70' }); }catch(e){}
-    if(P.Keyboard){
-      P.Keyboard.addListener('keyboardWillShow', () => document.documentElement.classList.add('keyboard-open'));
-      P.Keyboard.addListener('keyboardWillHide', () => document.documentElement.classList.remove('keyboard-open'));
-    }
     setTimeout(() => P.SplashScreen?.hide(), 150);
   });
 })();
