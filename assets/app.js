@@ -1332,6 +1332,9 @@ function pageFromLocation(){
     const kind=Object.keys(FAV_HASH).find(k=>'#'+FAV_HASH[k]===pageHash())||'all';
     return {view:kind==='all'||kind==='podroz'?'podroz':kind, sub:'ulubione', kind};
   }
+  // Links from the welcome page inside the Android/iOS app, where every page is index.html.
+  if(location.hash==='#destinations') return {view:'podroz', sub:'kierunki', kind:'all'};
+  if(location.hash==='#buses' && location.pathname!=='/favourites') return {view:'ztm', sub:'', kind:'all'};
   const view=viewFromPath();
   return {view, sub:view==='podroz'?'':pageHash()==='#timetable'?'rozklad':pageHash()==='#lines'?'linie':'', kind:'all'};
 }
