@@ -151,7 +151,7 @@
     'Dowolna':'Any','Postój':'Stop','Jednostka postoju':'Stop unit','godz.':'h','dni':'days','tyg.':'weeks','Lot':'Flight','Samochód (paliwo)':'Car (fuel)','Dojazd do celu':'To the destination','Razem za osobę':'Total per person','— cena biletu pojawi się wkrótce':'— ticket price coming soon','cena najtańszego lotu dnia':'price of the cheapest flight of the day',
     'Lotniska w promieniu':'Airports within','Wylot':'Outbound','Twój plan':'Your plan','Najlepszy':'Best','Najtańszy':'Cheapest','Najbliższe lotnisko':'Nearest airport','najtańszy lot dnia':'cheapest flight of the day',
     'Brak lotów w tym dniu.':'No flights on this day.','Brak lotów powrotnych w tym dniu.':'No return flights on this day.','Dojazd na lotnisko — wybierz sposób':'Getting to the airport — choose how','Dojazd na lotnisko':'Getting to the airport','Powrót do domu':'Getting home',
-    'Kliknij punkt podróży, aby zobaczyć szczegóły. Możesz otworzyć kilka naraz.':'Click a point of the journey to see its details. You can open several at once.','liczę dojazd na lotnisko…':'working out the trip to the airport…',
+    'Kliknij punkt podróży, aby zobaczyć szczegóły. Możesz otworzyć kilka naraz.':'Click a point of the journey to see its details. You can open several at once.','Kliknij punkt podróży, aby zwinąć albo rozwinąć jego szczegóły.':'Click a point of the journey to collapse or expand its details.','Zakończ':'Finish','liczę dojazd na lotnisko…':'working out the trip to the airport…',
     'Import Wizz Air z przeglądarki (HAR)':'Import Wizz Air from the browser (HAR)','Sprawdź na wizzair.com':'Check on wizzair.com','Wczytaj stronę Wizz Air (HAR)':'Load a Wizz Air page (HAR)',
     'Wizz Air nie pokazuje cen automatycznej przeglądarce. Sprawdź cenę na wizzair.com.':'Wizz Air does not show prices to an automated browser. Check the price on wizzair.com.',
     'W pliku nie ma odpowiedzi Wizz Air z cenami. Zapisz HAR po otwarciu wyszukiwarki lotów lub wyboru lotu.':'The file has no Wizz Air answers with prices. Save the HAR after opening the flight finder or the flight selection.',
@@ -218,11 +218,20 @@
     'Zapisane trasy, przystanki, stacje i podróże.':'Saved routes, stops, stations and trips.',
     'Sprawdź, dokąd polecisz z polskich lotnisk.':'Discover where you can fly from Polish airports.',
     'Twoje zaplanowane podróże w jednym miejscu.':'Your planned journeys in one place.',
+    'Archiwum: Twoje minione podróże, ich plany i zdjęcia.':'Archive: your past trips, their plans and photos.','Archiwum':'Archive',
     'Szczegóły podróży':'Trip details',
     'Wyniki wyszukiwania':'Search results',
     'Porównaj możliwości i wybierz najlepszą podróż.':'Compare options and choose the best trip.',
     'Przygotuj się do wyjazdu: sprawdź poniżej dojazd na lotnisko, lot i drogę do centrum. Bilety i rezerwacje potwierdzisz u przewoźników.':'Get ready to go: check the trip to the airport, the flight and the way into town below. Confirm tickets and bookings with the carriers.',
     'To plan zapisany w ulubionych. Sprawdź ceny i dojazdy, a gdy podróż będzie pewna, zapisz ją jako swoją.':'This is a plan saved in favourites. Check prices and journeys, and save it as your trip once it is certain.',
+  });
+  // Nocleg w planerze.
+  Object.assign(EXACT,{
+    'Dodaj nocleg do planu — zapisze się razem z podróżą. Rezerwację potwierdzasz na Booking.com.':'Add a place to stay to the plan; it is saved with the trip. You confirm the booking on Booking.com.',
+    'Szukaj noclegu':'Find a place to stay','Noclegi razem':'Stays in total','Nocy':'Nights','Zarezerwuj na Booking.com':'Book on Booking.com','Rezerwacja':'Booking','Zmień nocleg':'Change the stay',
+    'Mam już nocleg — dodaj ręcznie':'I already have a place to stay: add it by hand','Dodaj nocleg':'Add the stay','Szukam noclegów na Booking.com…':'Searching Booking.com for places to stay…',
+    'Wyszukiwarka noclegów w aplikacji czeka na klucz Booking.com. Szukaj na Booking.com przyciskiem obok i dodaj wybrany hotel ręcznie.':'In-app search for places to stay is waiting for a Booking.com key. Search on Booking.com with the button next to it and add the hotel you choose by hand.',
+    'Wyszukiwarka noclegów jest chwilowo niedostępna.':'Search for places to stay is unavailable right now.',
   });
   const PATTERNS=[
     [/^Krok (\d+) z (\d+)$/,'Step $1 of $2'],

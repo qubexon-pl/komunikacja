@@ -20,6 +20,24 @@ Bus and PKS pages list every departure from a stop for today or the next six day
 
 "Jak dojechać" accepts a street, with or without a house number, as well as a stop or station name. The server checks the address with OpenStreetMap's public Nominatim service through `/api/geocode`, at most one request per second and with a 24-hour cache. Nominatim does not allow search-as-you-type, so live suggestions come from the Photon service through `/api/streets` and the chosen address is still checked with Nominatim when the form is submitted. The planner then compares several stops near each address and counts the estimated walk. Heavier traffic would need a self-hosted or paid geocoder.
 
+## Flights and European cities
+
+Trips by plane are planned between any two places: a Polish address, or a city anywhere in Europe (typed by name, such as "Zurych", "Lizbona" or "Ryga", or by airport code). The planner looks for flights from the airports nearest the start (within the chosen radius) to the airports within 200 km of the destination, and ranks them by the whole journey, including the trip to and from the airport. In a multi-stop trip each stage can start abroad, for example Barcelona to Rome.
+
+Airports come from the built-in list in `src/airports.js`, which covers the capitals and main holiday and business airports of Europe, and from the route lists of Ryanair and Wizz Air, refreshed weekly. Fares come from three sources:
+
+1. **Ryanair** through its public fare finder and timetable (`src/ryanair-api.js`). No key is needed; `RYANAIR_API=off` turns it off.
+2. **Wizz Air** through its timetable (`src/wizz-timetable.js`). No key is needed.
+3. **Every other airline** (LOT, Lufthansa, Swiss, SAS, KLM, Air France, easyJet and others) through the [Duffel](https://duffel.com) flights API (`src/duffel-api.js`), including flights with one change. It needs `DUFFEL_ACCESS_TOKEN`; without it this source is off and only Ryanair and Wizz Air are searched. A `duffel_test_` token returns Duffel's sample airline only, so use a live token for real fares. Searches are free up to Duffel's search-to-booking ratio and billed per search beyond it, so each trip search asks about at most four routes, and the same route and day only once every three hours. Ryanair and Wizz Air offers from Duffel are ignored. These fares are kept in memory for six hours and open in Google Flights, which links to the airline's own booking.
+
+## Accommodation
+
+The planner's last step, before saving, has a Nocleg section for the destination; a trip in stages gets one for each city where the traveller spends a night. It offers three ways to add a stay, and the chosen one is saved with the trip and shown on the trip page, map and costs:
+
+- **Search in the app** through the Booking.com Demand API (`src/hotels.js`, `/api/hotels`). It needs `BOOKING_API_KEY` and `BOOKING_AFFILIATE_ID` from the Booking.com Affiliate Partner Centre, which Booking.com grants only to approved Managed Affiliate Partners. It uses the sandbox until `BOOKING_API_BASE` points to production.
+- **Search on Booking.com** with the place, dates and number of people filled in. With `BOOKING_AFFILIATE_ID` set (even without an API key) these are affiliate deep links (`aid`, plus `label`, default `voyage-planner`), so bookings made from them are credited to the partner.
+- **Add by hand**: name, address (placed on the map), price and booking link.
+
 ## Welcome page and app tour
 
 Visitors who are not signed in land on a welcome page (`welcome.html`, served at `/` for them and always at `/welcome`); signed-in users get the app at `/` as before, and `/plan` always opens the app. The guided tour (`assets/app.tour.js`, same walk-through as in Podavo Clean) is offered once per device on the first visit, and can be reopened from the `?` button in the top bar, from the Konto menu, or with `/plan?tour=1`.

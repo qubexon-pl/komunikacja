@@ -182,6 +182,10 @@ function bookingUrl(fare) {
     return `https://www.ryanair.com/pl/pl/trip/flights/select?adults=1&dateOut=${fare.day}&originIata=${fare.from}&destinationIata=${fare.to}&isReturn=false`;
   }
   if (fare.airline === "WIZZ") return `https://www.wizzair.com/pl-pl/booking/select-flight/${fare.from}/${fare.to}/${fare.day}/null/1/0/0/null`;
+  // Other airlines (from the fare API): the same flight in Google Flights, which links to the airline's own booking.
+  if (fare.airline && IATA.test(fare.from) && IATA.test(fare.to) && DAY.test(fare.day)) {
+    return `https://www.google.com/travel/flights?${new URLSearchParams({ q: `Flights from ${fare.from} to ${fare.to} on ${fare.day} one way`, hl: "pl", curr: "PLN" })}`;
+  }
   return null;
 }
 
@@ -529,6 +533,15 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
       .map((route) => ({ from: route.from, to: route.to, airlines: [...route.airlines] }));
   }
 
+  // Routes for the fare API, which knows every airline: the nearest airports at both ends, whether or not Ryanair or
+  // Wizz Air fly between them (a preferred airport of the traveller first).
+  function apiPairs({ origin, dest, prefer = "", radius = ORIGIN_AIRPORT_KM, perEnd = 2 }) {
+    const near = airportsNear(origin, Math.min(Math.max(Number(radius) || ORIGIN_AIRPORT_KM, 30), ORIGIN_AIRPORT_KM));
+    const origins = [...near.filter((airport) => airport.code === prefer), ...near.filter((airport) => airport.code !== prefer)].slice(0, perEnd);
+    const dests = airportsNear(dest, DEST_AIRPORT_KM).slice(0, perEnd);
+    return origins.flatMap((a) => dests.filter((b) => b.code !== a.code).map((b) => ({ from: a.code, to: b.code, airlines: [] })));
+  }
+
   // The same routes flown home; an airline flies back only where the route list says so.
   function returnPairs(pairs) {
     return pairs.map((pair) => {
@@ -539,7 +552,7 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
 
   // Whether anything is stored for an airline's route on a day (also an unpriced departure).
   const known = (airline, from, to, day) => fares.some((fare) => fare.airline === airline && fare.from === from && fare.to === to && fare.day === day);
-  return { addLive, cheapest, importRows, known, load, mergeRows, network: () => network, networkIsStale, options, pairsFor, refresh, returnPairs, saveNetwork, search, start, stop, sync, tripPairs };
+  return { addLive, cheapest, importRows, known, load, mergeRows, apiPairs, network: () => network, networkIsStale, options, pairsFor, refresh, returnPairs, saveNetwork, search, start, stop, sync, tripPairs };
 }
 
 module.exports = { WINDOW_DAYS, createFlightStore, withDepartureTimes, withFlightTime, routeClockDiffs, hoursFromPoland, inWindow, lastChange, normalizeFare, rankFares, readFareFile };

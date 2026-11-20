@@ -1305,9 +1305,11 @@ const pageHash=()=>OLD_HASH[location.hash]||location.hash;
 const FAVF={kind:'all'};
 // Moje podróże (/my-trips) i strona jednej zapisanej podróży (/trip?id=…).
 const TRIPV={id:'', city:false, map:false};
+// Moje podróże mają dwie zakładki: nadchodzące (domyślnie) i archiwum minionych (/my-trips#archive).
+const MYT={tab:'upcoming'};
 function pageFromLocation(){
   if(location.pathname==='/destinations') return {view:'podroz', sub:'kierunki', kind:'all'};
-  if(location.pathname==='/my-trips') return {view:'podroz', sub:'moje', kind:'all'};
+  if(location.pathname==='/my-trips'){ MYT.tab=pageHash()==='#archive'?'archive':'upcoming'; return {view:'podroz', sub:'moje', kind:'all'}; }
   if(location.pathname==='/trip'){ TRIPV.id=new URLSearchParams(location.search).get('id')||''; return {view:'podroz', sub:'trip', kind:'all'}; }
   if(location.pathname==='/favourites'){
     const kind=Object.keys(FAV_HASH).find(k=>'#'+FAV_HASH[k]===pageHash())||'all';
@@ -1319,7 +1321,7 @@ function pageFromLocation(){
 function pageUrl(view, sub, kind){
   if(sub==='ulubione') return '/favourites'+(kind&&kind!=='all'?'#'+FAV_HASH[kind]:'');
   if(sub==='kierunki') return '/destinations';
-  if(sub==='moje') return '/my-trips';
+  if(sub==='moje') return '/my-trips'+(MYT.tab==='archive'?'#archive':'');
   if(sub==='trip') return '/trip?id='+encodeURIComponent(TRIPV.id);
   return VIEWS[view].path+(sub==='rozklad'?'#timetable':'');
 }
@@ -1476,7 +1478,7 @@ function setSubpage(sub){
   if(sub==='rozklad'){ title=S.agency==='kolej'?'Rozkład pociągów':'Rozkład jazdy'; lead=S.agency==='kolej'?'Odjazdy i przyjazdy na wybranej stacji.':'Sprawdź rozkład według przystanku i linii.'; }
   if(sub==='ulubione'){ title=FAV_TITLES[FAVF.kind]; lead='Zapisane trasy, przystanki, stacje i podróże.'; }
   if(sub==='kierunki'){ title='Sprawdź kierunki'; lead=EXPLORE.summary||'Sprawdź, dokąd polecisz z polskich lotnisk.'; }
-  if(sub==='moje'){ title='Moje podróże'; lead='Twoje zaplanowane podróże w jednym miejscu.'; }
+  if(sub==='moje'){ title='Moje podróże'; lead=MYT.tab==='archive'?'Archiwum: Twoje minione podróże, ich plany i zdjęcia.':'Twoje zaplanowane podróże w jednym miejscu.'; }
   if(sub==='trip'){ const t=findTrip(TRIPV.id); title='Szczegóły podróży'; lead=t?tripLead(t):'Twoja podróż krok po kroku.'; }
   setHeroTitle(title);
   document.getElementById('heroLead').textContent=lead;
@@ -1686,6 +1688,7 @@ function multiSaveView(){
       (k<n-1&&M.stays[k]?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(M.places[k+1])}: postój ${fmtStay(M.stays[k])}</div>`:'')).join('');
   return `<div class="plan-head"><span>${M.places.map(esc).join(' <span class="txt-red">→</span> ')}</span></div>${cards}
     <div class="cs-save"><div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz całą podróż w ulubionych albo jako swoją podróż.${legs.length?` <small>Koszt: ${unknown?'od ':'ok. '}${zl(total)}</small>`:''}</div>
+      ${planStayBox('multi',M)}
       ${tripTitleField(M)}
       <div class="cs-save-btns"><button type="button" class="btn-ghost" data-multi-save="planned"><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
       <button type="button" class="btn-grad" data-multi-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${savedNote(M)}</div>`;
@@ -1702,7 +1705,7 @@ function saveMultiTrip(status, title){
   const people=Math.max(1,+document.getElementById('plPeople')?.value||1);
   const item={type:'trip', view:'podroz', id, tid:before?.tid||newTid(), status, from:M.places[0], to:M.places[n], stops:stops.map(x=>x.label), title:(title||'').trim().slice(0,80),
     name:legs.map(L=>L.title).join(' + ').slice(0,190), detail:`${fmtDay(legs[0].day)} – ${fmtDay(legs[n-1].arrDay)} · ${n} ${n<5?'etapy':'etapów'}`,
-    trip:{multi:true, legs, home, dest, stops, people, weather, savedAt:new Date().toISOString(), ...(before?.trip?.hotel?{hotel:before.trip.hotel}:{})}};
+    trip:{multi:true, legs, home, dest, stops, people, weather, savedAt:new Date().toISOString(), ...stayForTrip('multi',M,{},before)}};
   FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && (x.id===id || (before && x.tid===before.tid)))), item].slice(-50);
   M.savedOk=null; M.saved=item.tid;
   saveFavorites().then(ok=>{ if(ok!==false && M.saved===item.tid){ M.savedOk=item.tid; if(M.cur==='save') document.getElementById('planResults').innerHTML=multiSaveView(); } }).catch(e=>console.warn('Nie zapisano podróży', e));
@@ -1751,17 +1754,22 @@ function resetPlanner(){
   syncReturn(); planBusy();
 }
 document.getElementById('plReset').addEventListener('click', ()=>{ resetPlanner(); plFrom.focus(); });
+document.addEventListener('click', e=>{
+  if(!e.target.closest('[data-plan-finish]')) return;
+  e.preventDefault(); goPage('podroz'); resetPlanner(); document.body.classList.remove('multi-form'); syncReturn();
+  window.scrollTo({top:0, behavior:'smooth'});
+});
 document.querySelectorAll('.brand, .view-tab[data-view="podroz"]').forEach(a=>a.addEventListener('click', e=>{
   if(e.ctrlKey||e.metaKey||e.shiftKey) return;
   e.preventDefault(); goPage('podroz'); resetPlanner();
 }));
 document.getElementById('myTripsLink').addEventListener('click', e=>{
   if(e.ctrlKey||e.metaKey||e.shiftKey) return;
-  e.preventDefault(); goPage('podroz', 'moje');
+  e.preventDefault(); MYT.tab='upcoming'; goPage('podroz', 'moje');
 });
 document.addEventListener('click', e=>{
   const go=e.target.closest('[data-go-mytrips]'); if(!go || e.ctrlKey||e.metaKey||e.shiftKey) return;
-  e.preventDefault(); goPage('podroz','moje');
+  e.preventDefault(); MYT.tab=go.dataset.goMytrips==='archive'?'archive':'upcoming'; goPage('podroz','moje');
 });
 document.getElementById('favLink').addEventListener('click', e=>{
   if(e.ctrlKey||e.metaKey||e.shiftKey) return;
@@ -2298,7 +2306,7 @@ function groundNext(P){
     return `<div class="ground-next ${all?'ready':''}"><span>${all?'<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano połączenia na wszystkich etapach.':`<i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie na każdym etapie (${picked} z ${st.length}): ${st.map((x,k)=>`<b class="${x.groundPick?'ok':''}">${k+1}. ${esc(x.to)}</b>`).join(' · ')}`}</span>${all?`<button type="button" class="btn-grad" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>`:''}</div>`;
   }
   const g=P.groundPick, b=P.groundBack;
-  if(!g) return `<div class="ground-next"><span><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Wybierz połączenie przyciskiem „Wybierz”, aby przejść dalej. Podróż zapiszesz na końcu.</span></div>`;
+  if(!g) return '';
   return `<div class="ground-next ready"><span><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Wybrano: <b>${esc(g.title)}</b> · ${esc(groundWhen(g))}${b?` · powrót: <b>${esc(b.title)}</b> ${esc(groundWhen(b))}`:P.round?' · powrót możesz wybrać poniżej':''}</span><button type="button" class="btn-grad" data-ground-step="2">Dalej: zapisz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>`;
 }
 function groundLegCard(g, label){
@@ -2311,9 +2319,10 @@ function tripTitleField(P){
   const value=P.tripTitle ?? (edited?.title||'');
   return `<label class="trip-title-field"><span><i class="fa-solid fa-pen" aria-hidden="true"></i> Nazwa podróży <small>(opcjonalnie)</small></span><input type="text" maxlength="80" data-trip-title value="${esc(value)}" placeholder="np. Wakacje w ${esc(P.to||'')}"></label>`;
 }
+// Po zapisie: link do zapisanej podróży i „Zakończ”, które czyści planer i wraca na stronę „Planuj”.
 function savedNote(P){
   const saved=P.saved && FAV.items.find(x=>x.type==='trip' && x.tid===P.saved);
-  return saved?`<div class="cs-saved" role="status">${P.savedOk===saved.tid?stateIll(assetPaths.tripSaved,200,117):''}<i class="fa-solid fa-circle-check" aria-hidden="true"></i> ${saved.status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano w ulubionych jako plan.'} <a href="/trip?id=${esc(saved.tid)}" data-trip-open="${esc(saved.tid)}">Zobacz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a></div>`:'';
+  return saved?`<div class="cs-saved" role="status">${P.savedOk===saved.tid?stateIll(assetPaths.tripSaved,200,117):''}<i class="fa-solid fa-circle-check" aria-hidden="true"></i> ${saved.status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano w ulubionych jako plan.'} <a href="/trip?id=${esc(saved.tid)}" data-trip-open="${esc(saved.tid)}">Zobacz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a><button type="button" class="btn-grad cs-finish" data-plan-finish><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i> Zakończ</button></div>`:'';
 }
 function groundSaveAll(J){
   const st=J.stages, P0=st[0], n=Math.max(1,P0.people||1), multi=st.length>1, legs=st.map(P=>P.groundPick), back=multi?null:P0.groundBack;
@@ -2321,6 +2330,7 @@ function groundSaveAll(J){
   const cards=legs.map((g,k)=>groundLegCard(g, multi?`Etap ${k+1}`:'Tam')+(multi&&k<st.length-1&&st[k].stay?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(st[k].to)}: postój ${fmtStay(st[k].stay)}</div>`:'')).join('')+(back?groundLegCard(back,'Powrót'):!multi&&P0.round?'<div class="empty-note tp-noreturn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> Nie wybrano powrotu — możesz zapisać podróż bez niego albo wrócić i wybrać połączenie powrotne.</div>':'');
   return `<div class="plan-head"><span>${[P0.from, ...st.map(P=>P.to)].map(esc).join(' <span class="txt-red">→</span> ')}</span></div>`+groundStepBar(P0)+cards+(S.multi&&S.multi.cur!=='save'?multiLegBar(P0,'ground'):
     `<div class="cs-save"><div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz plan w ulubionych albo jako swoją podróż.${all.length?` <small>Koszt: ${unknown?'od ':'ok. '}${zl(total)}${n>1?` za ${peopleText(n)}`:''}</small>`:''}</div>
+      ${planStayBox('ground',P0,{stages:st})}
       ${tripTitleField(P0)}
       <div class="cs-save-btns"><button type="button" class="btn-ghost" data-ground-save="planned"><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
       <button type="button" class="btn-grad" data-ground-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${savedNote(P0)}</div>`)+
@@ -2340,7 +2350,7 @@ function saveGroundTrip(J, status, title){
     ...wx('location-dot','Na miejscu',last.to,dest,arrDay(legs[legs.length-1]),legs[legs.length-1].arrive), ...(back?wx('rotate-left','Powrót',last.to,dest,back.day,back.leave):[])];
   const item={type:'trip', view:'podroz', id, tid:before?.tid||newTid(), status, from:P0.from, to:last.to, ...(stops.length?{stops:stops.map(x=>x.label)}:{}), title:(title||'').trim().slice(0,80),
     name:legs.map(g=>g.title).join(' + ').slice(0,120), detail:`${groundWhen(legs[0])}${legs.length>1?` · ${legs.length} etapy`:''}${back?` · powrót ${fmtDay(back.day)}`:''}`,
-    trip:{ground:{out:legs[0], legs, back:back||null, roundBack:last.round?.back||null}, home, dest, stops, people:Math.max(1,P0.people||1), weather, savedAt:new Date().toISOString(), ...(before?.trip?.hotel?{hotel:before.trip.hotel}:{})}};
+    trip:{ground:{out:legs[0], legs, back:back||null, roundBack:last.round?.back||null}, home, dest, stops, people:Math.max(1,P0.people||1), weather, savedAt:new Date().toISOString(), ...stayForTrip('ground',P0,{stages:st},before)}};
   FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && (x.id===id || (before && x.tid===before.tid)))), item].slice(-50);
   P0.savedOk=null;
   saveFavorites().then(ok=>{ if(ok!==false && P0.saved===item.tid){ P0.savedOk=item.tid; runPlan(false); } }).catch(e=>console.warn('Nie zapisano podróży', e));
@@ -2809,14 +2819,14 @@ const eurSum=f=>{ const a=eurOf(f), b=f?.ret?eurOf(f.ret):0; return a!=null&&b!=
 const fmtEur=v=>v>=100?String(Math.round(v)):v.toFixed(2).replace('.',',');
 function eurPln(pln, eur){ const e=eur!=null?eur:(FX.eur&&pln!=null?pln/FX.eur:null); return `${e!=null?`<span class="fx-eur">${fmtEur(e)} €</span> <span class="fx-sep">·</span> `:''}<span class="fx-pln">${pln} zł</span>`; }
 // Porównanie dojazdów: kiedy wyjść, ile trwa droga na lotnisko i ile kosztuje razem z lotem.
-// Główne miejsca podróży na pionowej, kropkowanej linii. Szczegóły punktu pokazują się dopiero po jego kliknięciu,
-// a otwartych może być kilka naraz.
+// Główne miejsca podróży na pionowej, kropkowanej linii. Szczegóły wszystkich punktów są od razu rozwinięte
+// (to planowanie, więc nie trzeba klikać); kliknięcie punktu zwija albo rozwija jego szczegóły.
 function journeyLine(P, f, o, {only=''}={}){
-  const key=offerKey(f), open=P.jlOpen||(P.jlOpen=new Set()), clock=v=>v?v.slice(11,16):'';
+  const key=offerKey(f), closed=P.jlClosed||(P.jlClosed=new Set()), clock=v=>v?v.slice(11,16):'';
   const when=ts=>ts?`${dayOfTs(ts)!==f.day?fmtDay(dayOfTs(ts))+' ':''}${fmtClock(ts)}`:'';
   const panels=[];
   const item=(id, cls, mark, title, sub, detail)=>{
-    const on=open.has(key+'|'+id);
+    const on=!closed.has(key+'|'+id);
     if(on&&detail) panels.push(`<section class="jl-panel"><header><b>${esc(title)}</b>${sub?`<small>${esc(sub)}</small>`:''}<button type="button" class="jl-close" data-jl="${esc(key+'|'+id)}" aria-label="Zamknij"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></header>${detail}</section>`);
     return `<li class="${cls} ${on?'on':''}"><button type="button" class="jl-btn" data-jl="${esc(key+'|'+id)}" aria-expanded="${on}" ${detail?'':'disabled'}>${mark}<span class="jl-text"><b>${esc(title)}</b>${sub?`<small>${esc(sub)}</small>`:''}</span>${detail?`<i class="fa-solid fa-chevron-${on?'left':'right'} jl-caret" aria-hidden="true"></i>`:''}</button></li>`;
   };
@@ -2849,7 +2859,7 @@ function journeyLine(P, f, o, {only=''}={}){
   }
   const save='';
   if(only==='go') return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Dojazd na lotnisko krok po kroku</h4></div><div class="jl-steps">${o?.steps?.length?stepsHtml(o.steps):''}</div></div>`;
-  return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Przebieg podróży</h4>${save}</div><small class="text-soft">Kliknij punkt podróży, aby zobaczyć szczegóły. Możesz otworzyć kilka naraz.</small><div class="jl-wrap"><ol class="journey-line">${items.join('')}</ol><div class="jl-details">${panels.length?panels.join(''):'<div class="jl-empty"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Szczegóły wybranych punktów pojawią się tutaj.</div>'}</div></div></div>`;
+  return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Przebieg podróży</h4>${save}</div><small class="text-soft">Kliknij punkt podróży, aby zwinąć albo rozwinąć jego szczegóły.</small><div class="jl-wrap"><ol class="journey-line">${items.join('')}</ol><div class="jl-details">${panels.length?panels.join(''):'<div class="jl-empty"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Szczegóły wybranych punktów pojawią się tutaj.</div>'}</div></div></div>`;
 }
 function compareHtml(P, f, options, picked){
   const list=options.filter(o=>o.minutes!=null||o.cost!=null); if(!list.length) return '';
@@ -3285,7 +3295,7 @@ function planSummaryCard(f, P){
   if(xo==='skip') points.push(point('car-side','Odbiór','ktoś odbiera z lotniska','z lotniska'));
   else if(xo) points.push(point(XMODE[xo.kind]?.[0]||'bus','Do centrum',xo.name||xo.line,xo.minutes!=null?`ok. ${fmtDuration(xo.minutes)}`:'—'));
   if(f.ret) points.push(point('plane-departure','Powrót',f.ret.fromLabel,`${fmtDay(f.ret.day)} ${clock(f.ret.departure)}`), point('plane-arrival','Lądowanie',f.ret.toLabel,arrivalOf(f.ret)||'—'));
-  const book=[f, f.ret].filter(x=>x?.bookingUrl).map((x,i)=>`<a class="btn-ghost fl-book" href="${esc(x.bookingUrl)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Sprawdź na ${x.airline==='RYANAIR'?'ryanair.com':x.airline==='WIZZ'?'wizzair.com':esc(airlineOf(x).name)}${f.ret?(i?' (powrót)':' (wylot)'):''}</a>`).join('');
+  const book=[f, f.ret].filter(x=>x?.bookingUrl).map((x,i)=>`<a class="btn-ghost fl-book" href="${esc(x.bookingUrl)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Sprawdź na ${x.airline==='RYANAIR'?'ryanair.com':x.airline==='WIZZ'?'wizzair.com':`Google Flights (${esc(airlineOf(x).name)})`}${f.ret?(i?' (powrót)':' (wylot)'):''}</a>`).join('');
   const details=open?`<div class="trip-open plan-details">
       <div class="fl-incl"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> W cenie: mała torba pod siedzenie</div>
       ${o?journeyLine(P,f,o):searching('Liczę dojazd na lotnisko…')}
@@ -3489,9 +3499,10 @@ function tripSaveBar(P, f, d){
   const chosen=pick==='skip'?'ktoś mnie odbierze z lotniska':opt?`${opt.name||((XMODE[opt.kind]||XMODE.bus)[1]+' '+opt.line)}${opt.minutes!=null?` · ok. ${fmtDuration(opt.minutes)}`:''}${opt.fare?.pln!=null?` · ok. ${opt.fare.pln} zł`:''}`:'';
   const saved=P.saved && FAV.items.find(x=>x.type==='trip' && x.tid===P.saved);
   const ready=!!chosen;
-  const done=saved?`<div class="cs-saved" role="status">${P.savedOk===saved.tid?stateIll(assetPaths.tripSaved,200,117):''}<i class="fa-solid fa-circle-check" aria-hidden="true"></i> ${saved.status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano w ulubionych jako plan.'} <a href="/trip?id=${esc(saved.tid)}" data-trip-open="${esc(saved.tid)}">Zobacz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a></div>`:'';
+  const done=savedNote(P);
   return `<div class="cs-save">
     <div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz plan w ulubionych albo jako swoją podróż.</div>
+    ${planStayBox('flight',P,{f,d})}
     ${tripTitleField(P)}
     <div class="cs-save-btns">
       <button type="button" class="btn-ghost" data-trip-save="planned" ${ready?'':'disabled'}><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
@@ -4541,6 +4552,7 @@ function saveFavorites(){
     try{ r=await fetch('/api/favorites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({favorites:FAV.items})}); }
     catch(e){ console.warn('Ulubione zapiszemy po powrocie połączenia', e); return false; }
     if(!r.ok) console.warn('Nie zapisano ulubionych', r.status);
+    else window.TripPhotos?.run(); // zdjęcia czekające, aż podróż trafi na konto, mogą już iść
     if(r.ok || (r.status>=400 && r.status<500 && r.status!==408 && r.status!==429)) store('onward.favsPending', false);
     return r.ok;
   });
@@ -4633,27 +4645,37 @@ const longDay=(d, opts)=>new Date(d+'T12:00:00Z').toLocaleDateString(document.do
 // Daty podróży bez samolotu: dzień wyjazdu i (jeśli jest) powrotu.
 function groundDates(f){ const m=f.trip?.multi?f.trip.legs:null; if(m?.length){ const last=m[m.length-1].arrDay||m[m.length-1].day; return {day:m[0].day, back:last>m[0].day?last:'', ground:true}; }
   const g=f.trip?.ground; if(!g?.out) return null; const last=(g.legs||[g.out]).at(-1)?.day||''; return {day:g.out.day, back:g.back?.day||g.roundBack||(last>g.out.day?last:''), ground:true, ...(g.roundBack&&!g.back?{noReturn:true}:{})}; }
-function tripTimeline(list, {booked=false}={}){
+// Koniec podróży (dzień powrotu albo wyjazdu); minione to te, które skończyły się przed dzisiaj.
+const tripEnd=f=>{ const fl=f.type==='trip'?(savedFlight(f)||groundDates(f)):null; return fl?.back||fl?.day||''; };
+const tripIsPast=f=>{ const end=tripEnd(f); return !!end && end<ymdOf(0); };
+// only: 'upcoming' (nadchodzące i bez dat), 'past' (archiwum, pogrupowane latami) albo nic (wszystko, minione na końcu).
+function tripTimeline(list, {booked=false, only=''}={}){
   const today=ymdOf(0), dated=[], rest=[];
   for(const f of list){ const fl=f.type==='trip'?(savedFlight(f)||groundDates(f)):null; (fl?.day?dated:rest).push({f, fl}); }
   const end=x=>x.fl.back||x.fl.day;
-  const upcoming=dated.filter(x=>end(x)>=today).sort((a,b)=>a.fl.day.localeCompare(b.fl.day));
-  const past=dated.filter(x=>end(x)<today).sort((a,b)=>b.fl.day.localeCompare(a.fl.day));
+  const upcoming=only==='past'?[]:dated.filter(x=>end(x)>=today).sort((a,b)=>a.fl.day.localeCompare(b.fl.day));
+  const past=only==='upcoming'?[]:dated.filter(x=>end(x)<today).sort((a,b)=>b.fl.day.localeCompare(a.fl.day));
   const between=(a,b)=>Math.round((Date.parse(b)-Date.parse(a))/86400000);
+  const archive=only==='past';
   const item=({f, fl})=>{
     const key=esc(favKey(f)), gone=end({fl})<today, now=fl.day<=today&&!gone, inDays=between(today, fl.day);
     const stay=fl.back?between(fl.day, fl.back)+1:0;
-    const when=gone?'minęła':now?'trwa':inDays===0?'dziś':`za ${inDays} ${inDays===1?'dzień':'dni'}`;
-    return `<div class="tl-item ${gone?'past':''}">
+    const when=gone?(archive?'':'minęła'):now?'trwa':inDays===0?'dziś':`za ${inDays} ${inDays===1?'dzień':'dni'}`;
+    const mine=SHARED.mine[f.tid]||[];
+    // „Udostępnij” i z kim podróż jest udostępniona idą osobnym wierszem pod nazwą, żeby nazwa miała całą szerokość karty.
+    const share=booked&&!f.shared&&f.tid&&FAV.user&&!gone?`<button type="button" class="tl-share" data-trip-share="${esc(f.tid)}" title="${L2('Udostępnij podróż znajomemu','Share the trip with a friend')}"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępnij','Share')}${mine.length?` <small>${mine.length}</small>`:''}</button>`:'';
+    const sharedText=f.shared?`<span class="tl-badge-shared"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępnił(a)','Shared by')}: ${esc(f.shared.ownerName)}</span>`
+      :mine.length?`<span class="tl-shared"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępniona','Shared with')}: ${esc(mine.join(', '))}</span>`:'';
+    return `<div class="tl-item ${gone&&!archive?'past':''}">
       <div class="tl-date"><b>${longDay(fl.day,{day:'numeric'})}</b><small>${longDay(fl.day,{month:'short'})}</small></div>
       <div class="tl-card">
-        <div class="tl-head"><span class="fav-ico"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i></span>
+        <div class="tl-head"><span class="fav-ico"><i class="fa-solid fa-${archive?'box-archive':'suitcase-rolling'}" aria-hidden="true"></i></span>
           <button class="fav-card-open" type="button" ${f.shared?`data-trip-open="${esc(tidOf(f))}"`:`data-fav-open="${key}"`}><b>${f.title?esc(f.title):`Podróż do ${esc(f.to)}`}</b>
             <small class="tl-dates"><span>${longDay(fl.day,{weekday:'short', day:'numeric', month:'long'})}</span>${fl.back?` – <span>${longDay(fl.back,{weekday:'short', day:'numeric', month:'long', year:'numeric'})}</span>`:` <span>${longDay(fl.day,{year:'numeric'})}</span>`}${stay?` · <span>${stay} ${stay===1?'dzień':'dni'}</span>`:''}</small></button>
-          <span class="tl-side">${f.shared||SHARED.mine[f.tid]?.length?`<span class="tl-badge-shared" title="${esc(f.shared?L2('Udostępnił(a)','Shared by')+': '+f.shared.ownerName:L2('Udostępniona','Shared with')+': '+SHARED.mine[f.tid].join(', '))}"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępniona','Shared')}</span>`:''}<span class="tl-when ${now?'now':''}">${when}</span>${booked&&!f.shared&&f.tid&&FAV.user&&!gone?`<button type="button" class="tl-share" data-trip-share="${esc(f.tid)}" title="${L2('Udostępnij podróż znajomemu','Share the trip with a friend')}"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępnij','Share')}${SHARED.mine[f.tid]?.length?` <small>${SHARED.mine[f.tid].length}</small>`:''}</button>`:''}</span>
+          ${when?`<span class="tl-when ${now?'now':''}">${when}</span>`:''}
           ${f.shared?'':`<button class="fav-card-remove" type="button" data-fav-remove="${key}" title="${booked?'Usuń podróż':'Usuń z ulubionych'}" aria-label="${booked?'Usuń podróż':'Usuń z ulubionych'}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`}</div>
-        ${f.shared?'':SHARED.mine[f.tid]?.length?`<span class="tl-shared"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępniona','Shared with')}: ${esc(SHARED.mine[f.tid].join(', '))}</span>`:''}
-        <div class="tl-sub"><span>${esc(routeText(f))}</span>${f.name?` · <span>${esc(f.name)}</span>`:''}${f.trip?.xfer?` · <span>${f.trip.xfer.skip?'odbiór z lotniska':esc(f.trip.xfer.name)}</span>`:''}${fl.noReturn?` · <span class="tl-noreturn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> Nie wybrano powrotu</span>`:''}</div>
+        ${share||sharedText?`<div class="tl-actions">${share}${sharedText}</div>`:''}
+        <div class="tl-sub"><span>${esc(routeText(f))}</span>${f.name?` · <span>${esc(f.name)}</span>`:''}${f.trip?.xfer?` · <span>${f.trip.xfer.skip?'odbiór z lotniska':esc(f.trip.xfer.name)}</span>`:''}${fl.noReturn&&!gone?` · <span class="tl-noreturn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> Nie wybrano powrotu</span>`:''}</div>
         ${gone||booked||fl.ground?'':savedPriceHtml(favKey(f), fl, f.flight?.price)}
       </div></div>`;
   };
@@ -4663,8 +4685,10 @@ function tripTimeline(list, {booked=false}={}){
     if(m!==month){ html+=`<div class="tl-month">${m}</div>`; month=m; }
     html+=item(x);
   }
-  if(past.length) html+=`<div class="tl-month tl-past">Minione</div>`+past.map(item).join('');
-  return (html?`<div class="trip-timeline">${html}</div>`:'')+(rest.length?`<h4 class="fav-subtitle">Zapisane trasy</h4><div class="fav-grid">${rest.map(x=>favCard(x.f)).join('')}</div>`:'');
+  if(archive){ let year=''; for(const x of past){ const y=x.fl.day.slice(0,4); if(y!==year){ html+=`<div class="tl-month">${y}</div>`; year=y; } html+=item(x); } }
+  else if(past.length) html+=`<div class="tl-month tl-past">Minione</div>`+past.map(item).join('');
+  const others=only==='past'?[]:rest;
+  return (html?`<div class="trip-timeline">${html}</div>`:'')+(others.length?`<h4 class="fav-subtitle">Zapisane trasy</h4><div class="fav-grid">${others.map(x=>favCard(x.f)).join('')}</div>`:'');
 }
 // Liczniki w prawym górnym rogu przycisków „Moje podróże” i „Ulubione”.
 function navCounts(){
@@ -4743,7 +4767,7 @@ function saveMyTrip(P, status, title){
   const id=`f:${fareKey(f)}:${o?.id||''}`, before=FAV.items.find(x=>x.type==='trip' && x.id===id);
   const item={type:'trip', view:'podroz', id, tid:before?.tid||newTid(), status, from:P.from, to:P.to, title:(title ?? before?.title ?? '').trim().slice(0,80),
     name:o?`${o.title} · ${airlineOf(f).name}`:airlineOf(f).name, detail:f.ret?`${flightDetail(f)} · powrót ${fmtDay(f.ret.day)}`:flightDetail(f),
-    flight:tripFlight(f), plan:{out:fareKey(f), ret:f.ret?fareKey(f.ret):'', access:o?.id||'', xfer:P.xferPick}, trip:{...tripSnapshot(P,f,o,d), ...(before?.trip?.hotel?{hotel:before.trip.hotel}:{})}};
+    flight:tripFlight(f), plan:{out:fareKey(f), ret:f.ret?fareKey(f.ret):'', access:o?.id||'', xfer:P.xferPick}, trip:{...tripSnapshot(P,f,o,d), ...stayForTrip('flight',P,{f,d},before)}};
   FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && x.id===id)), item].slice(-50);
   P.savedOk=null;
   saveFavorites().then(ok=>{ if(ok!==false && P.saved===item.tid){ P.savedOk=item.tid; runPlan(false); } }).catch(e=>console.warn('Nie zapisano podróży', e));
@@ -4753,6 +4777,7 @@ function saveMyTrip(P, status, title){
 }
 // Moje podróże: oś czasu jak w ulubionych, bez cen do sprawdzania (bilety są już kupione).
 document.getElementById('myTripsPage')?.addEventListener('click', e=>{
+  const tab=e.target.closest('[data-mytrips-tab]'); if(tab){ if(MYT.tab!==tab.dataset.mytripsTab){ MYT.tab=tab.dataset.mytripsTab; goPage('podroz','moje'); } return; }
   const sh=e.target.closest('[data-trip-share]'); if(sh){ e.preventDefault(); e.stopPropagation(); openTrip(sh.dataset.tripShare, {invite:true}); return; }
   const to=e.target.closest('[data-trip-open]'); if(to){ e.preventDefault(); openTrip(to.dataset.tripOpen); }
 });
@@ -4760,7 +4785,18 @@ function renderMyTrips(){
   const page=document.getElementById('myTripsPage'); if(!page) return;
   const list=FAV.items.filter(f=>f.type==='trip' && f.status==='booked');
   const shared=SHARED.items.map(x=>({...x.trip, shared:{ownerId:x.ownerId, ownerName:x.ownerName}}));
-  page.innerHTML=list.length||shared.length?tripTimeline([...list, ...shared],{booked:true}):`<div class="empty-note">${stateIll(assetPaths.noTrips)}Nie masz jeszcze zapisanych podróży. Zaplanuj lot, a na ostatnim kroku „Z lotniska do centrum” kliknij „Zapisz moją podróż”. Plany, których nie jesteś pewien, zapisuj w ulubionych.</div>`;
+  const all=[...list, ...shared], past=all.filter(tripIsPast), next=all.length-past.length;
+  const archive=MYT.tab==='archive';
+  const tabs=all.length?`<div class="fav-filters mytrips-tabs" role="tablist" aria-label="Moje podróże">
+    <button type="button" role="tab" class="fav-filter ${archive?'':'on'}" data-mytrips-tab="upcoming" aria-selected="${!archive}"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> ${L2('Nadchodzące','Upcoming')} <small>${next}</small></button>
+    <button type="button" role="tab" class="fav-filter ${archive?'on':''}" data-mytrips-tab="archive" aria-selected="${archive}"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> ${L2('Archiwum','Archive')} <small>${past.length}</small></button></div>`:'';
+  let body;
+  if(!all.length) body=`<div class="empty-note">${stateIll(assetPaths.noTrips)}Nie masz jeszcze zapisanych podróży. Zaplanuj lot, a na ostatnim kroku „Z lotniska do centrum” kliknij „Zapisz moją podróż”. Plany, których nie jesteś pewien, zapisuj w ulubionych.</div>`;
+  else if(archive) body=past.length?`<p class="mytrips-note">${L2('Podróże, które już się skończyły. Otwórz podróż, aby zobaczyć jej plan i dodać zdjęcia.','Trips that have already ended. Open a trip to see its plan and add photos.')}</p>${tripTimeline(past,{booked:true, only:'past'})}`
+    :`<div class="empty-note">${L2('Archiwum jest puste. Podróże trafiają tu same, gdy minie dzień powrotu.','The archive is empty. Trips move here on their own once the return day has passed.')}</div>`;
+  else body=next?tripTimeline(all,{booked:true, only:'upcoming'})
+    :`<div class="empty-note">${stateIll(assetPaths.noTrips)}${L2('Nie masz nadchodzących podróży. Minione znajdziesz w zakładce „Archiwum”.','You have no upcoming trips. Past ones are in the “Archive” tab.')}</div>`;
+  page.innerHTML=tabs+body;
 }
 const fmtTs=ts=>ts?`${fmtDay(dayOfTs(ts))} ${fmtClock(ts)}`:'';
 /* ---------- Pogoda jako mała plakietka przy miejscu (start, lotniska, centrum) ---------- */
@@ -5150,7 +5186,7 @@ function renderTripPage(){
       ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-plan><i class="fa-solid fa-pen" aria-hidden="true"></i> Edytuj w planerze</button>'}
       ${f.tid&&FAV.user?`<span class="tp-share-wrap"><button type="button" class="btn-ghost ${PEOPLE.open?'on':''}" data-tp-share aria-expanded="${PEOPLE.open}" aria-controls="tripPeople"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${f.shared?L2('Uczestnicy','Participants'):L2('Udostępnij','Share')}</button></span>`:''}
       ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-remove><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Usuń</button>'}
-      <a class="tp-back" href="${booked?'/my-trips':'/favourites#trips'}" ${booked?'data-go-mytrips':'data-fav-goto'}><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${booked?'Moje podróże':'Ulubione'}</a>
+      <a class="tp-back" href="${booked?(when==='minęła'?'/my-trips#archive':'/my-trips'):'/favourites#trips'}" ${booked?`data-go-mytrips="${when==='minęła'?'archive':''}"`:'data-fav-goto'}><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${booked?(when==='minęła'?'Archiwum':'Moje podróże'):'Ulubione'}</a>
     </div></div>`+
     (booked&&when!=='minęła'?`<div class="tp-ready"><img src="${assetPaths.readyToGo}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>${T?.ground||T?.multi?'Przygotuj się do wyjazdu: sprawdź poniżej przebieg podróży i pogodę po drodze. Bilety kupisz u przewoźników.':'Przygotuj się do wyjazdu: sprawdź poniżej dojazd na lotnisko, lot i drogę do centrum. Bilety i rezerwacje potwierdzisz u przewoźników.'}</p>${photosSlot}</div>`
       :!booked?`<div class="tp-ready"><img src="${assetPaths.journeyPlanned}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>To plan zapisany w ulubionych. Sprawdź ceny i dojazdy, a gdy podróż będzie pewna, zapisz ją jako swoją.</p>${photosSlot}</div>`:'');
@@ -5450,6 +5486,7 @@ function groundCosts(T){
   const n=Math.max(1,T.people||1), rows=[];
   if(T.multi){
     T.legs.forEach((L,k)=>rows.push({group:'Etapy', icon:L.icon, label:`Etap ${k+1}: ${L.from} → ${L.to} · ${L.title}`, value:L.cost, note:L.cost==null?'cena nieznana':L.kind==='flight'?'lot z dojazdami':''}));
+    (T.stopHotels||[]).forEach(h=>{ if(h.price!=null) rows.push({group:'Nocleg', icon:'hotel', label:`${h.place?h.place+': ':''}${h.name}`, value:h.price, note:''}); });
     if(T.hotel?.price!=null) rows.push({group:'Nocleg', icon:'hotel', label:T.hotel.name, value:T.hotel.price, note:''});
     const total=Math.round(rows.reduce((a,r)=>a+(r.value||0),0));
     return {rows, total, people:n, perPerson:Math.round(total/n), missing:rows.some(r=>r.value==null)};
@@ -5530,6 +5567,138 @@ function tripCostsWithHotel(T){
   const rows=[...c.rows, {group:'Nocleg', icon:'hotel', label:h.name, value:h.currency&&h.currency!=='PLN'?null:h.price, note:h.currency&&h.currency!=='PLN'?`${Math.round(h.price)} ${h.currency}`:'za cały pobyt'}];
   return {...c, rows, total:Math.round(rows.reduce((s,r)=>s+(r.value||0),0)), missing:c.missing||rows.some(r=>r.value==null)};
 }
+/* ---------- Nocleg w planerze: na ostatnim kroku (przed zapisem) hotel w miejscu docelowym, a w podróży w etapach
+   także w każdym mieście z noclegiem po drodze. Szukamy przez Booking.com (Demand API, gdy serwer ma klucz), zawsze
+   jest link do wyszukiwania na Booking.com z datami i można wpisać własny hotel. Wybór zapisuje się razem z podróżą. ---------- */
+const STAY={holder:null, kind:'', ctx:null};
+const MAX_NIGHTS=30;
+// Miejsca noclegu dla bieżącego planu: [{key, city, lat, lon, checkin, nights}].
+function planStaySlots(kind, H, ctx={}){
+  const at=p=>{ const q=Array.isArray(p)?p:p?.lat!=null?[p.lat,p.lon]:null; return q&&q[0]!=null?{lat:+q[0], lon:+q[1]}:null; };
+  const nightsOf=(a,b)=>a&&b&&b>a?Math.round((Date.parse(b)-Date.parse(a))/86400000):1;
+  const slot=(key, city, p, checkin, checkout)=>p&&checkin?[{key, city, ...p, checkin, nights:Math.min(MAX_NIGHTS, Math.max(1, H.stayNights?.[key]||nightsOf(checkin, checkout)))}]:[];
+  if(kind==='flight'){
+    const f=ctx.f, d=ctx.d; if(!f) return [];
+    const p=at(d?.target)||at(H.dest?.points?.[0])||(d?.airport?at(d.airport):null);
+    return slot('dest', H.to||d?.city||'', p, (f.arrival||'').slice(0,10)||f.day, f.ret?.day||'');
+  }
+  if(kind==='ground'){
+    const st=ctx.stages||[H], last=st[st.length-1], g=last.groundPick; if(!g) return [];
+    const arrive=g.arrive!=null?dayOfTs(g.arrive):g.day;
+    return slot('dest', last.to, at(last.dest?.points?.[0]), arrive, st.length===1?H.groundBack?.day||'':'');
+  }
+  // W etapach: każde miasto po drodze, w którym nocujemy (następny etap rusza innego dnia), i cel, jeśli to nie dom.
+  const legs=H.legs||[], n=H.places.length-1, out=[];
+  legs.forEach((L,k)=>{
+    if(!L) return;
+    const arrive=L.arrDay||L.day, next=legs[k+1];
+    if(k<n-1){ if(next?.day && next.day>arrive) out.push(...slot(`p${k+1}`, H.places[k+1], at(L.b), arrive, next.day)); }
+    else if(H.places[n]!==H.places[0]) out.push(...slot(`p${k+1}`, H.places[k+1], at(L.b), arrive, ''));
+  });
+  return out;
+}
+const stayCheckout=s=>addDays(s.checkin, s.nights);
+const stayQuery=(s, people)=>({lat:s.lat.toFixed(5), lon:s.lon.toFixed(5), checkin:s.checkin, checkout:stayCheckout(s), adults:String(Math.min(8,Math.max(1,people||1))), city:s.city||''});
+const stayKey=(s, people)=>'stay|'+new URLSearchParams(stayQuery(s, people));
+function stayPeople(kind, H){ return Math.max(1, kind==='multi'?+document.getElementById('plPeople')?.value||1:H.people||1); }
+// Hotel wybrany w planerze; przy edycji zapisanej podróży — ten, który już w niej był (dopóki go nie usunięto).
+function stayHotel(H, key){
+  if(H.stayHotels && key in H.stayHotels) return H.stayHotels[key];
+  const ed=S.editing?.tid?FAV.items.find(x=>x.type==='trip'&&x.tid===S.editing.tid)?.trip:null; if(!ed) return null;
+  return ed.stopHotels?.find(x=>x.key===key) || (key==='dest'||ed.multi&&key===`p${ed.legs?.length||0}`?ed.hotel||null:null);
+}
+function stayLink(s, people){
+  const k=stayKey(s, people), st=HOT.get(k), q=stayQuery(s, people);
+  if(st?.bookingUrl) return st.bookingUrl;
+  if(!HOT.has(k+'|link')){ HOT.set(k+'|link', 1);
+    fetch('/api/hotels?'+new URLSearchParams({...q, link:'1'})).then(r=>r.ok?r.json():null).then(d=>{ if(d?.bookingUrl){ HOT.set(k,{...(HOT.get(k)||{}), linkOnly:!HOT.get(k), bookingUrl:d.bookingUrl}); rerenderStay(); } }).catch(()=>{}); }
+  return `https://www.booking.com/searchresults.html?${new URLSearchParams({ss:q.city||`${q.lat},${q.lon}`, checkin:q.checkin, checkout:q.checkout, group_adults:q.adults, no_rooms:'1', group_children:'0'})}`;
+}
+function staySlotHtml(H, s, people, many){
+  const h=stayHotel(H, s.key), k=stayKey(s, people), st=HOT.get(k), live=st&&!st.linkOnly?st:null, link=stayLink(s, people);
+  const nights=`<label class="stay-nights">Nocy <input type="number" min="1" max="${MAX_NIGHTS}" value="${s.nights}" data-stay-nights="${esc(s.key)}" aria-label="Liczba nocy w ${esc(s.city)}"></label>`;
+  const head=`<div class="stay-head"><b><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(s.city||'Na miejscu')}</b><small>${fmtDay(s.checkin)} – ${fmtDay(stayCheckout(s))}</small>${h?'':nights}</div>`;
+  if(h) return `<div class="stay-slot" data-stay-slot="${esc(s.key)}">${head}<div class="hotel-chosen">${hotelCard(h, `${h.url?linkBtn(h.url,'arrow-up-right-from-square',h.manual?'Rezerwacja':'Zarezerwuj na Booking.com'):''}<button type="button" class="btn-ghost" data-stay-remove="${esc(s.key)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Zmień nocleg</button>`)}</div></div>`;
+  let body='', search=`<button type="button" class="btn-grad" data-stay-search="${esc(s.key)}"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj noclegu</button>`;
+  if(live?.loading){ body=searching('Szukam noclegów na Booking.com…'); search=''; }
+  else if(live?.error) body=`<div class="empty-note">${esc(live.error)}</div>`;
+  else if(live?.configured===false){ body='<div class="empty-note">Wyszukiwarka noclegów w aplikacji czeka na klucz Booking.com. Szukaj na Booking.com przyciskiem obok i dodaj wybrany hotel ręcznie.</div>'; search=''; }
+  else if(live && !live.hotels?.length){ body='<div class="empty-note">Booking.com nie znalazł wolnych pokoi w okolicy w tych dniach.</div>'; search=''; }
+  else if(live){ search=''; body=`${live.sandbox?'<small class="text-soft">Dane z piaskownicy Booking.com (sandbox) — testowe.</small>':''}<div class="hotel-list">${live.hotels.slice(0,many?4:6).map(x=>hotelCard(x, `<button type="button" class="btn-grad" data-stay-add="${esc(s.key)}" data-stay-id="${esc(x.id)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> Wybierz</button>${x.url?linkBtn(x.url,'arrow-up-right-from-square','Booking.com'):''}`)).join('')}</div>`; }
+  return `<div class="stay-slot" data-stay-slot="${esc(s.key)}">${head}${body}<div class="hotel-bar">${search}${linkBtn(link,'arrow-up-right-from-square','Szukaj na Booking.com')}
+    <details class="hotel-manual"><summary>Mam już nocleg — dodaj ręcznie</summary>
+      <form class="hotel-form" data-stay-form="${esc(s.key)}"><input name="hname" placeholder="Nazwa hotelu" required maxlength="120"><input name="address" placeholder="Adres (pokażemy go na mapie)" maxlength="160"><input name="price" type="number" min="0" step="1" placeholder="Cena za pobyt (zł)"><input name="url" type="url" placeholder="Link do rezerwacji (opcjonalnie)" maxlength="300"><button class="btn-grad" type="submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj nocleg</button></form></details></div></div>`;
+}
+// Sekcja „Nocleg” na ostatnim kroku planera: kind 'flight' (H = etap z lotem), 'ground' (H = pierwszy etap) albo 'multi' (H = S.multi).
+function planStayBox(kind, H, ctx={}){
+  STAY.holder=H; STAY.kind=kind; STAY.ctx=ctx;
+  const slots=planStaySlots(kind, H, ctx); if(!slots.length) return '';
+  const people=stayPeople(kind, H), chosen=slots.map(s=>stayHotel(H, s.key)).filter(Boolean);
+  const cost=chosen.filter(h=>h.price!=null && (!h.currency||h.currency==='PLN')).reduce((a,h)=>a+h.price,0);
+  return `<section class="plan-stay" data-stay-box><div class="stay-title"><h4 class="trip-title"><i class="fa-solid fa-bed" aria-hidden="true"></i> Nocleg <small>(opcjonalnie)</small></h4>${cost?`<small><span>Noclegi razem</span>: <b>${zl(cost)}</b></small>`:''}</div>
+    <p class="text-soft stay-intro">Dodaj nocleg do planu — zapisze się razem z podróżą. Rezerwację potwierdzasz na Booking.com.</p>
+    ${slots.map(s=>staySlotHtml(H, s, people, slots.length>1)).join('')}</section>`;
+}
+function rerenderStay(){
+  const box=document.querySelector('#planResults [data-stay-box]'); if(!box || !STAY.holder) return;
+  const html=planStayBox(STAY.kind, STAY.holder, STAY.ctx);
+  if(html) box.outerHTML=html; else box.remove();
+}
+function staySlot(key){ return planStaySlots(STAY.kind, STAY.holder, STAY.ctx).find(s=>s.key===key); }
+function setStayHotel(key, hotel){
+  const H=STAY.holder; if(!H) return;
+  H.stayHotels={...(H.stayHotels||{}), [key]:hotel};
+  rerenderStay();
+}
+async function searchStay(key){
+  const s=staySlot(key); if(!s) return;
+  const people=stayPeople(STAY.kind, STAY.holder), k=stayKey(s, people), link=HOT.get(k)?.bookingUrl;
+  HOT.set(k,{loading:true, bookingUrl:link}); rerenderStay();
+  try{
+    const r=await fetch('/api/hotels?'+new URLSearchParams(stayQuery(s, people))); const d=await r.json().catch(()=>({}));
+    HOT.set(k, r.ok?d:{error:d.error||'Wyszukiwarka noclegów jest chwilowo niedostępna.', bookingUrl:d.bookingUrl||link});
+  }catch(e){ HOT.set(k,{error:'Wyszukiwarka noclegów jest chwilowo niedostępna.', bookingUrl:link}); }
+  rerenderStay();
+}
+// Hotele do zapisu z podróżą: hotel = cel (jak dotąd), stopHotels = noclegi po drodze w podróży w etapach.
+function stayForTrip(kind, H, ctx, before){
+  const slots=planStaySlots(kind, H, ctx), out={};
+  const pick=s=>{ const h=stayHotel(H, s.key); return h?{...h, key:s.key, place:s.city, checkin:s.checkin, checkout:stayCheckout(s)}:null; };
+  const destKey=kind==='multi'?`p${H.places.length-1}`:'dest', dest=slots.find(s=>s.key===destKey);
+  const destHotel=dest?pick(dest):(H.stayHotels && destKey in H.stayHotels?null:before?.trip?.hotel||null);
+  if(destHotel) out.hotel=destHotel;
+  const stops=slots.filter(s=>s.key!==destKey).map(pick).filter(Boolean);
+  if(stops.length) out.stopHotels=stops;
+  return out;
+}
+document.getElementById('planResults').addEventListener('click', e=>{
+  const sr=e.target.closest('[data-stay-search]'); if(sr){ searchStay(sr.dataset.staySearch); return; }
+  const sa=e.target.closest('[data-stay-add]'); if(sa){
+    const s=staySlot(sa.dataset.stayAdd); if(!s) return;
+    const h=HOT.get(stayKey(s, stayPeople(STAY.kind, STAY.holder)))?.hotels?.find(x=>String(x.id)===sa.dataset.stayId);
+    if(h){ setStayHotel(s.key, h); toast(`${L2('Nocleg','Stay')}: ${h.name}.`); } return;
+  }
+  const rm=e.target.closest('[data-stay-remove]'); if(rm){ setStayHotel(rm.dataset.stayRemove, null); return; }
+});
+document.getElementById('planResults').addEventListener('change', e=>{
+  const nn=e.target.closest('[data-stay-nights]'); if(!nn || !STAY.holder) return;
+  const v=Math.min(MAX_NIGHTS, Math.max(1, Math.round(+nn.value||1)));
+  STAY.holder.stayNights={...(STAY.holder.stayNights||{}), [nn.dataset.stayNights]:v}; rerenderStay();
+});
+document.getElementById('planResults').addEventListener('submit', async e=>{
+  const form=e.target.closest('[data-stay-form]'); if(!form) return;
+  e.preventDefault();
+  const s=staySlot(form.dataset.stayForm); if(!s) return;
+  const name=form.hname.value.trim(), address=form.address.value.trim(), price=form.price.value!==''?Number(form.price.value):null, url=form.url.value.trim();
+  if(!name) return;
+  let lat=null, lon=null;
+  if(address){
+    const r=await fetch('/api/geocode?'+new URLSearchParams({q:s.city&&!address.toLowerCase().includes(s.city.toLowerCase())?`${address}, ${s.city}`:address, scope:'world'})).then(x=>x.ok?x.json():null).catch(()=>null);
+    const p=r?.places?.[0]?.points?.[0]; if(p){ lat=p[0]; lon=p[1]; }
+  }
+  setStayHotel(s.key, {id:'manual', manual:true, name, address, lat, lon, price, currency:'PLN', url:/^https:\/\//.test(url)?url:''});
+  toast(`${L2('Nocleg','Stay')}: ${name}${address&&lat==null?L2(' (adresu nie znaleźliśmy na mapie)',' (address not found on the map)'):''}.`);
+});
 /* ---------- Mapa podróży: dom, lotniska, dojazd do centrum i hotel ---------- */
 const TRIPMAP={el:null, map:null, layer:null, key:'', marks:{}, base:[], baseKey:null};
 function mountTripMap(f, T){
@@ -6033,7 +6202,7 @@ function tripStart(){
 function viaRows(){ return [...document.querySelectorAll('#plStops .pl-stop')]; }
 function renumberVias(){
   viaRows().forEach((row,i)=>{ row.querySelector('.pl-via-label').textContent=S.agency==='podroz'?`Miejsce ${i+1}`:`Przystanek ${i+1}`; });
-  document.getElementById('plAddStop').disabled=viaRows().length>=MAX_VIAS;
+  const addStop=document.getElementById('plAddStop'); if(addStop) addStop.disabled=viaRows().length>=MAX_VIAS;
 }
 function addVia(){
   const id=++viaSeq, row=document.createElement('div');
@@ -6104,7 +6273,7 @@ document.getElementById('planForm').addEventListener('submit', async e=>{
 });
 const [plFrom,plTo,plTime,plWhen,plDate,plRound,plBack]=['plFrom','plTo','plTime','plWhen','plDate','plRound','plBack'].map(id=>document.getElementById(id));
 const MAX_VIAS=5; let viaSeq=0;
-document.getElementById('plAddStop').addEventListener('click', ()=>{ if(S.agency==='podroz') enterMultiForm({addStep:true}); else addVia(); });
+document.getElementById('plAddStop')?.addEventListener('click', ()=>{ if(S.agency==='podroz') enterMultiForm({addStep:true}); else addVia(); });
 document.getElementById('plStops').addEventListener('click', e=>{ const b=e.target.closest('[data-remove-via]'); if(b){ delete S.placeChoice[b.closest('.pl-stop').dataset.field]; b.closest('.pl-stop').remove(); renumberVias(); } });
 { const saved=store('rzbus.plan.modes'); if(Array.isArray(saved)) document.querySelectorAll('#plModes input').forEach(x=>{ x.checked=saved.includes(x.value); }); }
 // Liczba osób: koszty liczą się od nowa w tym samym planie (bez nowego wyszukiwania).
@@ -6396,7 +6565,7 @@ document.getElementById('planResults').addEventListener('click', e=>{
   const pf=e.target.closest('[data-pick-flight]'); if(pf){ const P=stageOf(pf); if(pf.dataset.pickFlight==='out') P.selOut=pf.dataset.key; else P.selRet=pf.dataset.key; P.flightStep=1; runPlan(false); return; }
   const rd=e.target.closest('[data-radius]'); if(rd){ const sel=document.getElementById('plRadius'); sel.value=rd.dataset.radius; store('rzbus.plan.radius', rd.dataset.radius); document.getElementById('planForm').requestSubmit(); return; }
   const ap=e.target.closest('[data-acc-pick]'); if(ap){ const P=stageOf(ap); (P.accessPick||(P.accessPick=new Map())).set(ap.dataset.accPick, ap.dataset.accId); runPlan(false); return; }
-  const jl=e.target.closest('[data-jl]'); if(jl){ const P=stageOf(jl), set=P.jlOpen||(P.jlOpen=new Set()); if(set.has(jl.dataset.jl)) set.delete(jl.dataset.jl); else set.add(jl.dataset.jl); runPlan(false); return; }
+  const jl=e.target.closest('[data-jl]'); if(jl){ const P=stageOf(jl), set=P.jlClosed||(P.jlClosed=new Set()); if(set.has(jl.dataset.jl)) set.delete(jl.dataset.jl); else set.add(jl.dataset.jl); runPlan(false); return; }
   const fp=e.target.closest('[data-page]'); if(fp){ stageOf(fp).flightPage=+fp.dataset.page; runPlan(false); return; }
   const tr=e.target.closest('[data-train]'); if(tr){ openTrain(tr.dataset.train); return; }
   const bp=e.target.closest('[data-back-page]');
