@@ -83,9 +83,12 @@
   .pl-reset i{font-size:1rem}
   body.multi-mode .search-box .trip-tabs{grid-template-columns:minmax(0,1fr) 44px}
 
-  /* from / to / date / time / search: one column */
-  .search-box .planner,.search-box .planner.round,.planner{display:grid !important; grid-template-columns:minmax(0,1fr) !important; gap:8px !important}
+  /* from / to / search: full width; the date and the time share a row */
+  .search-box .planner,.search-box .planner.round,.planner{display:grid !important; grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important; gap:8px !important}
   .planner > *{grid-column:1 / -1 !important; min-width:0}
+  /* the date ("Data wyjazdu" or "Termin podróży") and "Odjazd / Na miejscu o" with the time share one row */
+  .planner > .pl-time{grid-column:auto !important}
+  .planner > .pl-time .pl-inp input{padding-left:0; padding-right:0}
   .pl-pair{grid-template-columns:minmax(0,1fr) !important; gap:8px}
   .pl-field{min-width:0; padding:10px 14px !important; border-radius:14px}
   .pl-pair .pl-field:first-child,.pl-pair .pl-field:last-child{padding-right:56px !important; padding-left:14px !important}
@@ -96,7 +99,7 @@
   .pl-when{min-height:24px}
   .pl-go,.search-box .pl-go{width:100%; min-height:52px !important}
   /* kalendarz jako arkusz nad dolnym menu: bez przesunięcia translate(-50%,-50%) z app.css, które wypychało go poza ekran */
-  .rng-pop{position:fixed !important; left:8px !important; right:8px !important; top:auto !important; bottom:calc(76px + env(safe-area-inset-bottom,0px)) !important; transform:none !important; width:auto !important; max-width:none !important; max-height:calc(100dvh - 96px - env(safe-area-inset-bottom,0px)) !important; overflow:auto; z-index:1060}
+  .rng-pop,.dp-pop{position:fixed !important; left:8px !important; right:8px !important; top:auto !important; bottom:calc(var(--app-bottom,62px) + var(--kb-overlap,0px) + 8px) !important; transform:none !important; width:auto !important; max-width:none !important; max-height:calc(100dvh - var(--app-top,56px) - var(--app-bottom,62px) - var(--kb-overlap,0px) - 16px) !important; overflow:auto; z-index:1060}
   .rng-grid{grid-template-columns:repeat(7,minmax(0,1fr)) !important}
 
   /* transport, people and airport options */
@@ -186,22 +189,51 @@
   .explore-style button{flex:1; min-height:40px; padding:0 8px}
   .explore-from{flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none}
 
-  /* live map */
+  /* live map: the counters band had a -24 px desktop bleed and stuck out 12 px on the left */
+  .stats-band{margin:0 0 16px !important; padding:0 !important; width:100%; max-width:100%}
+  .stat-card{min-width:0; padding:10px 12px !important}
+  #mapCol,#mapWrap,#map{min-width:0; max-width:100%}
   #map{height:min(58vh,480px) !important}
+  /* city transport of other cities: the date-and-time field of the trip planner set the panel's minimum width,
+     so the map and everything under it grew past the screen (29-373 px on a 360 px phone) */
+  .city-panel,.cp-body,.cp-map-wrap,.cp-plan,.cp-form,.ctx{min-width:0; max-width:100%}
+  .city-panel{padding:12px !important}
+  .cp-body{grid-template-columns:minmax(0,1fr) !important}
+  .cp-map{height:min(55vh,380px) !important}
+  .cp-when{flex-wrap:wrap}
+  .cp-when label:first-child{flex:1 1 100%; min-width:0}
+  .cp-when input[type=datetime-local]{width:100%; min-width:0; min-height:44px}
+  .cp-field input{min-height:44px}
+  .cp-pin{min-width:44px}
+  .ctx-stats > div{min-width:0}
   .map-toggle{width:100%; min-height:48px; justify-content:center}
 
   /* trip pages */
   .tp-people-list{grid-template-columns:minmax(0,1fr)}
   .tp-photo-grid{grid-template-columns:repeat(3,minmax(0,1fr)) !important}
 
-  /* ---- dialogs open as bottom sheets ---- */
+  /* ---- dialogs open under the top bar and end above the bottom menu, so logo, PL/EN, Konto and the menu stay visible ----
+     --app-top / --app-bottom are the bars' heights (app.native.js); the top bar and menu sit above the dialog layer. */
+  .topbar{z-index:1065 !important}
+  .bottom-nav{z-index:1065 !important; bottom:var(--kb-overlap,0px) !important}
+  .modal{top:var(--app-top,56px) !important; bottom:calc(var(--app-bottom,62px) + var(--kb-overlap,0px)) !important; height:auto !important}
+  .modal-backdrop{top:var(--app-top,56px) !important; bottom:calc(var(--app-bottom,62px) + var(--kb-overlap,0px)) !important; height:auto !important; width:100% !important}
   .modal-dialog,.modal-dialog.modal-lg,.modal-dialog.modal-xl,.people-dialog{max-width:none !important; width:100%; margin:0 !important;
-    min-height:100% !important; display:flex; align-items:flex-end !important}
+    min-height:100% !important; display:flex; align-items:flex-start !important}
   .modal-dialog-scrollable{height:100% !important; max-height:100%}
-  .modal-content{width:100%; max-height:calc(100dvh - 24px - env(safe-area-inset-top,0px)); border-radius:22px 22px 0 0 !important;
-    padding-bottom:env(safe-area-inset-bottom,0px)}
-  .modal.fade .modal-dialog{transform:translateY(40px)}
+  .modal-content{width:100%; border-radius:0 0 22px 22px !important}
+  .modal-dialog-scrollable .modal-content{max-height:100% !important}
+  .modal.fade .modal-dialog{transform:translateY(-24px)}
   .modal.show .modal-dialog{transform:none}
+  /* typing in a dialog: room under the last field so it can scroll up to the top of the dialog */
+  .modal-body.kb-room{padding-bottom:calc(60vh + 16px) !important}
+  /* other layers: questions, the calendar, the share list, notes and the first-visit card stay between the bars */
+  .ask-layer{top:var(--app-top,56px); bottom:calc(var(--app-bottom,62px) + var(--kb-overlap,0px))}
+  .tour-suggest{left:12px; right:12px; width:auto; bottom:calc(var(--app-bottom,62px) + 12px)}
+  .toast-note{bottom:calc(var(--app-bottom,62px) + var(--kb-overlap,0px) + 12px) !important}
+  .edit-badge{bottom:calc(var(--app-bottom,62px) + 12px)}
+  body.offline .offline-bar{bottom:calc(var(--app-bottom,62px) + 12px)}
+  .tp-share-wrap > .tp-people{bottom:calc(var(--app-bottom,62px) + 8px) !important; max-height:calc(100dvh - var(--app-top,56px) - var(--app-bottom,62px) - 16px) !important}
   .modal-hero{padding:18px 60px 16px 18px !important}
   .modal-hero h4{font-size:1.25rem !important; overflow-wrap:anywhere}
   .modal-hero .btn-close{top:10px !important; right:10px !important; width:44px; height:44px; padding:0; background-size:14px}
@@ -238,19 +270,18 @@
   .tx-mode .oi,.tx-sub .oi,.tx-sub i{display:none}
 }
 
-/* ---- keyboard open: the field being typed in stays visible (see app.native.js) ----
-   --kb-overlap is the part of the screen the keyboard covers when the app's web view is not resized; usually 0. */
-html.keyboard-open body{padding-bottom:var(--kb-overlap,0px) !important}
+/* ---- typing: the field goes up to just under the top bar (see app.native.js) ----
+   --kb-overlap is the part of the screen the keyboard covers when the app's web view is not resized; usually 0.
+   .kb-room adds space under the page while typing, so the last fields on a page can scroll up too. */
 @media (max-width:760px){
-  html.keyboard-open .modal-dialog{padding-bottom:var(--kb-overlap,0px)}
-  html.keyboard-open .modal-content{max-height:calc(100dvh - 24px - env(safe-area-inset-top,0px) - var(--kb-overlap,0px))}
+  body.kb-room{padding-bottom:calc(var(--app-bottom,62px) + var(--kb-overlap,0px) + 70vh) !important}
 
   /* the "Compare connections: buses, trains…" picture under the search box only takes room on a phone */
   #planResults:empty{display:none !important}
 }
 
 /* Pull down to refresh (app.native.js): a round arrow that turns as you pull and spins while the page reloads. */
-.pull-refresh{position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); left:50%; z-index:2000; width:40px; height:40px; border-radius:50%;
+.pull-refresh{position:fixed; top:calc(var(--app-top,env(safe-area-inset-top,0px)) + 8px); left:50%; z-index:2000; width:40px; height:40px; border-radius:50%;
   display:flex; align-items:center; justify-content:center; background:#fff; color:#173B70; box-shadow:0 4px 14px rgba(0,0,0,.25);
   transform:translate(-50%,-48px); opacity:0; pointer-events:none}
 .pull-refresh.ready{background:#173B70; color:#fff}

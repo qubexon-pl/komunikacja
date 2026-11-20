@@ -2345,8 +2345,6 @@ body.explore-mode .explore-search{flex:0 1 360px}
   .bottom-nav a.active{color:var(--red); background:color-mix(in srgb,var(--red) 8%,transparent)}
   .bn-count{position:absolute; top:2px; left:calc(50% + 6px); min-width:16px; height:16px; padding:0 4px; border-radius:8px; background:var(--gold); color:var(--navy); font-size:.62rem; line-height:16px; text-align:center}
   body{padding-bottom:calc(72px + env(safe-area-inset-bottom,0px)) !important}
-  .keyboard-open .bottom-nav{display:none}
-  .keyboard-open body{padding-bottom:0 !important}
   /* górny pasek: logo, język, dzwonek i konto; zakładki stron są w dolnym pasku */
   .topbar .view-tabs,.topbar .nav-sep,.topbar .nav-fav{display:none !important}
   .topbar{position:sticky; top:0; z-index:1030; padding-top:env(safe-area-inset-top,0px)}
@@ -2818,7 +2816,7 @@ body.lines-mode #lines-sec{margin-top:8px !important}
 .ctx-line:hover,.ctx-line:focus-visible{border-color:#2878D0; outline:none}
 .ctx-line small{color:var(--ink-soft); font-size:.7rem; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%}
 .ctx-stats{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px}
-.ctx-stats div{border:1px solid var(--line); background:var(--bg-alt); border-radius:14px; padding:10px 12px}
+.ctx-stats > div{border:1px solid var(--line); background:var(--bg-alt); border-radius:14px; padding:10px 12px}
 .ctx-stats .lbl{font-size:.72rem; color:var(--ink-soft); font-weight:700}
 .ctx-stats .num{font-size:1.4rem; font-weight:800}
 .ctx-stats .is-red .num{color:var(--rose, #b42318)}
