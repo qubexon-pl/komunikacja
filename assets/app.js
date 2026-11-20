@@ -6144,47 +6144,70 @@ document.getElementById('ttResults').addEventListener('click', e=>{
 });
 
 /* ---------- Podpowiedzi podczas pisania ---------- */
-function stopMatches(q){
-  const needle=q.toLowerCase(), names=S.agency==='podroz' ? allStopNames() : [...GT.groups.keys()].filter(groupInView);
-  return names.filter(n=>n.toLowerCase().includes(needle)).sort((a,b)=>b.toLowerCase().startsWith(needle)-a.toLowerCase().startsWith(needle) || natSort(a,b)).slice(0,5);
+// Przystanki z bazy: w podróży tylko te w pobliżu (at = [lat,lon]) i dworce, których nazwa zaczyna się od wpisanego tekstu,
+// żeby „Gdańska” nie podsuwała przystanków z 48 miast naraz.
+const STOP_NEAR_M=40000;
+function stopMatches(q, at){
+  const f=foldText(q.trim()), names=S.agency==='podroz' ? allStopNames() : [...GT.groups.keys()].filter(groupInView);
+  const rank=n=>{ const t=foldText(n); return t.startsWith(f)?0 : t.split(/[\s.,\-\/()]+/).some(w=>w.startsWith(f))?1 : t.includes(f)?2 : -1; };
+  let hits=names.map(n=>({n, m:rank(n), d:0})).filter(x=>x.m>=0);
+  if(at && S.agency==='podroz') hits=hits.map(x=>{ const p=stopPoint(x.n); return {...x, d:p?hav(at,p):Infinity}; })
+    .filter(x=>x.d<=STOP_NEAR_M || (x.m===0 && !GT.groups.has(x.n)));
+  return hits.sort((a,b)=>a.m-b.m || a.d-b.d || natSort(a.n,b.n)).slice(0,5).map(x=>x.n);
 }
+// Gdzie jest użytkownik (ostatnia znana pozycja z mapy lub widżetu pogody); bez niej Rzeszów.
+function myBias(){
+  const me=PK.me; if(me?.length===2) return me;
+  const spot=store('onward.wxSpot'); return spot && Number.isFinite(+spot.lat) && Number.isFinite(+spot.lon) ? [+spot.lat,+spot.lon] : null;
+}
+const SG_KIND={street:['fa-road','ulica'], address:['fa-location-dot','adres'], miejsce:['fa-location-dot','miejsce'], poi:['fa-location-dot','miejsce'], station:['fa-train','stacja'], airport:['fa-plane','lotnisko'], city:['fa-city','miasto'], area:['fa-map','okolica'], przystanek:['fa-bus-simple','przystanek'], lot:['fa-plane','lot']};
 function setBusy(input, on){
   const box=input.closest('.pl-inp'); if(!box) return; // np. pola planera po mieście: bez kółka
   let spin=box.querySelector('.pl-spin');
   if(on && !spin){ spin=document.createElement('span'); spin.className='mini-spin pl-spin'; spin.setAttribute('role','status'); spin.setAttribute('aria-label','Szukam adresu…'); spin.title='Szukam adresu…'; input.after(spin); }
   if(!on && spin) spin.remove();
 }
-function attachSuggest(input, {streets, onPick, local:suggest, near}){ // near(): [lat,lon] — podpowiedzi z okolic innego miasta
+function attachSuggest(input, {streets, onPick, local:suggest, near, field}){ // near(): [lat,lon] — podpowiedzi z okolic innego miasta; field(): pole planera
   const box=document.createElement('ul'); box.className='suggest-list'; box.id=input.id+'List'; box.setAttribute('role','listbox'); box.hidden=true;
   (input.closest('.pl-field')||input.closest('.cp-field')||input.parentElement).appendChild(box);
   input.setAttribute('role','combobox'); input.setAttribute('aria-autocomplete','list'); input.setAttribute('aria-controls',box.id); input.setAttribute('aria-expanded','false'); input.autocomplete='off';
   let items=[], active=-1, timer=null, req=0;
   const close=()=>{ clearTimeout(timer); req++; setBusy(input,false); box.hidden=true; active=-1; input.setAttribute('aria-expanded','false'); input.removeAttribute('aria-activedescendant'); };
   const draw=()=>{
-    box.innerHTML=items.map((it,i)=>`<li id="${box.id}-${i}" role="option" aria-selected="${i===active}" class="${i===active?'active':''}" data-i="${i}"><span class="sg-kind">${it.kind}</span>${esc(it.label)}</li>`).join('');
+    box.innerHTML=items.map((it,i)=>{ const [icon,kind]=SG_KIND[it.kind]||['fa-location-dot',it.kind||''];
+      return `<li id="${box.id}-${i}" role="option" aria-selected="${i===active}" class="sg-item${i===active?' active':''}" data-i="${i}"><i class="fa-solid ${icon} sg-ico" aria-hidden="true"></i><span class="sg-text"><span class="sg-main">${esc(it.main||it.label)}</span><small class="sg-sub"><span class="sg-kind">${esc(kind)}</span>${it.sub?' · '+esc(it.sub):''}</small></span></li>`; }).join('');
     box.hidden=!items.length; input.setAttribute('aria-expanded', String(!box.hidden));
     if(active>=0) input.setAttribute('aria-activedescendant', box.id+'-'+active); else input.removeAttribute('aria-activedescendant');
   };
-  const pick=it=>{ input.value=it.label; close(); if(onPick) onPick(it); };
+  const pick=it=>{
+    input.value=it.label; close();
+    // Wybrane z listy miejsce (np. sklep albo dworzec) trafia do planera dokładnie tam, gdzie leży, bez ponownego szukania po nazwie.
+    const f=field?.(); if(f){ if(it.point) S.placeChoice[f]={q:it.label, place:{label:it.label, locality:'', points:[it.point]}}; else delete S.placeChoice[f]; }
+    if(onPick) onPick(it);
+  };
   const abroad=q=>{
     if(input.id==='ttStop') return [];
     const f=foldText(q.trim()), code=q.trim().toUpperCase();
-    return foreignPlaces().filter(p=>foldText(p.label).includes(f) || (code.length===3 && p.code===code))
-      .sort((a,b)=>(foldText(b.label).startsWith(f)-foldText(a.label).startsWith(f)) || natSort(a.label,b.label)).slice(0,4).map(p=>({label:p.label, kind:'lot'}));
+    return foreignPlaces().filter(p=>foldText(p.label).startsWith(f) || (code.length===3 && p.code===code))
+      .sort((a,b)=>natSort(a.label,b.label)).slice(0,2).map(p=>{ const [main,...rest]=p.label.split(', '); return {label:p.label, main, sub:rest.join(', '), kind:'lot'}; });
   };
   input.addEventListener('input', ()=>{
     clearTimeout(timer); const q=input.value.trim(), my=++req;
     if(q.length<2){ items=[]; close(); return; }
-    const local=suggest ? suggest(q) : [...abroad(q), ...stopMatches(q).map(label=>({label, kind:'przystanek'}))];
+    const at=streets ? (near?.()||myBias()) : null;
+    const local=suggest ? suggest(q) : [...abroad(q), ...stopMatches(q, at||(streets?[50.0378,22.0049]:null)).slice(0, streets?3:5).map(label=>({label, kind:'przystanek'}))];
     items=local; active=-1; draw();
     if(!streets) return;
     setBusy(input,true);
     timer=setTimeout(async()=>{
       try{
-        const at=near?.(), r=await fetch('/api/streets?q='+encodeURIComponent(q)+(at?'&near='+at.map(x=>(+x).toFixed(4)).join(','):'')); if(!r.ok) return;
+        const r=await fetch('/api/streets?q='+encodeURIComponent(q)+(at?'&near='+at.map(x=>(+x).toFixed(4)).join(','):'')); if(!r.ok) return;
         const {suggestions, places}=await r.json();
         if(my!==req) return;
-        items=[...suggestions.map((label,i)=>({label, kind:'miejsce', point:places?.[i]?.point||null})), ...local.slice(0,3)]; active=-1; draw();
+        // Jak w mapach: najpierw prawdziwe miejsca (sklepy, dworce, ulice, miasta), potem najwyżej dwa pasujące przystanki z rozkładu.
+        const found=suggestions.map((label,i)=>({label, kind:places?.[i]?.kind||'miejsce', main:places?.[i]?.main, sub:places?.[i]?.sub, point:places?.[i]?.point||null}));
+        const seen=new Set(found.map(it=>foldText(it.label)));
+        items=[...found, ...local.filter(it=>!seen.has(foldText(it.label))).slice(0,2)]; active=-1; draw();
       }catch(e){ console.warn('Podpowiedzi ulic', e); }
       finally{ if(my===req) setBusy(input,false); }
     }, 250);
@@ -6322,7 +6345,7 @@ function addVia(){
     <button type="button" class="pl-stop-remove" data-remove-via title="Usuń przystanek" aria-label="Usuń przystanek"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
   document.getElementById('plStops').appendChild(row);
   if(S.agency==='podroz'){ row.querySelector('.pl-stay input').value='1'; row.querySelector('.pl-stay-unit').value='1440'; } // w podróży postój to zwykle dzień lub więcej
-  const input=row.querySelector('input'); attachSuggest(input, {streets:true});
+  const input=row.querySelector('input'); attachSuggest(input, {streets:true, field:()=>row.dataset.field});
   renumberVias(); input.focus();
 }
 function clearVias(){ document.getElementById('plStops').innerHTML=''; renumberVias(); }
@@ -6605,8 +6628,8 @@ for(const input of [plDate, document.getElementById('trDate')]){
 document.addEventListener('click', e=>{ const pop=document.getElementById('dpPop'); if(pop && !pop.hidden && !e.target.closest('#dpPop') && !e.target.closest('.dp-input')) closeDatePicker(false); });
 document.querySelectorAll('[data-round]').forEach(b=>b.addEventListener('click', ()=>{ document.body.classList.remove('multi-form'); plRound.checked=b.dataset.round==='1'; syncReturn(); }));
 document.querySelectorAll('[data-trip-kind="multi"]').forEach(b=>b.addEventListener('click', ()=>enterMultiForm()));
-attachSuggest(plFrom, {streets:true});
-attachSuggest(plTo, {streets:true});
+attachSuggest(plFrom, {streets:true, field:()=>'from'});
+attachSuggest(plTo, {streets:true, field:()=>'to'});
 attachSuggest(document.getElementById('ttStop'), {streets:false, onPick:it=>setTimetableStop(it.label)});
 document.getElementById('plSwap').addEventListener('click', ()=>{ const a=plFrom.value; plFrom.value=plTo.value; plTo.value=a; S.placeChoice={from:S.placeChoice.to, to:S.placeChoice.from}; });
 document.getElementById('plGeo').addEventListener('click', ()=>{

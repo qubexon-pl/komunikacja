@@ -5,7 +5,7 @@ const SUGGEST_URL = "https://photon.komoot.io/api/";
 const USER_AGENT = "komunikacja-rzeszow/1.0 (https://github.com/qubexon-pl/komunikacja)";
 const VIEWBOX = "21.45,50.30,22.55,49.75";
 const SUGGEST_GAP_MS = 250;
-const SUGGEST_LIMIT = 6;
+const SUGGEST_LIMIT = 7;
 // Photon is sometimes slow to answer from corporate networks; a suggestion a little late beats none.
 const SUGGEST_TIMEOUT_MS = 10000;
 const MIN_REQUEST_GAP_MS = 1100;
@@ -176,39 +176,83 @@ const pointOf = (feature) => {
   return Number.isFinite(lat) && Number.isFinite(lon) ? [Math.round(lat * 1e6) / 1e6, Math.round(lon * 1e6) / 1e6] : null;
 };
 
-// Photon also matches shops and bus stops by their own name, so the typed word must be in the street name.
-function toPlaceSuggestions(features, query) {
-  const word = fold(query).split(" ")[0];
-  const streets = new Map();
-  const houses = new Map();
-  const cities = new Map();
-  for (const feature of Array.isArray(features) ? features : []) {
-    const { type, name, street, housenumber: houseNumber, city, country, countrycode: countryCode } = feature.properties || {};
-    const point = pointOf(feature);
-    if (type === "city" && name && fold(name).includes(word)) {
-      const label = country ? `${name}, ${country}` : name;
-      if (!cities.has(label.toLowerCase())) cities.set(label.toLowerCase(), { label, point });
-      continue;
-    }
-    if (countryCode && countryCode !== "PL") continue;
-    const roadName = type === "street" ? name : type === "house" && houseNumber ? street : "";
-    if (!roadName || !nameMatches(roadName, word)) continue;
-    const road = type === "house" ? `${roadName} ${houseNumber}` : roadName;
-    const label = city ? `${road}, ${city}` : road;
-    const group = type === "house" ? houses : streets;
-    if (!group.has(label.toLowerCase())) group.set(label.toLowerCase(), { label, point });
-  }
-  // A city named exactly as typed is what was meant, so it comes before streets that only contain the word.
-  const wanted = fold(query);
-  const exactCities = [...cities.values()].filter((place) => fold(place.label.split(",")[0]) === wanted);
-  const otherCities = [...cities.values()].filter((place) => !exactCities.includes(place));
-  // With a house number typed, that exact house is what was meant.
-  const first = /\d/.test(query) ? [...houses.values(), ...streets.values()] : [...streets.values(), ...houses.values()];
-  return [...exactCities, ...first, ...otherCities].slice(0, SUGGEST_LIMIT);
+// Like a map app: the typed words must be in the place itself (a shop, a station, a street or a town), and among those
+// that match equally well the one nearer the person comes first. A town named exactly as typed always leads.
+const CITY_TYPES = new Set(["city", "town", "village"]);
+const AREA_TYPES = new Set(["district", "locality"]);
+const KIND_OF_KEY = { railway: "station", public_transport: "station", aeroway: "airport" };
+const ADDRESS_KEYS = new Set(["place", "building", "highway", "boundary", "landuse"]);
+const FOREIGN_RADIUS_KM = 100;
+
+function km(a, b) {
+  const rad = Math.PI / 180;
+  const dLat = (b[0] - a[0]) * rad;
+  const dLon = (b[1] - a[1]) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
 }
 
-function toSuggestions(features, query) {
-  return toPlaceSuggestions(features, query).map((place) => place.label);
+// 0: the text starts with what was typed, 1: every typed word starts a word of it, 2: close enough with a typo, null: no match.
+function textMatch(text, words) {
+  const folded = fold(text);
+  if (folded.startsWith(words.join(" "))) return 0;
+  const parts = folded.split(/[\s,.\-/]+/).filter(Boolean);
+  if (words.every((word) => parts.some((part) => part.startsWith(word)))) return 1;
+  if (words.every((word) => /^\d/.test(word) || nameMatches(text, word))) return 2;
+  return null;
+}
+
+const distanceRank = (distance) => (distance == null ? 1 : distance < 15 ? 0 : distance < 60 ? 1 : distance < 250 ? 2 : 3);
+
+function toPlaceSuggestions(features, query, near = RZESZOW) {
+  const words = fold(query).split(" ").filter(Boolean);
+  const textWords = words.filter((word) => !/^\d/.test(word));
+  const hasNumber = words.length > textWords.length;
+  if (!textWords.length) return [];
+  const found = new Map();
+  (Array.isArray(features) ? features : []).forEach((feature, index) => {
+    const { type, name, street, housenumber: houseNumber, city, district, county, state, country, countrycode: countryCode, osm_key: osmKey, osm_value: osmValue } = feature.properties || {};
+    const point = pointOf(feature);
+    const distance = point ? km(near, point) : null;
+    const town = city && !` ${fold(name || "")} `.includes(` ${fold(city)} `) ? city : ""; // "Rzeszów Główny" already names its town
+    let place = null;
+    if (name && (CITY_TYPES.has(type) || (osmKey === "place" && CITY_TYPES.has(osmValue)))) {
+      const match = textMatch(name, textWords);
+      if (match == null) return;
+      const label = country ? `${name}, ${country}` : name;
+      const exact = fold(name) === textWords.join(" ");
+      // A town is known from afar, so distance counts less for it than for a street.
+      place = { label, main: name, sub: [county || state, country].filter(Boolean).join(", "), kind: "city", point, score: exact ? -10 : match + Math.min(distanceRank(distance), 1) * 1.5 };
+    } else {
+      // Streets and shops abroad only near the city the search is about (for example the destination of a trip).
+      if (countryCode && countryCode !== "PL" && !(distance != null && distance <= FOREIGN_RADIUS_KM)) return;
+      const isPoi = name && osmKey && !ADDRESS_KEYS.has(osmKey) && type !== "street";
+      const roadName = type === "street" ? name : type === "house" && houseNumber ? street : "";
+      const road = roadName && type === "house" ? `${roadName} ${houseNumber}` : roadName;
+      const poiMatch = isPoi ? textMatch(`${name} ${town}`, textWords) : null;
+      if (poiMatch != null) {
+        place = { label: town ? `${name}, ${town}` : name, main: name, sub: [road || street, city].filter(Boolean).join(", "), kind: KIND_OF_KEY[osmKey] || "poi", point, score: poiMatch + distanceRank(distance) * 1.5 + 0.25 };
+      } else if (road) {
+        const match = textMatch(`${roadName} ${city || ""}`, textWords);
+        if (match == null) return;
+        const label = city ? `${road}, ${city}` : road;
+        const isHouse = type === "house";
+        place = { label, main: road, sub: [district && district !== city ? district : "", city].filter(Boolean).join(", "), kind: isHouse ? "address" : "street", point, score: match + distanceRank(distance) * 1.5 + (isHouse === hasNumber ? 0 : 0.5) };
+      } else if (name && AREA_TYPES.has(type)) {
+        const match = textMatch(name, textWords);
+        if (match == null) return;
+        place = { label: town ? `${name}, ${town}` : name, main: name, sub: town, kind: "area", point, score: match + distanceRank(distance) * 1.5 + 0.25 };
+      }
+    }
+    if (!place) return;
+    place.score += index * 0.01; // the provider's own order settles ties
+    const key = place.label.toLowerCase();
+    if (!found.has(key) || found.get(key).score > place.score) found.set(key, place);
+  });
+  return [...found.values()]
+    .sort((a, b) => a.score - b.score)
+    .slice(0, SUGGEST_LIMIT)
+    .map(({ score, ...place }) => place);
 }
 
 const RZESZOW = [50.0378, 22.0049];
@@ -233,16 +277,15 @@ function createStreetSuggester({ fetchSource = fetch, minGapMs = SUGGEST_GAP_MS 
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       lastRequestAt = Date.now();
       const url = new URL(SUGGEST_URL);
-      url.search = new URLSearchParams({ q: query, limit: "15", lat: String(bias[0]), lon: String(bias[1]), location_bias_scale: "0.5" }).toString();
-      url.searchParams.append("layer", "street");
-      url.searchParams.append("layer", "house");
-      url.searchParams.append("layer", "city");
+      url.search = new URLSearchParams({ q: query, limit: "20", lat: String(bias[0]), lon: String(bias[1]), location_bias_scale: "0.5" }).toString();
+      // Shops, stations and landmarks ("other") too, not only addresses, as in a map app.
+      for (const layer of ["house", "street", "city", "district", "locality", "other"]) url.searchParams.append("layer", layer);
       const response = await fetchSource(url, {
         headers: { "User-Agent": USER_AGENT },
         signal: AbortSignal.timeout(SUGGEST_TIMEOUT_MS),
       });
       if (!response.ok) throw new Error(`Photon returned HTTP ${response.status}.`);
-      return toPlaceSuggestions((await response.json()).features, query);
+      return toPlaceSuggestions((await response.json()).features, query, bias);
     });
     queue = run.catch(() => {});
     const found = await run;
