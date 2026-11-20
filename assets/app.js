@@ -5267,9 +5267,98 @@ function cityExploreBox(f, T){
   const tabs=cities.length>1?`<div class="lp-tabs" role="tablist">${cities.map((x,i)=>`<button type="button" role="tab" class="lp-tab ${i===at?'on':''}" aria-selected="${i===at}" data-lp-city="${i}">${esc(x.label)}${localItems(T,localKey(x)).length?` <small>${localItems(T,localKey(x)).length}</small>`:''}</button>`).join('')}</div>`:'';
   return `<section class="tp-city"><div class="tp-city-head"><div><h4><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> Plan zwiedzania: ${esc(c.label)}</h4><small>Wyszukaj miejsce, wybierz najlepsze połączenie i dodaj je do planu — potem kolejne.</small></div>
       <button type="button" class="${TRIPV.city?'btn-ghost':'btn-grad'}" data-tp-city aria-expanded="${!!TRIPV.city}"><i class="fa-solid fa-${TRIPV.city?'chevron-up':'magnifying-glass-location'}" aria-hidden="true"></i> ${TRIPV.city?'Ukryj wyszukiwanie':'Szukaj miejsc i połączeń'}</button></div>
-    ${tabs}${list.length?`${edit&&list.length>1?`<div class="lp-tools"><button type="button" class="btn-ghost" data-lp-sort="${esc(localKey(c))}"><i class="fa-solid fa-clock" aria-hidden="true"></i> Sortuj wg godziny</button></div>`:''}<ol class="lp-list">${list.map((x,i)=>localItemHtml(x,edit,i,list.length)).join('')}</ol>`:'<div class="empty-note lp-empty">Plan jest pusty. Kliknij „Szukaj miejsc i połączeń”, znajdź trasę i dodaj ją przyciskiem „Dodaj do planu”.</div>'}
+    ${tabs}${aiBox(f,c)}${list.length?`${edit&&list.length>1?`<div class="lp-tools"><button type="button" class="btn-ghost" data-lp-sort="${esc(localKey(c))}"><i class="fa-solid fa-clock" aria-hidden="true"></i> Sortuj wg godziny</button></div>`:''}<ol class="lp-list">${list.map((x,i)=>localItemHtml(x,edit,i,list.length)).join('')}</ol>`:'<div class="empty-note lp-empty">Plan jest pusty. Kliknij „Szukaj miejsc i połączeń”, znajdź trasę i dodaj ją przyciskiem „Dodaj do planu”.</div>'}
     ${TRIPV.city?'<div class="city-slot"></div>':''}</section>`;
 }
+/* ---------- Plan od AI: Claude proponuje miejsca do zwiedzania w mieście podróży, na podstawie preferencji podróżnego,
+   jego innych podróży, dni pobytu i pogody. Każde miejsce ma przycisk „Dojazd”, który otwiera planer komunikacji. ---------- */
+const AIP={enabled:null, plans:new Map(), busy:'', err:new Map(), style:null, form:false};
+const AI_INTERESTS=[['museums','Muzea','building-columns'],['history','Historia','landmark'],['architecture','Architektura','archway'],['art','Sztuka','palette'],['food','Lokalna kuchnia','utensils'],['cafes','Kawiarnie','mug-hot'],['nightlife','Życie nocne','martini-glass'],['nature','Parki i natura','tree'],['views','Widoki','binoculars'],['shopping','Zakupy','bag-shopping'],['kids','Z dziećmi','child-reaching'],['sport','Ruch i sport','person-biking'],['religious','Zabytki sakralne','church'],['hidden','Mniej znane miejsca','compass']];
+const AI_CAT={sight:'landmark', museum:'building-columns', food:'utensils', cafe:'mug-hot', park:'tree', view:'binoculars', shopping:'bag-shopping', nightlife:'martini-glass', activity:'person-hiking', other:'location-dot'};
+const AI_PACE=[['relaxed','Spokojne'],['balanced','Umiarkowane'],['packed','Intensywne']], AI_BUDGET=[['low','Oszczędnie'],['medium','Średnio'],['high','Bez ograniczeń']], AI_WALK=[['little','Mało'],['some','Trochę'],['lots','Dużo']];
+const aiKey=(f,c)=>`${f.tid}|${c.label}`;
+async function aiInit(){
+  if(AIP.enabled!==null || !FAV.user) return; AIP.enabled=false;
+  try{ const r=await fetch('/api/ai/status'); AIP.enabled=r.ok && !!(await r.json()).enabled; }catch(e){ console.warn('Plan od AI', e); }
+  if(AIP.enabled) renderTripPage();
+}
+async function aiLoad(f, c){
+  const key=aiKey(f,c); if(AIP.plans.has(key)) return; AIP.plans.set(key, undefined);
+  try{ const r=await fetch('/api/ai/city-plan?'+new URLSearchParams({tid:f.tid, city:c.label})); AIP.plans.set(key, r.ok?(await r.json()).plan||null:null); }
+  catch(e){ AIP.plans.set(key, null); }
+  if(findTrip(TRIPV.id)===f) renderTripPage();
+}
+async function aiLoadStyle(){
+  if(AIP.style) return;
+  try{ const r=await fetch('/api/ai/style'); if(r.ok) AIP.style=(await r.json()).style; }catch(e){ console.warn('Preferencje', e); }
+  AIP.style ||= {interests:[], pace:'balanced', budget:'medium', walking:'some', notes:''};
+  renderTripPage();
+}
+const aiOpts=(list, v)=>list.map(([k,l])=>`<option value="${k}" ${k===v?'selected':''}>${l}</option>`).join('');
+function aiFormHtml(){
+  const s=AIP.style; if(!s) return `<div class="ai-form">${searching('Wczytuję preferencje…')}</div>`;
+  return `<form class="ai-form" data-ai-form>
+    <fieldset class="ai-chips"><legend>Co lubisz zwiedzać?</legend>${AI_INTERESTS.map(([k,l,i])=>`<label class="ai-chip"><input type="checkbox" name="interests" value="${k}" ${s.interests.includes(k)?'checked':''}><span><i class="fa-solid fa-${i}" aria-hidden="true"></i> ${l}</span></label>`).join('')}</fieldset>
+    <div class="ai-selects"><label>Tempo<select name="pace">${aiOpts(AI_PACE,s.pace)}</select></label><label>Budżet<select name="budget">${aiOpts(AI_BUDGET,s.budget)}</select></label><label>Chodzenie pieszo<select name="walking">${aiOpts(AI_WALK,s.walking)}</select></label></div>
+    <label class="ai-notes">O mnie <small>(zapamiętamy na kolejne podróże)</small><textarea name="notes" rows="2" maxlength="400" placeholder="np. jestem wegetarianinem, nie lubię tłumów, podróżuję z psem">${esc(s.notes||'')}</textarea></label>
+    <label class="ai-notes">Życzenie na tę podróż <small>(tylko ten plan)</small><input name="note" maxlength="300" placeholder="np. jeden dzień na plażę, wieczór z widokiem na miasto"></label>
+  </form>`;
+}
+function aiReadForm(box){
+  const form=box?.querySelector('[data-ai-form]'); if(!form) return {};
+  const style={interests:[...form.querySelectorAll('input[name=interests]:checked')].map(x=>x.value), pace:form.pace.value, budget:form.budget.value, walking:form.walking.value, notes:form.notes.value.trim()};
+  AIP.style=style; return {style, note:form.note.value.trim()};
+}
+function aiPlanHtml(p){
+  const days=p.days.map((d,di)=>`<div class="ai-day"><h5>${esc(longDay(d.day,{weekday:'long', day:'numeric', month:'long'}))}${d.theme?` · <span>${esc(d.theme)}</span>`:''}</h5>${d.weatherNote?`<small class="ai-wx"><i class="fa-solid fa-cloud-sun" aria-hidden="true"></i> ${esc(d.weatherNote)}</small>`:''}
+    <ol class="ai-stops">${d.stops.map((s,si)=>`<li class="ai-stop"><span class="ai-time">${esc(s.time||'')}</span><i class="fa-solid fa-${AI_CAT[s.category]||'location-dot'} ai-cat" aria-hidden="true"></i>
+      <div class="ai-stop-main"><b>${esc(s.name)}</b><small>${[s.minutes?`ok. ${fmtDuration(s.minutes)}`:'', s.priceNote].filter(Boolean).map(esc).join(' · ')}</small>${s.why?`<p>${esc(s.why)}</p>`:''}${s.tip?`<p class="ai-tip"><i class="fa-regular fa-lightbulb" aria-hidden="true"></i> ${esc(s.tip)}</p>`:''}</div>
+      <div class="ai-stop-actions"><button type="button" class="btn-ghost" data-ai-route="${di}:${si}"><i class="fa-solid fa-route" aria-hidden="true"></i> Dojazd</button>${linkBtn(s.lat!=null?`https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lon}`:`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.name+', '+p.city)}`,'map-location-dot','Mapa')}</div></li>`).join('')}</ol></div>`).join('');
+  return `${p.summary?`<p class="ai-sum">${esc(p.summary)}</p>`:''}${days}${p.tips?.length?`<ul class="ai-tips">${p.tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`:''}
+    <small class="ai-foot">Zaproponowane przez AI${p.createdAt?` ${esc(new Date(p.createdAt).toLocaleDateString('pl-PL',{day:'numeric', month:'long'}))}`:''}. Godziny otwarcia i ceny sprawdź przed wyjściem.</small>`;
+}
+function aiBox(f, c){
+  if(!f.tid || f.shared || !FAV.user){ return ''; }
+  if(AIP.enabled===null){ aiInit(); return ''; }
+  if(!AIP.enabled) return '';
+  const key=aiKey(f,c); if(!AIP.plans.has(key)) aiLoad(f,c);
+  const p=AIP.plans.get(key), busy=AIP.busy===key, err=AIP.err.get(key);
+  return `<div class="ai-box" aria-live="polite"><div class="ai-head"><div><h4><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Plan od AI: ${esc(c.label)}</h4><small>Miejsca dobrane do Twoich preferencji, poprzednich podróży, dni pobytu i pogody.</small></div>
+      <div class="ai-actions"><button type="button" class="btn-ghost ${AIP.form?'on':''}" data-ai-style aria-expanded="${AIP.form}"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Preferencje</button>
+      <button type="button" class="btn-grad" data-ai-go ${busy?'disabled':''}><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${p?'Zaproponuj od nowa':'Zaproponuj plan'}</button></div></div>
+    ${AIP.form?aiFormHtml():''}
+    ${busy?searching('Przygotowuję plan… zwykle trwa to do minuty.'):''}
+    ${err?`<div class="empty-note ai-err" role="alert">${esc(err)}</div>`:''}
+    ${p&&!busy?aiPlanHtml(p):!busy&&p===null&&!err?'<div class="empty-note">Kliknij „Zaproponuj plan”. Najpierw możesz ustawić swoje preferencje.</div>':''}</div>`;
+}
+async function aiGenerate(f, c){
+  const key=aiKey(f,c); if(AIP.busy) return;
+  const box=document.querySelector('#tripPage .ai-box'), extra=aiReadForm(box);
+  const T=f.trip, back=T?.ret?.day||(T?.ground||T?.multi?groundDates(f)?.back:'')||savedFlight(f)?.back||'';
+  const day=T?.out?.day||(T?.ground||T?.multi?groundDates(f)?.day:'')||savedFlight(f)?.day||'';
+  AIP.busy=key; AIP.err.delete(key); renderTripPage();
+  try{
+    const r=await fetch('/api/ai/city-plan',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tid:f.tid, city:c.label, local:localKey(c), centre:c.centre, home:c.home?{lat:c.home.lat, lon:c.home.lon}:null, homeLabel:c.home?.label||'', day, back, ...extra})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok) AIP.err.set(key, d.error||'Plan od AI jest chwilowo niedostępny.');
+    else { AIP.plans.set(key, d.plan); AIP.form=false; }
+  }catch(e){ AIP.err.set(key, L2('Brak połączenia.','No connection.')); }
+  finally{ AIP.busy=''; if(findTrip(TRIPV.id)===f) renderTripPage(); }
+}
+// „Dojazd”: z poprzedniego miejsca dnia (albo z noclegu / centrum) do wybranego, pół godziny przed proponowaną godziną.
+function aiRoute(f, c, di, si){
+  const p=AIP.plans.get(aiKey(f,c)), d=p?.days?.[di], s=d?.stops?.[si]; if(!s) return;
+  const prev=si>0?d.stops[si-1]:null;
+  const from=prev&&prev.lat!=null?{at:[prev.lat,prev.lon], label:prev.name}:c.home?{at:[c.home.lat,c.home.lon], label:c.home.label||'Nocleg'}:{at:[c.centre.lat,c.centre.lon], label:c.label};
+  if(!TRIPV.city){ TRIPV.city=true; renderTripPage(); }
+  const form=CITY.el?.querySelector('.cp-form'); if(!form) return;
+  if(s.time){ const [h,m]=s.time.split(':').map(Number), x=Math.max(0,h*60+m-30); form.when.value=`${d.day}T${String(Math.floor(x/60)).padStart(2,'0')}:${String(x%60).padStart(2,'0')}`; }
+  setEnd('from', from.at, from.label, true);
+  if(s.lat!=null) setEnd('to', [s.lat,s.lon], s.name);
+  else { CITY.ends.to=null; form.to.value=`${s.name}, ${c.label}`; drawEnds(); cityPlan(); }
+  CITY.el.scrollIntoView({behavior:'smooth', block:'start'});
+}
+function aiCity(f){ const cities=tripCities(f.trip,f); return cities[Math.min(TRIPV.cityAt??cities.length-1, cities.length-1)]; }
 function mountTripCity(f, T, day, back){
   const cities=tripCities(T,f);
   if(!TRIPV.city || !cities.length){ stopVehicles(); return; }
@@ -5760,6 +5849,9 @@ document.getElementById('tripPage').addEventListener('click', e=>{
   if(e.target.closest('[data-tp-plan]')){ openInPlanner(f); return; }
   if(e.target.closest('[data-tp-share]')){ openPeople(f); return; }
   if(e.target.closest('[data-tp-remove]')){ askConfirm(L2('Usunąć tę podróż?','Delete this trip?'), {detail:f.title||`${f.from} → ${f.to}`, ok:L2('Usuń podróż','Delete trip'), danger:true}).then(ok=>{ if(!ok) return; const booked=f.status==='booked'; FAV.items=FAV.items.filter(x=>x!==f); saveFavorites().catch(err=>console.warn('Nie zapisano', err)); renderFavorites(); syncStars(); goPage('podroz', booked?'moje':'ulubione', 'podroz'); }); return; }
+  if(e.target.closest('[data-ai-go]')){ const c=aiCity(f); if(c) aiGenerate(f,c); return; }
+  if(e.target.closest('[data-ai-style]')){ if(AIP.form) aiReadForm(document.querySelector('#tripPage .ai-box')); AIP.form=!AIP.form; if(AIP.form&&!AIP.style) aiLoadStyle(); else renderTripPage(); return; }
+  const ar=e.target.closest('[data-ai-route]'); if(ar){ const c=aiCity(f), [di,si]=ar.dataset.aiRoute.split(':').map(Number); if(c) aiRoute(f,c,di,si); return; }
   const lc=e.target.closest('[data-lp-city]'); if(lc){ TRIPV.cityAt=+lc.dataset.lpCity; renderTripPage(); return; }
   const lr=e.target.closest('[data-lp-remove]'); if(lr){ removeLocalTrip(f, lr.dataset.lpRemove); return; }
   const lm=e.target.closest('[data-lp-move]'); if(lm){ moveLocalTrip(f, lm.dataset.lpMove, +lm.dataset.dir); return; }

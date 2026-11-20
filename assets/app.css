@@ -2947,6 +2947,37 @@ body.multi-mode #multiForm{display:none !important}
 .wx-here:hover,.wx-here:focus-visible{background:rgba(255,255,255,.12)}
 .wx-here:disabled{opacity:.7; cursor:default}
 
+/* Plan od AI na stronie podróży */
+.ai-box{margin:12px 0 0; padding:12px 14px; border:1.5px solid var(--card-border); border-radius:14px; background:var(--bg)}
+.ai-head{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px}
+.ai-head h4{margin:0; font-size:.98rem} .ai-head h4 i{color:var(--gold)} .ai-head small{color:var(--ink-soft)}
+.ai-actions{display:flex; flex-wrap:wrap; gap:8px}
+.ai-form{margin:12px 0 0; display:grid; gap:10px}
+.ai-chips{border:0; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px} .ai-chips legend{font-weight:700; font-size:.86rem; margin-bottom:6px; padding:0}
+.ai-chip input{position:absolute; opacity:0; pointer-events:none}
+.ai-chip span{display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:99px; border:1.5px solid var(--card-border); font-size:.8rem; cursor:pointer; color:var(--ink-soft)}
+.ai-chip input:checked+span{border-color:var(--red); color:var(--ink); background:rgba(218,41,28,.08); font-weight:700}
+.ai-chip input:focus-visible+span{outline:2px solid var(--red); outline-offset:2px}
+.ai-selects{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px}
+.ai-selects label,.ai-notes{display:grid; gap:4px; font-size:.84rem; font-weight:700} .ai-notes small{font-weight:400; color:var(--ink-soft)}
+.ai-selects select,.ai-notes textarea,.ai-notes input{font:inherit; font-weight:400; padding:7px 10px; border-radius:10px; border:1.5px solid var(--card-border); background:var(--bg-alt); color:var(--ink); min-width:0; width:100%; box-sizing:border-box}
+.ai-sum{margin:12px 0 4px; font-size:.9rem}
+.ai-day{margin-top:12px} .ai-day h5{margin:0 0 4px; font-size:.92rem} .ai-day h5::first-letter{text-transform:uppercase} .ai-day h5 span{text-transform:none; color:var(--ink-soft); font-weight:600}
+.ai-wx{display:block; color:var(--ink-soft); margin-bottom:6px}
+.ai-stops{list-style:none; margin:0; padding:0; display:grid; gap:8px}
+.ai-stop{display:grid; grid-template-columns:44px 22px minmax(0,1fr) auto; gap:8px; align-items:start; padding:9px 10px; border:1px solid var(--line); border-radius:12px; background:var(--bg-alt)}
+.ai-time{font-weight:800; font-variant-numeric:tabular-nums; font-size:.86rem; padding-top:1px} .ai-cat{color:var(--gold); padding-top:3px}
+.ai-stop-main{min-width:0} .ai-stop-main b{display:block; overflow-wrap:anywhere} .ai-stop-main small{color:var(--ink-soft)} .ai-stop-main p{margin:4px 0 0; font-size:.84rem}
+.ai-tip{color:var(--ink-soft)}
+.ai-stop-actions{display:flex; flex-direction:column; gap:6px} .ai-stop-actions .btn-ghost{white-space:nowrap; font-size:.8rem}
+.ai-tips{margin:12px 0 0; padding-left:18px; font-size:.84rem}
+.ai-foot{display:block; margin-top:10px; color:var(--ink-soft)}
+.ai-err{margin-top:10px}
+@media (max-width:600px){
+  .ai-stop{grid-template-columns:40px minmax(0,1fr)} .ai-cat{display:none}
+  .ai-stop-actions{grid-column:1/-1; flex-direction:row; flex-wrap:wrap}
+  .ai-actions{width:100%} .ai-actions .btn-grad{flex:1}
+}
 /* Nocleg w planerze (ostatni krok, przed zapisem) */
 .cs-save > .plan-stay{flex:1 1 100%; min-width:0}
 .plan-stay{display:flex; flex-direction:column; gap:10px; padding:12px 0 4px; border-top:1px dashed var(--line)}
@@ -2961,7 +2992,6 @@ body.multi-mode #multiForm{display:none !important}
 .stay-nights input{width:64px; padding:4px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink)}
 .plan-stay .hotel-list{grid-template-columns:repeat(auto-fill,minmax(min(330px,100%),1fr))}
 .plan-stay .hotel-card{background:var(--bg-alt)}
-=======
 /* Moje podróże: zakładki „Nadchodzące” i „Archiwum” */
 .mytrips-tabs{margin:0 0 18px}
 .mytrips-note{margin:0 0 14px; color:var(--ink-soft); font-size:.88rem}

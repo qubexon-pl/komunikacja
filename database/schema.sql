@@ -627,3 +627,20 @@ BEGIN
     );
 END;
 GO
+
+-- AI sightseeing plans: the last plan Claude proposed for one city of a saved trip (the favourite's tid), with the
+-- preferences it was made for. Proposing again replaces it.
+IF OBJECT_ID(N'dbo.TripAiPlan', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TripAiPlan (
+        user_id UNIQUEIDENTIFIER NOT NULL,
+        trip_id VARCHAR(24) NOT NULL,
+        city NVARCHAR(120) NOT NULL,
+        plan NVARCHAR(MAX) NOT NULL,
+        model VARCHAR(60) NOT NULL,
+        created_at DATETIME2(0) NOT NULL CONSTRAINT DF_TripAiPlan_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_TripAiPlan PRIMARY KEY (user_id, trip_id, city),
+        CONSTRAINT FK_TripAiPlan_AppUser FOREIGN KEY (user_id) REFERENCES dbo.AppUser (user_id) ON DELETE CASCADE
+    );
+END;
+GO
