@@ -27,17 +27,19 @@ function loadSubpage({ city = null } = {}) {
     syncNav() {}, renumberSections() {}, renderBoard() {}, renderTimetable() {}, renderFavorites() {}, renderMyTrips() {},
     renderTripPage() {}, stopVehicles() {}, setTimeout() {}, renderEditBadge() {},
     txCity: () => city, txModes: (c) => c.modes.join(" · "), syncCityTx() { page.cityTx = true; },
+    TRANSIT: ["ztm", "pks", "kolej"], TCITY: { name: city?.name || "Rzeszów" }, L2: (pl) => pl,
+    renderLinesGrid() { page.lines = "grid"; }, renderTrainLines() { page.lines = "trains"; },
   };
-  const start = source.indexOf("function setSubpage(");
-  vm.runInNewContext(source.slice(start, source.indexOf("\n}\n", start) + 3), context);
+  const start = source.indexOf("function transitHead(");
+  vm.runInNewContext(source.slice(start, source.indexOf("\n}\n", source.indexOf("function setSubpage(")) + 3), context);
   return (view, sub) => { context.S.agency = view; context.setSubpage(sub); return { ...page, sub: context.S.sub }; };
 }
 
 test("leaving the destinations page updates the title, banner and address on every page", () => {
   const go = loadSubpage();
   assert.equal(go("podroz", "kierunki").title, "Sprawdź kierunki");
-  for (const [view, sub, title] of [["podroz", "", "Zaplanuj podróż"], ["ztm", "", "Autobusy miejskie"], ["pks", "", "Autobusy podmiejskie"],
-    ["kolej", "", "Pociągi w Polsce"], ["ztm", "rozklad", "Rozkład jazdy"], ["podroz", "ulubione", "Ulubione"], ["podroz", "moje", "Moje podróże"]]) {
+  for (const [view, sub, title] of [["podroz", "", "Zaplanuj podróż"], ["ztm", "", "Komunikacja: Rzeszów"], ["pks", "", "Podmiejskie: Rzeszów"],
+    ["kolej", "", "Pociągi: Rzeszów"], ["ztm", "rozklad", "Rozkład jazdy: Rzeszów"], ["ztm", "linie", "Linie: Rzeszów"], ["podroz", "ulubione", "Ulubione"], ["podroz", "moje", "Moje podróże"]]) {
     const page = go(view, sub);
     assert.equal(page.title, title, `${view}/${sub}`);
     assert.equal(page.sub, sub);
@@ -45,12 +47,15 @@ test("leaving the destinations page updates the title, banner and address on eve
   }
 });
 
-test("another Polish city's transport page is named after the city and has stop departures instead of the Rzeszów timetable", () => {
+test("every transport page names the selected city in its header, and Lines replaces Favourites", () => {
   const go = loadSubpage({ city: { id: "warszawa", name: "Warszawa", modes: ["metro", "tram", "bus"] } });
   assert.equal(go("ztm", "").title, "Komunikacja: Warszawa");
   assert.match(go("ztm", "").lead, /^Metro · tram · bus/);
-  assert.equal(go("ztm", "rozklad").title, "Komunikacja: Warszawa");
-  assert.equal(go("kolej", "").title, "Pociągi w Polsce"); // trains keep their own page
+  assert.equal(go("ztm", "rozklad").title, "Rozkład jazdy: Warszawa");
+  assert.equal(go("ztm", "linie").title, "Linie: Warszawa");
+  assert.equal(go("ztm", "linie").lines, undefined); // the city page draws its own lines
+  assert.equal(go("kolej", "").title, "Pociągi: Warszawa");
+  assert.equal(go("kolej", "linie").lines, "trains");
   assert.equal(go("ztm", "").cityTx, true);
 });
 
@@ -829,4 +834,40 @@ test("every element the app tour points at exists on the page", () => {
   for (const id of ids) assert.match(html, new RegExp(`id="${id}"`), `#${id}`);
   for (const id of ["tourHelp", "tourBtn"]) assert.match(html, new RegExp(`id="${id}"`));
   assert.ok(html.indexOf("app.tour.js") < html.indexOf("/assets/app.js"), "the tour loads before app.js to read ?tour=1");
+});
+
+test("the default city is the nearest one with city transport, and a city the traveller chose is kept", () => {
+  const start = source.indexOf("function nearestTransitCity(");
+  const picked = [];
+  const saved = new Map();
+  const context = {
+    RZ_CITY: { name: "Rzeszów", centre: [50.0413, 21.999] },
+    TXC: { list: [{ name: "Kraków", centre: [50.0614, 19.9366] }, { name: "Warszawa", centre: [52.2297, 21.0122] }] },
+    TCITY: { name: "Rzeszów" }, store: (k, v) => (v === undefined ? saved.get(k) : saved.set(k, v)),
+    selectCity: (name, auto) => picked.push([name, auto]),
+    hav: (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]),
+  };
+  vm.runInNewContext(source.slice(start, source.indexOf("\n}\n", source.indexOf("function autoCity(")) + 3), context);
+  context.autoCity({ lat: 52.25, lon: 21.0 });
+  assert.equal(JSON.stringify(picked), JSON.stringify([["Warszawa", true]]));
+  saved.set("onward.city", "Kraków"); saved.set("onward.cityAuto", false); // chosen by hand
+  context.autoCity({ lat: 52.25, lon: 21.0 });
+  assert.equal(picked.length, 1);
+});
+
+test("train lines of a city group today's departures from all its stations by destination", () => {
+  const start = source.indexOf("function boardRows(");
+  const mid = 1_000_000;
+  const stop = (id, dep) => ({ id, pDep: dep, predDep: dep, pArr: dep, predArr: dep });
+  const trains = [
+    { to: "Kraków Główny", cat: "IC", stops: [stop(1, mid + 3600), stop(2, mid + 3900), stop(9, mid + 9000)] }, // leaves the city from station 2
+    { to: "Kraków Główny", cat: "REG", stops: [stop(2, mid + 7200), stop(9, mid + 12000)] },
+    { to: "Gdynia Główna", cat: "IC", stops: [stop(8, mid + 100), stop(1, mid + 5000), stop(7, mid + 9000)] },
+    { to: "Warszawa Wschodnia", cat: "KM", stops: [stop(5, mid + 100), stop(1, mid + 4000)] }, // ends in the city
+  ];
+  const context = { TR: { trains }, todayMidnight: () => mid, railName: (id) => `S${id}`, nowSec: () => mid };
+  vm.runInNewContext(source.slice(start, source.indexOf("\n}\n", start) + 3) + source.slice(source.indexOf("function trainLines("), source.indexOf("function renderTrainLines(")), context);
+  const lines = context.trainLines(new Set([1, 2]), mid);
+  assert.equal(JSON.stringify(lines.map((l) => [l.to, l.count, l.cats.join("+")])), JSON.stringify([["Kraków Główny", 2, "IC+REG"], ["Gdynia Główna", 1, "IC"]]));
+  assert.equal(lines[0].next, mid + 3900);
 });

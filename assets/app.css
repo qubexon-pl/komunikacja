@@ -2799,6 +2799,35 @@ body.multi-mode #multiForm{display:none !important}
 
 /* Komunikacja miejska innych miast (Transitous): planer z mapą pojazdów albo odjazdy z przystanku */
 body:not(.citytx-mode) .citytx-part{display:none !important}
+/* Zakładka „Linie” na stronach komunikacji: tylko lista linii (w Rzeszowie także podmiejskich) albo kierunki pociągów */
+body:not(.lines-mode) .lines-only{display:none !important}
+body.lines-mode main.shell > :not(.lines-part):not(#transitTabs):not(#attribution){display:none !important}
+body.lines-mode[data-view="pks"] .lines-part.only-ztm{display:grid !important}
+body.lines-mode[data-view="pks"] #lines-sec{display:flex !important}
+body.lines-mode #lines-sec{margin-top:8px !important}
+.trl-list{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:8px}
+.trl-item{display:flex; flex-direction:column; align-items:flex-start; gap:2px; border:1px solid var(--line); background:var(--bg-alt); color:inherit; border-radius:14px; padding:10px 14px; text-align:left}
+.trl-item:hover,.trl-item:focus-visible{border-color:#2878D0; outline:none}
+.trl-item b{font-size:.95rem} .trl-item small{color:var(--ink-soft); font-size:.76rem}
+.trl-cats{display:flex; flex-wrap:wrap; gap:4px; margin-top:2px}
+.trl-cats .tr-cat{font-size:.68rem}
+.ctx-lines{display:flex; flex-direction:column; gap:14px}
+.ctx-lines h4{font-size:.8rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); margin:0 0 6px}
+.ctx-lines .lg{display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:6px}
+.ctx-line{display:flex; flex-direction:column; align-items:flex-start; gap:4px; border:1px solid var(--line); background:var(--bg-alt); color:inherit; border-radius:12px; padding:8px 10px; text-align:left; min-width:0}
+.ctx-line:hover,.ctx-line:focus-visible{border-color:#2878D0; outline:none}
+.ctx-line small{color:var(--ink-soft); font-size:.7rem; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%}
+.ctx-stats{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px}
+.ctx-stats div{border:1px solid var(--line); background:var(--bg-alt); border-radius:14px; padding:10px 12px}
+.ctx-stats .lbl{font-size:.72rem; color:var(--ink-soft); font-weight:700}
+.ctx-stats .num{font-size:1.4rem; font-weight:800}
+.ctx-stats .is-red .num{color:var(--rose, #b42318)}
+@media (max-width:560px){ .ctx-stats{grid-template-columns:repeat(2,minmax(0,1fr))} }
+.ctx-filter{display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:.82rem}
+.ctx-filter .cs-chip{cursor:default}
+.ctx-when-bar{display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end}
+.ctx-when-bar label{display:flex; flex-direction:column; gap:4px; font-size:.78rem; font-weight:700; color:var(--ink-soft)}
+.ctx-when-bar input,.ctx-when-bar select{min-height:44px; border:1px solid var(--line); border-radius:12px; padding:0 10px; background:var(--bg); color:inherit; font:inherit}
 body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribution){display:none !important}
 .ctx{display:flex; flex-direction:column; gap:12px; min-width:0}
 .ctx-head{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px}

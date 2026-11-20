@@ -70,7 +70,7 @@ const MAX_FAVORITES_BYTES = 512 * 1024; // saved trips carry what they looked li
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, hotels: 30, rates: 30 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -1112,12 +1112,12 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "pks-price" && segments.length === 2)
           || (segments[1] === "weather" && (segments.length === 2 || (segments.length === 3 && segments[2] === "now")))
           || (segments[1] === "airport-transfers" && (segments.length === 2 || (segments.length === 3 && ["connections", "options"].includes(segments[2]))))
-          || (segments[1] === "transit" && segments.length === 3 && ["plan", "vehicles", "cities", "stops", "departures"].includes(segments[2]))
+          || (segments[1] === "transit" && segments.length === 3 && ["plan", "vehicles", "cities", "stops", "departures", "lines"].includes(segments[2]))
           || (segments[1] === "hotels" && segments.length === 2)
           || (segments[1] === "rates" && segments.length === 2)
         ) ? (segments[1] === "feeds" ? "feeds"
           : segments[1] === "airport-transfers" ? (segments[2] === "options" ? "transfer-options" : segments[2] ? "transfer-trips" : "transfers")
-          : segments[1] === "transit" ? ({ plan: "city-plan", cities: "city-list", stops: "city-stops", departures: "departures" }[segments[2]] || "vehicles")
+          : segments[1] === "transit" ? ({ plan: "city-plan", cities: "city-list", stops: "city-stops", departures: "departures", lines: "city-lines" }[segments[2]] || "vehicles")
           : segments[1]) : null;
         if (publicRoute && !takePublicRequest(req, publicRoute)) {
           json(res, 429, { error: "Zbyt wiele zapytań. Spróbuj ponownie za chwilę." });
@@ -1204,6 +1204,14 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         }
         if (publicRoute === "city-list") {
           json(res, 200, { cities: publicCities(), source: "Transitous" });
+          return;
+        }
+        if (publicRoute === "city-lines") {
+          try {
+            json(res, 200, await city.lines({ city: url.searchParams.get("city") || "" }));
+          } catch (error) {
+            json(res, error.status === 400 ? 400 : 502, { error: error.message, lines: [] });
+          }
           return;
         }
         if (publicRoute === "city-stops" || publicRoute === "departures") {

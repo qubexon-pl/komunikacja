@@ -1316,14 +1316,14 @@ function pageFromLocation(){
     return {view:kind==='all'||kind==='podroz'?'podroz':kind, sub:'ulubione', kind};
   }
   const view=viewFromPath();
-  return {view, sub:pageHash()==='#timetable'&&view!=='podroz'?'rozklad':'', kind:'all'};
+  return {view, sub:view==='podroz'?'':pageHash()==='#timetable'?'rozklad':pageHash()==='#lines'?'linie':'', kind:'all'};
 }
 function pageUrl(view, sub, kind){
   if(sub==='ulubione') return '/favourites'+(kind&&kind!=='all'?'#'+FAV_HASH[kind]:'');
   if(sub==='kierunki') return '/destinations';
   if(sub==='moje') return '/my-trips'+(MYT.tab==='archive'?'#archive':'');
   if(sub==='trip') return '/trip?id='+encodeURIComponent(TRIPV.id);
-  return VIEWS[view].path+(sub==='rozklad'?'#timetable':'');
+  return VIEWS[view].path+(sub==='rozklad'?'#timetable':sub==='linie'?'#lines':'');
 }
 const planKey=view=>'rzbus.plan.'+(view==='ztm'?'ztm':'podroz');
 function fitView(){
@@ -1360,18 +1360,14 @@ const FAV_TITLES={all:'Ulubione', podroz:'Ulubione podróże', ztm:'Ulubione aut
 /* Wybór miasta: miasta to miejscowości ze stacjami z rozkładu PKP PLK (z bazy) i z krajowej listy stacji.
    Autobusy miejskie i podmiejskie mamy na razie dla Rzeszowa; pociągi dla każdego miasta. */
 const LOCAL_TRANSIT=new Set(['Rzeszów']);
-/* Komunikacja miejska innych miast Polski (Warszawa, Kraków, Wrocław, Gdańsk…): lista z serwera (/api/transit/cities),
-   rozkłady, pojazdy na mapie i odjazdy z przystanków z Transitous (otwarte dane GTFS przewoźników). */
-const TXC={list:[], byName:new Map(), loaded:false};
+/* Komunikacja miejska innych miast Polski (Warszawa, Kraków, Wrocław, Gdańsk…): lista miast z assets/app.cities.js
+   (wczytana przed tym plikiem, więc nagłówek od razu zna miasto), rozkłady, pojazdy na mapie, odjazdy i linie z Transitous. */
+const TXC={list:(window.PL_CITIES||[]).map(({id,name,centre,modes,live,operator})=>({id,name,centre,modes,live,operator:operator||''}))};
+TXC.byName=new Map(TXC.list.map(c=>[c.name,c]));
+const RZ_CITY={id:'rzeszow', name:'Rzeszów', centre:[50.0413,21.9990]};
 const txCity=(name=TCITY.name)=>LOCAL_TRANSIT.has(name)?null:TXC.byName.get(name)||null;
 const TX_MODE_NAMES={metro:['metro','metro'], tram:['tramwaje','trams'], bus:['autobusy','buses'], trolleybus:['trolejbusy','trolleybuses'], rail:['SKM','city rail']};
 const txModes=c=>c.modes.map(m=>L2(...(TX_MODE_NAMES[m]||[m,m]))).join(' · ');
-fetch('/api/transit/cities').then(r=>r.ok?r.json():null).then(d=>{
-  if(!d?.cities) return;
-  TXC.list=d.cities; TXC.byName=new Map(d.cities.map(c=>[c.name,c])); TXC.loaded=true; TCITY.list=null;
-  if(S.agency==='ztm' && txCity()) setSubpage(S.sub); // tytuł, zakładki i strona miasta
-  else if(S.agency) renderTransitTabs(TRANSIT.includes(S.agency)?(S.sub==='ulubione'?FAVF.kind:S.agency):'ztm');
-}).catch(()=>{});
 const TCITY={name:store('onward.city')||'Rzeszów', list:null, size:0, open:false, q:'', applied:false};
 // Miasta ze stacjami: ta sama zasada co w wyszukiwarce pociągów (railCities: co najmniej dwie stacje i własna stacja główna),
 // a stacja miasta to jego stacja główna (routeStations), np. Kraków → Kraków Główny.
@@ -1415,30 +1411,63 @@ function toggleCityPicker(open=!TCITY.open){
   renderTransitTabs(TRANSIT.includes(S.agency)?S.agency:'ztm');
   if(open) setTimeout(()=>document.getElementById('cityQuery')?.focus(),20);
 }
-// Pociągi wybranego miasta: rozkład jego głównej stacji i wyszukiwanie połączeń od niej.
+// Stacje wybranego miasta (nazwa miasta albo „Miasto Coś”), główna pierwsza, np. Warszawa Centralna, Wschodnia, Zachodnia…
+function cityStations(name){
+  const c=cityList().find(x=>x.city===name), main=c?.main||name;
+  const names=railStationNames().filter(n=>n===name||n.startsWith(name+' '));
+  return names.map(n=>({name:n, id:stationIdOf(n)})).filter(x=>x.id!=null).sort((a,b)=>(b.name===main)-(a.name===main)||a.name.localeCompare(b.name,'pl'));
+}
+// Lista stacji w tablicy odjazdów: najpierw „wszystkie stacje miasta”, potem każda stacja miasta; w Rzeszowie dodatkowo okolice.
+function fillStationSelect(name){
+  const sel=document.getElementById('trStation'); if(!sel) return [];
+  const list=cityStations(name);
+  const region=name==='Rzeszów'?RAIL_IDS.filter(id=>!list.some(x=>x.id===id)).sort((a,b)=>RAIL_ST[a][0].localeCompare(RAIL_ST[b][0],'pl')):[];
+  const own=list.length?list:name==='Rzeszów'?[{id:HOME_STATION_ID, name:'Rzeszów Główny'}]:[];
+  sel.innerHTML=(own.length>1?`<option value="city">${esc(L2(`Wszystkie stacje: ${name}`,`All stations: ${name}`))}</option>`:'')
+    +own.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')
+    +(region.length?`<optgroup label="${esc(L2('Okolice','Nearby'))}">${region.map(id=>`<option value="${id}">${esc(RAIL_ST[id][0])}</option>`).join('')}</optgroup>`:'')
+    +`<option value="all">${esc(L2('Wszystkie pociągi w Polsce','All trains in Poland'))}</option>`;
+  TR.cityIds=new Set(own.map(x=>x.id));
+  return own;
+}
+// Pociągi wybranego miasta: tablica jego stacji i wyszukiwanie połączeń od niego.
 function applyCity(name){
-  const c=cityList().find(x=>x.city===name), id=c?stationIdOf(c.main):null;
-  if(id==null) return false;
+  const own=fillStationSelect(name);
+  if(!own.length) return false;
   const sel=document.getElementById('trStation');
-  if(sel && ![...sel.options].some(o=>o.value===String(id))) sel.insertAdjacentHTML('beforeend', `<option value="${id}">${esc(c.main)}</option>`);
-  TR.station=id; TR.page=null; if(sel) sel.value=String(id);
-  const prev=TCITY.station; TCITY.station=c.main;
-  if(S.agency==='kolej' && (!plFrom.value.trim() || plFrom.value===prev)) plFrom.value=c.main;
-  if(typeof renderBoard==='function' && TR.trains.length) renderBoard();
+  TR.station=own.length>1?'city':own[0].id; TR.page=null; if(sel) sel.value=String(TR.station);
+  const prev=TCITY.station; TCITY.station=name;
+  const trFrom=document.getElementById('trFrom');
+  if(trFrom && (!trFrom.value.trim() || trFrom.value===prev)) trFrom.value=name;
+  if(S.agency==='kolej' && (!plFrom.value.trim() || plFrom.value===prev)) plFrom.value=own[0].name;
+  if(typeof renderBoard==='function' && TR.trains.length){ renderBoard(); if(S.sub==='linie') renderTrainLines(); }
   return true;
 }
-function applySavedCity(){ if(!TCITY.applied && TCITY.name!=='Rzeszów') TCITY.applied=applyCity(TCITY.name); }
-function selectCity(name){
-  TCITY.name=name; TCITY.open=false; store('onward.city', name);
+function applySavedCity(){ if(!TCITY.applied && RAIL_NAMES.size) TCITY.applied=applyCity(TCITY.name); }
+function selectCity(name, auto=false){
+  TCITY.name=name; TCITY.open=false; store('onward.city', name); store('onward.cityAuto', auto);
   const ok=applyCity(name); TCITY.applied=ok;
-  const local=LOCAL_TRANSIT.has(name), tx=txCity(name);
-  if(tx){ // miasto z komunikacją miejską z Transitous: od razu jej strona (z pociągami obok)
-    if(S.agency==='ztm' && S.sub!=='ulubione'){ renderTransitTabs('ztm'); syncCityTx(); } else goPage('ztm', S.sub==='rozklad'?'rozklad':'');
-    toast(L2(`${name}: ${txModes(tx)}${tx.live?' na żywo':''} i pociągi.`,`${name}: ${txModes(tx)}${tx.live?' live':''} and trains.`)); return;
-  }
-  if(!local && TRANSIT.includes(S.agency) && S.agency!=='kolej'){ goPage('kolej', S.sub==='ulubione'?'ulubione':S.sub, S.sub==='ulubione'?'kolej':'all'); }
-  else { renderTransitTabs(TRANSIT.includes(S.agency)?(S.sub==='ulubione'?FAVF.kind:S.agency):'ztm'); syncCityTx(); }
-  toast(local?L2(`${name}: autobusy miejskie, podmiejskie i pociągi.`,`${name}: city buses, suburban buses and trains.`):L2(`${name}: pociągi${ok?' ze stacji '+cityList().find(x=>x.city===name)?.main:''}. Autobusy miejskie dodamy wkrótce.`,`${name}: trains${ok?' from '+cityList().find(x=>x.city===name)?.main:''}. City buses are coming soon.`));
+  const local=LOCAL_TRANSIT.has(name), tx=txCity(name), sub=['','rozklad','linie'].includes(S.sub)?S.sub:'';
+  // Nagłówek, zakładki i treść strony zawsze od razu dla nowego miasta.
+  if(TRANSIT.includes(S.agency) && S.sub!=='ulubione'){
+    if(!local && !tx && S.agency!=='kolej') goPage('kolej', sub);
+    else if(tx && S.agency==='pks') goPage('ztm', sub);
+    else setSubpage(sub);
+  } else renderTransitTabs(TRANSIT.includes(S.agency)?(S.sub==='ulubione'?FAVF.kind:S.agency):'ztm');
+  const what=local?L2('autobusy miejskie, podmiejskie i pociągi','city buses, suburban buses and trains'):tx?L2(`${txModes(tx)}${tx.live?' na żywo':''} i pociągi`,`${txModes(tx)}${tx.live?' live':''} and trains`):L2('pociągi','trains');
+  toast(auto?L2(`Najbliższe miasto: ${name} — ${what}. Zmienisz je przyciskiem „Miasto”.`,`Nearest city: ${name} — ${what}. Change it with the “City” button.`):`${name}: ${what}.`);
+}
+// Miasto domyślne: najbliższe z miast z komunikacją miejską, gdy znamy położenie, a użytkownik sam miasta nie wybrał.
+function nearestTransitCity(spot){
+  let best=null, bestM=Infinity;
+  for(const c of [RZ_CITY, ...TXC.list]){ const m=hav([spot.lat,spot.lon], c.centre); if(m<bestM){ bestM=m; best=c; } }
+  return best?.name||null;
+}
+function autoCity(spot){
+  if(!spot || !Number.isFinite(spot.lat) || !(store('onward.city')==null || store('onward.cityAuto')===true)) return;
+  const name=nearestTransitCity(spot);
+  if(name && name!==TCITY.name) selectCity(name, true);
+  else if(name) store('onward.cityAuto', true);
 }
 document.getElementById('transitTabs')?.addEventListener('input', e=>{
   if(e.target.id!=='cityQuery') return;
@@ -1456,13 +1485,14 @@ const TRANSIT=['ztm','pks','kolej'];
 const TRANSIT_MODES=[['ztm','bus','Autobusy miejskie','City buses'],['pks','suburban-bus','Podmiejskie','Suburban'],['kolej','train','Pociągi','Trains']];
 function renderTransitTabs(current){
   const el=document.getElementById('transitTabs'); if(!el) return;
-  const fav=S.sub==='ulubione', show=TRANSIT.includes(current) && ['', 'rozklad', 'ulubione'].includes(S.sub);
+  const fav=S.sub==='ulubione', show=TRANSIT.includes(current) && ['', 'rozklad', 'linie', 'ulubione'].includes(S.sub);
   el.hidden=!show; if(!show){ el.innerHTML=''; return; }
   const local=LOCAL_TRANSIT.has(TCITY.name), tx=txCity();
   const txOn=tx&&current==='ztm';
-  const subs=[['', current==='pks'?L2('Dokąd dojedziesz','Where you can go'):L2('Szukaj połączenia','Find a connection'), 'magnifying-glass'], ['rozklad', txOn?L2('Odjazdy z przystanku','Stop departures'):L2('Rozkład jazdy','Timetable'), 'clock'], ['ulubione', L2('Ulubione','Favourites'), 'star']];
+  // Ulubione mają własną stronę (gwiazdka w górnym pasku), więc tu trzecia zakładka to linie wybranego miasta.
+  const subs=[['', current==='pks'?L2('Dokąd dojedziesz','Where you can go'):L2('Szukaj połączenia','Find a connection'), 'fa-solid fa-magnifying-glass'], ['rozklad', L2('Rozkład jazdy','Timetable'), 'fa-regular fa-clock'], ['linie', L2('Linie','Lines'), 'fa-solid fa-list-ol']];
   el.innerHTML=`${cityPickerHtml()}<div class="tx-modes" role="group" aria-label="${L2('Rodzaj komunikacji','Kind of transport')}">${TRANSIT_MODES.map(([v,icon,pl,en])=>{ const soon=!local&&v!=='kolej'&&!(tx&&v==='ztm'); if(tx&&v==='ztm'){ pl='Komunikacja miejska'; en='City transport'; } return `<button type="button" class="tx-mode ${v===current?'on':''} ${soon?'soon':''}" data-transit-go="${v}" aria-pressed="${v===current}" ${soon?`title="${esc(L2(`${TCITY.name}: wkrótce — na razie pociągi`,`${TCITY.name}: coming soon — trains for now`))}" aria-disabled="true"`:''}><i class="oi oi-${icon}" aria-hidden="true"></i> ${L2(pl,en)}${soon?` <small>${L2('wkrótce','soon')}</small>`:''}</button>`; }).join('')}</div>
-    <div class="tx-subs" role="group" aria-label="${L2('Widok','View')}">${subs.map(([v,label,icon])=>`<button type="button" class="tx-sub ${(fav?'ulubione':S.sub)===v?'on':''}" data-transit-sub="${v}" aria-pressed="${(fav?'ulubione':S.sub)===v}"><i class="fa-regular fa-${icon}" aria-hidden="true"></i> ${label}</button>`).join('')}</div>`;
+    <div class="tx-subs" role="group" aria-label="${L2('Widok','View')}">${subs.map(([v,label,icon])=>`<button type="button" class="tx-sub ${(fav?'ulubione':S.sub)===v?'on':''}" data-transit-sub="${v}" aria-pressed="${(fav?'ulubione':S.sub)===v}"><i class="${icon}" aria-hidden="true"></i> ${label}</button>`).join('')}</div>`;
 }
 document.getElementById('transitTabs')?.addEventListener('click', e=>{
   const m=e.target.closest('[data-transit-go]'), sub=e.target.closest('[data-transit-sub]');
@@ -1484,25 +1514,36 @@ function syncNav(){
   document.querySelectorAll('[data-proxy]').forEach(b=>b.classList.toggle('active', !!document.getElementById(b.dataset.proxy)?.classList.contains('active')));
   document.querySelectorAll('[data-transit]').forEach(b=>b.classList.toggle('active', TRANSIT.includes(current)));
 }
+function transitHead(agency, sub, city, tx){
+  if(agency==='kolej') return sub==='rozklad'?[`Rozkład pociągów: ${city}`,'Odjazdy i przyjazdy na stacjach w mieście.']
+    :sub==='linie'?[`Pociągi: ${city}`,'Kierunki pociągów, które dziś zatrzymują się w mieście. Wybierz kierunek, by znaleźć połączenie.']
+    :[`Pociągi: ${city}`,'Połączenia kolejowe ze stacji w mieście i w całej Polsce.'];
+  if(agency==='pks') return sub==='rozklad'?[`Rozkład jazdy: ${city}`,'Sprawdź rozkład według przystanku i linii.']
+    :sub==='linie'?[`Linie: ${city}`,'Linie komunikacji podmiejskiej i ich pojazdy na mapie.']
+    :[`Podmiejskie: ${city}`,'Połączenia do pobliskich miejscowości i okolic.'];
+  const modes=tx?txModes(tx):L2('autobusy','buses');
+  return sub==='rozklad'?[`Rozkład jazdy: ${city}`, tx?'Najbliższe odjazdy z wybranego przystanku, z opóźnieniami na żywo.':'Sprawdź rozkład według przystanku i linii.']
+    :sub==='linie'?[`Linie: ${city}`, tx?'Linie, które teraz kursują w mieście. Wybierz linię, by zobaczyć jej pojazdy na mapie.':'Wszystkie linie i ich pojazdy na mapie.']
+    :[`Komunikacja: ${city}`, `${modes[0].toUpperCase()+modes.slice(1)} — połączenia po mieście, rozkłady i pojazdy na mapie.`];
+}
 function setSubpage(sub){
-  if(sub==='rozklad' && S.agency==='podroz') sub='';
+  if((sub==='rozklad'||sub==='linie') && S.agency==='podroz') sub='';
   if(sub==='kierunki' && S.agency!=='podroz') sub='';
   if((sub==='moje'||sub==='trip') && S.agency!=='podroz') sub='';
   if(S.sub==='trip' && sub!=='trip'){ document.getElementById('tripPage').innerHTML=''; TRIPV.city=false; stopVehicles(); }
   S.sub=sub;
   const V=VIEWS[S.agency];
   document.body.classList.toggle('tt-mode', sub==='rozklad' && !(S.agency==='ztm' && txCity())); // odjazdy innych miast mają własną stronę
+  document.body.classList.toggle('lines-mode', sub==='linie' && !(S.agency==='ztm' && txCity()));
   document.body.classList.toggle('fav-mode', sub==='ulubione');
   document.body.classList.toggle('explore-mode', sub==='kierunki');
   document.body.classList.toggle('mytrips-mode', sub==='moje');
   document.body.classList.toggle('trip-mode', sub==='trip');
   let title=V.title, lead=V.lead;
   // Nagłówki stron jak w arkuszu ON/WARD: krótki tytuł (ostatnie słowo na złoto) i jedno zdanie opisu.
-  if(!sub && S.agency==='ztm'){ title='Autobusy miejskie'; lead='Znajdź połączenia autobusami miejskimi i sprawdź rozkłady jazdy.'; }
-  if(!sub && S.agency==='pks'){ title='Autobusy podmiejskie'; lead='Połączenia do pobliskich miejscowości i okolic.'; }
-  if(sub==='rozklad'){ title=S.agency==='kolej'?'Rozkład pociągów':'Rozkład jazdy'; lead=S.agency==='kolej'?'Odjazdy i przyjazdy na wybranej stacji.':'Sprawdź rozkład według przystanku i linii.'; }
-  const tx=S.agency==='ztm'&&(!sub||sub==='rozklad')?txCity():null;
-  if(tx){ title=`Komunikacja: ${tx.name}`; lead=sub==='rozklad'?'Najbliższe odjazdy z wybranego przystanku, z opóźnieniami na żywo.':`${txModes(tx)[0].toUpperCase()+txModes(tx).slice(1)} — połączenia po mieście i pojazdy na mapie.`; }
+  const tx=S.agency==='ztm'&&['','rozklad','linie'].includes(sub)?txCity():null;
+  // Strony komunikacji zawsze w nagłówku podają wybrane miasto (ostatnie słowo tytułu jest złote).
+  if(TRANSIT.includes(S.agency) && ['','rozklad','linie'].includes(sub)) [title,lead]=transitHead(S.agency, sub, TCITY.name, tx);
   if(sub==='ulubione'){ title=FAV_TITLES[FAVF.kind]; lead='Zapisane trasy, przystanki, stacje i podróże.'; }
   if(sub==='kierunki'){ title='Sprawdź kierunki'; lead=EXPLORE.summary||'Sprawdź, dokąd polecisz z polskich lotnisk.'; }
   if(sub==='moje'){ title='Moje podróże'; lead=MYT.tab==='archive'?'Archiwum: Twoje minione podróże, ich plany i zdjęcia.':'Twoje zaplanowane podróże w jednym miejscu.'; }
@@ -1515,6 +1556,7 @@ function setSubpage(sub){
   if(location.pathname+location.search+location.hash!==url) history.replaceState(null,'',url);
   syncNav(); renumberSections(); syncCityTx();
   if(sub==='rozklad' && !tx){ if(S.agency==='kolej') renderBoard(); else renderTimetable(); }
+  if(sub==='linie' && !tx){ if(S.agency==='kolej') renderTrainLines(); else renderLinesGrid(); }
   if(sub==='ulubione') renderFavorites();
   if(sub==='moje') renderMyTrips();
   if(sub==='trip') renderTripPage();
@@ -3680,14 +3722,15 @@ async function loadVehicles(force){
   const key=JSON.stringify(q)+Math.floor(Date.now()/60000); if(!force && key===CITY.lastBox) return; CITY.lastBox=key;
   CITY.fetching=true;
   try{
-    const d=await fetch('/api/transit/vehicles?'+new URLSearchParams(q)).then(r=>r.ok?r.json():null);
+    let d=await fetch('/api/transit/vehicles?'+new URLSearchParams(q)).then(r=>r.ok?r.json():null);
     if(!d){ setCityStatus('Pojazdy chwilowo niedostępne.'); return; }
     if(d.tooWide){ clearVehicles(); setCityStatus('Przybliż mapę, by zobaczyć pojazdy.'); return; }
     CITY.vLayer.clearLayers();
+    if(CITY.lineFilter) d={...d, vehicles:d.vehicles.filter(v=>v.line===CITY.lineFilter)};
     CITY.vehicles=d.vehicles.map(v=>{ const live=v.live; const m=L.marker(v.path[0],{icon:vehicleIcon(v), keyboard:false, riseOnHover:true})
       .bindTooltip(`<b>${esc(v.line||'')}</b> ${esc(v.from)} → ${esc(v.to)}<br><small>${live?(v.delayMin>0?`na żywo · opóźnienie ${v.delayMin} min`:v.delayMin<0?`na żywo · ${-v.delayMin} min przed czasem`:'na żywo · punktualnie'):'wg rozkładu'}</small>`,{className:'bus-tip', direction:'top'});
       m.addTo(CITY.vLayer); return {...v, m}; });
-    moveVehicles();
+    moveVehicles(); renderCtxStats(CITY.vehicles);
     const live=d.vehicles.filter(v=>v.live).length;
     setCityStatus(`${d.vehicles.length} ${d.vehicles.length===1?'pojazd':d.vehicles.length%10>=2&&d.vehicles.length%10<=4&&(d.vehicles.length%100<10||d.vehicles.length%100>=20)?'pojazdy':'pojazdów'} w widoku${live?` · ${live} na żywo`:''}`);
   } catch(e){ console.warn('Pojazdy', e); setCityStatus('Pojazdy chwilowo niedostępne.'); }
@@ -3715,18 +3758,18 @@ document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && CITY.
 /* ---------- Komunikacja miejska w innych miastach Polski (Transitous) ----------
    Strona „Komunikacja miejska” wybranego miasta: planer z mapą pojazdów (ten sam panel co w planie zwiedzania)
    albo odjazdy z przystanku. Rzeszów ma własne, pełniejsze strony. */
-const CTX={on:false, city:null, sub:null, stop:null, stops:[], q:'', timer:null, reqQ:0, reqD:0, data:null, err:''};
+const CTX={on:false, city:null, sub:null, stop:null, stops:[], q:'', timer:null, reqQ:0, reqD:0, data:null, err:'', day:'', at:'', line:'', lines:null, linesErr:''};
 function syncCityTx(){
-  const tx=S.agency==='ztm' && (S.sub===''||S.sub==='rozklad') ? txCity() : null;
+  const tx=S.agency==='ztm' && ['','rozklad','linie'].includes(S.sub) ? txCity() : null;
   const page=document.getElementById('cityTxPage'); if(!page) return;
   document.body.classList.toggle('citytx-mode', !!tx);
   if(!tx){
-    if(CTX.on){ CTX.on=false; clearInterval(CTX.timer); CTX.timer=null; page.innerHTML=''; if(CITY.el && !CITY.el.isConnected) stopVehicles(); }
+    if(CTX.on){ CTX.on=false; clearInterval(CTX.timer); CTX.timer=null; page.innerHTML=''; CITY.lineFilter=''; if(CITY.el && !CITY.el.isConnected) stopVehicles(); }
     return;
   }
   const changed=!CTX.on || CTX.city!==tx.id || CTX.sub!==S.sub;
   CTX.on=true;
-  if(CTX.city!==tx.id){ CTX.city=tx.id; CTX.stop=store('onward.citystop.'+tx.id)||null; CTX.stops=[]; CTX.q=''; CTX.data=null; CTX.err=''; }
+  if(CTX.city!==tx.id){ CTX.city=tx.id; CTX.stop=store('onward.citystop.'+tx.id)||null; CTX.stops=[]; CTX.q=''; CTX.data=null; CTX.err=''; CTX.line=''; CTX.lines=null; CTX.linesErr=''; CITY.lineFilter=''; }
   CTX.sub=S.sub;
   if(!changed) return;
   clearInterval(CTX.timer); CTX.timer=null;
@@ -3737,6 +3780,7 @@ function syncCityTx(){
       <form class="ctx-search" id="ctxForm" role="search" autocomplete="off"><label for="ctxStop">${L2('Przystanek','Stop')}</label>
         <div class="pl-inp"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="ctxStop" type="search" placeholder="${L2('Wpisz nazwę przystanku, np. ','Type a stop name, e.g. ')}${esc(TX_EXAMPLE[tx.id]||'Dworzec')}" value="${esc(CTX.q)}"></div></form>
       <ul class="ctx-stops" id="ctxStops"></ul>
+      <div class="ctx-when-bar"><label>${L2('Dzień','Day')}<input type="date" id="ctxDay" value="${esc(CTX.day)}" min="${esc(localNow('Europe/Warsaw').slice(0,10))}"></label><label>${L2('Od godziny','From')}<input type="time" id="ctxAt" value="${esc(CTX.at)}" title="${L2('Puste = teraz','Empty = now')}"></label><label>${L2('Linia','Line')}<select id="ctxLine"><option value="">${L2('Wszystkie linie','All lines')}</option></select></label></div>
       <div id="ctxBoard" aria-live="polite"></div>
       <small class="cp-src">${L2('Odjazdy: Transitous (otwarte dane GTFS przewoźnika). „Na żywo” oznacza godzinę z opóźnieniem podanym przez przewoźnika.','Departures: Transitous (the operator’s open GTFS data). “Live” times include the delay the operator reports.')}</small></section>`;
     renderCtxStops(); renderCtxBoard();
@@ -3744,7 +3788,14 @@ function syncCityTx(){
     CTX.timer=setInterval(()=>{ if(CTX.stop && !document.hidden && CTX.sub==='rozklad') loadCtxBoard(true); }, 30000);
     return;
   }
-  page.innerHTML=`<section class="ctx">${head}<div class="city-slot ctx-slot"></div></section>`;
+  if(S.sub==='linie'){
+    page.innerHTML=`<section class="ctx">${head}<div id="ctxLines" class="ctx-lines"></div>
+      <small class="cp-src">${L2('Linie, które kursują w ciągu najbliższej godziny w obrębie miasta (Transitous, otwarte dane GTFS). Liczba to pojazdy w trasie.','Lines running within the next hour in the city (Transitous, open GTFS data). The number is vehicles on the way.')}</small></section>`;
+    renderCtxLines(); loadCtxLines();
+    return;
+  }
+  page.innerHTML=`<section class="ctx">${head}<div class="ctx-stats" id="ctxStats"></div><div class="ctx-filter" id="ctxFilter"></div><div class="city-slot ctx-slot"></div></section>`;
+  renderCtxStats(); renderCtxFilter();
   const today=localNow('Europe/Warsaw').slice(0,10);
   CITY.want={code:`pl:${tx.id}`, fromHint:`np. ulica i numer albo ${TX_EXAMPLE[tx.id]||'Dworzec'}`, toHint:'np. adres, przystanek, muzeum', city:tx.name, local:null, canSave:false, zone:'Europe/Warsaw', centre:{lat:tx.centre[0], lon:tx.centre[1]}, airport:null, home:null, day:today, back:null};
   mountCity(page.querySelector('.ctx-slot'));
@@ -3759,7 +3810,10 @@ function renderCtxBoard(){
   if(!CTX.stop){ box.innerHTML=`<div class="empty-note">${L2('Wpisz nazwę przystanku i wybierz go z listy, by zobaczyć najbliższe odjazdy.','Type a stop name and pick it from the list to see the next departures.')}</div>`; return; }
   if(CTX.err){ box.innerHTML=`<div class="empty-note">${esc(CTX.err)}</div>`; return; }
   const d=CTX.data; if(!d){ box.innerHTML=searching(L2('Wczytuję odjazdy…','Loading departures…')); return; }
-  const now=Date.now(), list=d.departures.filter(x=>x.at>=now-60000);
+  const now=Date.now(), from=CTX.day||CTX.at?Date.parse(`${CTX.day||localNow('Europe/Warsaw').slice(0,10)}T${CTX.at||'00:00'}:00`):0;
+  const sel=document.getElementById('ctxLine'), lines=[...new Set(d.departures.map(x=>x.line).filter(Boolean))].sort(natSort);
+  if(sel){ const keep=CTX.line; sel.innerHTML=`<option value="">${L2('Wszystkie linie','All lines')}</option>`+lines.map(l=>`<option${l===keep?' selected':''}>${esc(l)}</option>`).join(''); }
+  const list=d.departures.filter(x=>(from?x.at>=Math.min(from,now)-60000:x.at>=now-60000) && (!CTX.line||x.line===CTX.line));
   const rows=list.map(x=>{ const mins=Math.round((x.at-now)/60000);
     const when=x.cancelled?`<s>${esc(x.planned||x.clock)}</s>`:x.live&&x.delayMin&&x.planned?`<b>${esc(x.clock)}</b> <s>${esc(x.planned)}</s>`:`<b>${esc(x.clock)}</b>`;
     const state=x.cancelled?`<span class="ctx-st cancel">${L2('odwołany','cancelled')}</span>`:x.live?`<span class="ctx-st live">${x.delayMin>0?L2(`+${x.delayMin} min`,`+${x.delayMin} min`):x.delayMin<0?L2(`${x.delayMin} min`,`${x.delayMin} min`):L2('na czas','on time')}</span>`:'';
@@ -3770,7 +3824,8 @@ function renderCtxBoard(){
 async function loadCtxBoard(quiet){
   const stop=CTX.stop; if(!stop) return;
   const n=++CTX.reqD; if(!quiet){ CTX.data=null; CTX.err=''; renderCtxBoard(); }
-  const d=await fetch('/api/transit/departures?'+new URLSearchParams({stop:stop.id})).then(r=>r.json()).catch(()=>null);
+  const q={stop:stop.id}; if(CTX.day||CTX.at){ const day=CTX.day||localNow('Europe/Warsaw').slice(0,10); q.time=`${day}T${CTX.at||(day===localNow('Europe/Warsaw').slice(0,10)?localNow('Europe/Warsaw').slice(11,16):'00:00')}`; }
+  const d=await fetch('/api/transit/departures?'+new URLSearchParams(q)).then(r=>r.json()).catch(()=>null);
   if(n!==CTX.reqD || CTX.stop!==stop) return;
   if(!d || d.error){ if(!quiet||!CTX.data){ CTX.err=d?.error||L2('Odjazdy są chwilowo niedostępne.','Departures are unavailable right now.'); renderCtxBoard(); } return; }
   CTX.data=d; CTX.err=''; renderCtxBoard();
@@ -3793,7 +3848,42 @@ document.getElementById('cityTxPage')?.addEventListener('click', e=>{
   const b=e.target.closest('[data-ctx-stop]');
   if(b){ const st=CTX.stops.find(x=>x.id===b.dataset.ctxStop); if(!st) return; CTX.stop=st; store('onward.citystop.'+CTX.city, st); renderCtxStops(); loadCtxBoard(); return; }
   if(e.target.closest('[data-ctx-refresh]')) loadCtxBoard();
+  const ln=e.target.closest('[data-ctx-line]');
+  if(ln){ CITY.lineFilter=ln.dataset.ctxLine; CITY.lastBox=''; goPage('ztm',''); return; }
+  if(e.target.closest('[data-ctx-unfilter]')){ CITY.lineFilter=''; CITY.lastBox=''; renderCtxFilter(); loadVehicles(true); }
 });
+document.getElementById('cityTxPage')?.addEventListener('change', e=>{
+  if(e.target.id==='ctxDay'){ CTX.day=e.target.value; loadCtxBoard(); }
+  if(e.target.id==='ctxAt'){ CTX.at=e.target.value; loadCtxBoard(); }
+  if(e.target.id==='ctxLine'){ CTX.line=e.target.value; renderCtxBoard(); }
+});
+// Pasek jak w Rzeszowie: pojazdy w trasie, na żywo, spóźnione i największe opóźnienie (w widoku mapy).
+function renderCtxStats(list=CITY.vehicles||[]){
+  const el=document.getElementById('ctxStats'); if(!el) return;
+  const live=list.filter(v=>v.live), late=live.filter(v=>v.delayMin>=3), max=live.reduce((m,v)=>Math.max(m,v.delayMin||0),0);
+  const box=(lbl,num,red)=>`<div class="${red?'is-red':''}"><div class="lbl">${lbl}</div><div class="num">${num}</div></div>`;
+  el.innerHTML=box(L2('W trasie (na mapie)','On the way (on the map)'), list.length||'–')+box(L2('Na żywo','Live'), live.length||'–')+box(L2('Spóźnione','Late'), late.length||(live.length?0:'–'), true)+box(L2('Maks. opóźnienie','Max delay'), live.length?`${max} min`:'–');
+}
+function renderCtxFilter(){
+  const el=document.getElementById('ctxFilter'); if(!el) return;
+  el.innerHTML=CITY.lineFilter?`<span>${L2('Na mapie tylko linia','Only line on the map')}</span> ${lineChip({line:CITY.lineFilter, kind:'bus'})} <button type="button" class="btn-ghost" data-ctx-unfilter><i class="fa-solid fa-xmark" aria-hidden="true"></i> ${L2('Pokaż wszystkie','Show all')}</button>`:'';
+}
+async function loadCtxLines(){
+  const city=CTX.city; if(CTX.lines?.city===city && Date.now()-CTX.lines.at<5*60000) return;
+  const d=await fetch('/api/transit/lines?'+new URLSearchParams({city})).then(r=>r.json()).catch(()=>null);
+  if(CTX.city!==city) return;
+  if(!d || d.error){ CTX.linesErr=d?.error||L2('Lista linii jest chwilowo niedostępna.','The line list is unavailable right now.'); renderCtxLines(); return; }
+  CTX.lines={city, at:Date.now(), list:d.lines||[]}; CTX.linesErr=''; renderCtxLines();
+}
+function renderCtxLines(){
+  const el=document.getElementById('ctxLines'); if(!el) return;
+  if(CTX.linesErr && !CTX.lines){ el.innerHTML=`<div class="empty-note">${esc(CTX.linesErr)}</div>`; return; }
+  if(!CTX.lines || CTX.lines.city!==CTX.city){ el.innerHTML=searching(L2('Wczytuję linie…','Loading lines…')); return; }
+  const list=CTX.lines.list; if(!list.length){ el.innerHTML=`<div class="empty-note">${L2('Teraz nie kursuje żadna linia (np. w nocy).','No line is running right now (e.g. at night).')}</div>`; return; }
+  const KIND=[['metro','Metro','Metro'],['tram','Tramwaje','Trams'],['rail','Kolej miejska','City rail'],['bus','Autobusy','Buses'],['ferry','Promy','Ferries']];
+  el.innerHTML=KIND.map(([k,pl,en])=>{ const ls=list.filter(l=>(KIND.some(x=>x[0]===l.kind)?l.kind:'bus')===k); if(!ls.length) return '';
+    return `<div><h4>${L2(pl,en)} · ${ls.length}</h4><div class="lg">${ls.map(l=>`<button type="button" class="ctx-line" data-ctx-line="${esc(l.line)}" title="${esc(L2('Pokaż pojazdy tej linii na mapie','Show this line’s vehicles on the map'))}">${lineChip(l)}<small>${l.vehicles} ${L2('w trasie','on the way')}${l.late?` · <span class="txt-red">${l.late} ${L2('spóźn.','late')}</span>`:''}</small></button>`).join('')}</div></div>`; }).join('');
+}
 
 function stageTime(P){
   if(P.by) return `na miejscu do ${fmtDay(dayOfTs(P.by))} ${fmtClock(P.by)}`;
@@ -7113,15 +7203,15 @@ function boardMatches(row, query){
   return t.searchText.includes(foldText(query));
 }
 function boardRows(stationId, kind){
-  const rows=[], mid=todayMidnight();
+  const rows=[], mid=todayMidnight(), many=typeof stationId?.has==='function';
   for(const t of TR.trains){
-    const idx=t.stops.findIndex(x=>x.id===stationId); if(idx<0) continue;
+    const idx=many?t.stops.findIndex((x,i)=>stationId.has(x.id) && (kind==='dep'?i<t.stops.length-1&&!stationId.has(t.stops[i+1]?.id):i>0)):t.stops.findIndex(x=>x.id===stationId); if(idx<0) continue;
     const x=t.stops[idx];
     if(kind==='dep'){ if(idx===t.stops.length-1 || x.pDep==null) continue; }
     else { if(idx===0 || x.pArr==null) continue; }
     const plan = kind==='dep'?x.pDep:x.pArr, pred = kind==='dep'?x.predDep:x.predArr;
     if(plan<mid || plan>=mid+86400) continue;
-    rows.push({t, x, idx, plan, pred, delay:x.delay, cn: x.cn || t.cancelled});
+    rows.push({t, x, idx, plan, pred, delay:x.delay, cn: x.cn || t.cancelled, ...(many?{station:railName(x.id)}:{})});
   }
   return rows.sort((a,b)=>a.pred-b.pred);
 }
@@ -7159,9 +7249,9 @@ function renderBoard(){
   const el=document.getElementById('trainBoard'); const info=document.getElementById('trInfo');
   if(CFG.trains===false){ el.innerHTML='<div class="empty-note">Pociągi są wyłączone w Ustawieniach.</div>'; info.textContent=''; return; }
   const modeTxt = TR.mode==='live' ? `Dane PKP PLK · aktualizacja ${TR.ts?fmtClock(TR.ts):'—'} · co 20 min` : TR.mode==='demo' ? 'Przykładowe dane (brak klucza PKP PLK lub brak połączenia)' : TR.mode==='loading' ? 'Pobieranie danych PKP PLK…' : '';
-  info.innerHTML = (TR.station==='all'?'':favButton({type:'stop',view:'kolej',name:railName(TR.station)})+' ') + esc(modeTxt) + (TR.err?` · <span class="txt-red">${esc(TR.err)}</span>`:'');
+  info.innerHTML = (TR.station==='all'||TR.station==='city'?'':favButton({type:'stop',view:'kolej',name:railName(TR.station)})+' ') + esc(modeTxt) + (TR.err?` · <span class="txt-red">${esc(TR.err)}</span>`:'');
   const banner = TR.mode==='demo' ? `<div class="line-notice" style="margin:0 0 12px"><div><span class="ln-badge off">i</span>Nie udało się pobrać danych PKP PLK — pokazuję przykładowy rozkład.</div></div>` : '';
-  const now=nowSec(), all=(TR.station==='all'?allStationRows(TR.tab,TR.query,now):boardRows(TR.station,TR.tab)).filter(r=>r.pred>=now-90 && boardMatches(r,TR.query));
+  const now=nowSec(), all=(TR.station==='all'?allStationRows(TR.tab,TR.query,now):boardRows(TR.station==='city'?(TR.cityIds||new Set()):TR.station,TR.tab)).filter(r=>r.pred>=now-90 && boardMatches(r,TR.query));
   const p=paginate(all, TR.page??1, BOARD_PAGE), rows=p.rows;
   if(!rows.length){ el.innerHTML = banner+`<div class="empty-note">${TR.mode==='loading'?'':stateIll(assetPaths.noDepartures)}${TR.query?`Brak pociągów dla „${esc(TR.query)}” do końca dnia.`:`Brak kolejnych ${TR.tab==='dep'?'odjazdów':'przyjazdów'} dzisiaj${TR.mode==='loading'?' (wczytywanie…)':''}.`}</div>`; }
   else el.innerHTML = banner + `<div class="board">` + rows.map(r=>{ const t=r.t; const changed = r.delay!=null && Math.abs(r.delay)>=1 && !r.cn;
@@ -7173,6 +7263,36 @@ function renderBoard(){
       <span class="br-st">${trainDelayChip(r.delay, r.cn)}<small>${esc(TRAIN_STATUS[t.status]||'')}</small><button class="btn-ghost br-map" type="button" data-map="${esc(t.key)}"><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> Na mapie</button></span>
     </div>`; }).join('') + `</div>` + pagerHtml(p, false);
 }
+/* ---------- Linie kolejowe miasta: kierunki pociągów, które dziś odjeżdżają z jego stacji ---------- */
+function trainLines(ids, now=nowSec()){
+  const by=new Map();
+  for(const r of boardRows(ids,'dep')){
+    const key=r.t.to||'?'; let g=by.get(key);
+    if(!g){ g={to:key, count:0, next:null, cats:new Set(), via:new Map()}; by.set(key,g); }
+    g.count++; g.cats.add(r.t.cat||'POC');
+    if(r.pred>=now-60 && (g.next==null || r.pred<g.next)) g.next=r.pred;
+    for(const x of r.t.stops.slice(r.idx+1, -1)){ const n=railName(x.id); g.via.set(n,(g.via.get(n)||0)+1); }
+  }
+  return [...by.values()].map(g=>({to:g.to, count:g.count, next:g.next, cats:[...g.cats].sort(), via:[...g.via].sort((a,b)=>b[1]-a[1]).slice(0,3).map(([n])=>n)})).sort((a,b)=>b.count-a.count||a.to.localeCompare(b.to,'pl'));
+}
+function renderTrainLines(){
+  const el=document.getElementById('trLines'); if(!el) return;
+  if(CFG.trains===false){ el.innerHTML='<div class="empty-note">Pociągi są wyłączone w Ustawieniach.</div>'; return; }
+  if(!TR.trains.length){ el.innerHTML=searching(L2('Wczytuję rozkład pociągów…','Loading train timetable…')); return; }
+  const ids=TR.cityIds?.size?TR.cityIds:new Set([HOME_STATION_ID]);
+  const list=trainLines(ids);
+  if(!list.length){ el.innerHTML=`<div class="empty-note">${L2(`Dziś nie ma już odjazdów pociągów z miasta ${TCITY.name}.`,`No more trains leave ${TCITY.name} today.`)}</div>`; return; }
+  el.innerHTML=`<div class="trl-list">${list.map(l=>`<button type="button" class="trl-item" data-trl-to="${esc(l.to)}"><b>${esc(TCITY.name)} → ${esc(l.to)}</b>
+    <small>${l.count} ${L2(l.count===1?'pociąg dziś':l.count<5?'pociągi dziś':'pociągów dziś', l.count===1?'train today':'trains today')}${l.next!=null?` · ${L2('najbliższy','next')} ${fmtClock(l.next)}`:''}</small>
+    ${l.via.length?`<small>${L2('przez','via')} ${esc(l.via.join(', '))}</small>`:''}
+    <span class="trl-cats">${l.cats.map(c=>`<span class="tr-cat">${esc(c)}</span>`).join('')}</span></button>`).join('')}</div>`;
+}
+document.getElementById('trLines')?.addEventListener('click', e=>{
+  const b=e.target.closest('[data-trl-to]'); if(!b) return;
+  document.getElementById('trFrom').value=TCITY.name; document.getElementById('trTo').value=b.dataset.trlTo;
+  goPage('kolej','');
+  setTimeout(()=>document.getElementById('trRouteForm').requestSubmit(),30);
+});
 /* ---------- Połączenie skąd–dokąd i podpowiedzi stacji oraz miast ---------- */
 const ROUTE_PAGE=15;
 // Miasto to nazwa z co najmniej dwiema stacjami i własną stacją główną, dzięki czemu „Nowy” z „Nowego Targu” nim nie jest.
@@ -7255,9 +7375,9 @@ attachSuggest(document.getElementById('trSearch'), {local:railSuggestions, onPic
 document.getElementById('trainBoard').addEventListener('click', e=>{ const onMap=e.target.closest('[data-map]'); if(onMap){ openTrainMap(onMap.dataset.map); return; } const pg=e.target.closest('[data-page]'); if(pg){ TR.page=+pg.dataset.page; renderBoard(); return; } if(e.target.closest('[data-page-now]')){ TR.page=null; renderBoard(); return; } const b=e.target.closest('[data-train]'); if(b) openTrain(b.dataset.train); });
 document.getElementById('trStation').innerHTML = '<option value="all">Wszystkie stacje</option>' + RAIL_IDS.slice().sort((a,b)=>(b===82669)-(a===82669) || RAIL_ST[a][0].localeCompare(RAIL_ST[b][0],'pl')).map(id=>`<option value="${id}">${esc(RAIL_ST[id][0])}</option>`).join('');
 document.getElementById('trStation').value=String(TR.station);
-document.getElementById('trStation').addEventListener('change', e=>{ TR.station=e.target.value==='all'?'all':+e.target.value; TR.page=null; renderBoard(); });
+document.getElementById('trStation').addEventListener('change', e=>{ TR.station=['all','city'].includes(e.target.value)?e.target.value:+e.target.value; TR.page=null; renderBoard(); });
 document.getElementById('trSearch').addEventListener('input', e=>{ TR.query=e.target.value.trim(); TR.page=null; renderBoard(); });
-document.getElementById('trReset').addEventListener('click', ()=>{ clearTrainRoute(); TR.station=HOME_STATION_ID; TR.query=''; document.getElementById('trSearch').value=''; document.getElementById('trStation').value=String(HOME_STATION_ID); document.querySelector('[data-trtab="dep"]').click(); });
+document.getElementById('trReset').addEventListener('click', ()=>{ clearTrainRoute(); TR.query=''; document.getElementById('trSearch').value=''; if(!applyCity(TCITY.name)){ TR.station=HOME_STATION_ID; document.getElementById('trStation').value=String(HOME_STATION_ID); } document.querySelector('[data-trtab="dep"]').click(); });
 document.querySelectorAll('[data-trtab]').forEach(b=>b.addEventListener('click', ()=>{ TR.tab=b.dataset.trtab; TR.page=null; document.querySelectorAll('[data-trtab]').forEach(x=>x.classList.toggle('active', x===b)); renderBoard(); }));
 /* ---------- połączenia kolejowe (bezpośrednie) ---------- */
 function railStationNames(){
@@ -7488,7 +7608,7 @@ async function trainsTick(){
   }catch(e){
     console.warn('PLK', e); TR.err=e.message;
     if(!TR.trains.length || TR.mode!=='live'){ TR.mode='demo'; TR.trains=demoTrains(); TR.ts=nowSec(); }
-  }finally{ TR.busy=false; renderAlertsBtn(); renderBoard(); renderTrainRoute(); if(S.agency==='kolej'){ renderStats(); refreshStopList(); } if(S.plan) runPlan(false); if(trainModalEl.classList.contains('show')) renderTrain(true); }
+  }finally{ TR.busy=false; renderAlertsBtn(); renderBoard(); renderTrainRoute(); if(S.sub==='linie' && S.agency==='kolej') renderTrainLines(); if(S.agency==='kolej'){ renderStats(); refreshStopList(); } if(S.plan) runPlan(false); if(trainModalEl.classList.contains('show')) renderTrain(true); }
 }
 function trainsBoot(){
   if(!railStationsLoading) railStationsLoading=loadRailStations();
@@ -7543,6 +7663,7 @@ async function weatherTick(ask){
   if(CFG.weather===false) return;
   const spot=await weatherSpot(ask);
   WX.spot=spot; WX.noLoc=!spot;
+  autoCity(spot);
   let ok=false;
   if(spot){
     try{
