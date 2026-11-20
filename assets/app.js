@@ -1543,7 +1543,7 @@ function transitHead(agency, sub, city, tx){
     :[`Podmiejskie: ${city}`,'Połączenia do pobliskich miejscowości i okolic.'];
   const modes=tx?txModes(tx):L2('autobusy','buses');
   return sub==='rozklad'?[`Rozkład jazdy: ${city}`, tx?'Najbliższe odjazdy z wybranego przystanku, z opóźnieniami na żywo.':'Sprawdź rozkład według przystanku i linii.']
-    :sub==='linie'?[`Linie: ${city}`, tx?'Linie, które teraz kursują w mieście. Wybierz linię, by zobaczyć jej pojazdy na mapie.':'Wszystkie linie i ich pojazdy na mapie.']
+    :sub==='linie'?[`Linie: ${city}`, tx?'Wszystkie linie w mieście i ich pojazdy w trasie. Wybierz linię, by zobaczyć ją na mapie.':'Wszystkie linie i ich pojazdy na mapie.']
     :[`Komunikacja: ${city}`, `${modes[0].toUpperCase()+modes.slice(1)} — połączenia po mieście, rozkłady i pojazdy na mapie.`];
 }
 function setSubpage(sub){
@@ -3607,6 +3607,7 @@ function cityPanel(){
   if(CITY.el) return CITY.el;
   const el=document.createElement('section'); el.className='city-panel';
   el.innerHTML=`<div class="cp-head"><h4><i class="fa-solid fa-train-subway" aria-hidden="true"></i> <span class="cp-title">Komunikacja w mieście</span></h4>
+      <button type="button" class="cp-map-toggle" data-cp-map aria-expanded="true"><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> <span>Ukryj mapę</span></button>
       <label class="cp-live"><input type="checkbox" checked data-cp-live> Pojazdy na mapie</label><span class="cp-status" aria-live="polite"></span></div>
     <div class="cp-body">
       <div class="cp-map-wrap"><div class="cp-map"></div><div class="cp-legend">${[['metro','Metro'],['rail','Kolej'],['tram','Tramwaj'],['bus','Autobus'],['ferry','Prom']].map(([k,l])=>`<span><b class="cp-veh-l" style="background:${VCOLORS[k]}"><i class="fa-solid fa-${XMODE[k][0]}" aria-hidden="true"></i></b>${l}</span>`).join('')}<span><b class="cp-veh-l live" style="background:#888"><i class="fa-solid fa-bus" aria-hidden="true"></i></b>na żywo</span></div></div>
@@ -3630,7 +3631,8 @@ function cityPanel(){
   // Podpowiedzi adresów w tym mieście (z tolerancją literówek); wybrana podpowiedź to od razu punkt na mapie.
   for(const which of ['from','to']){ const input=el.querySelector('.cp-form').elements[which]; attachSuggest(input, {streets:true, local:()=>[], near:()=>{ const c=CITY.want?.centre; return c?.lat!=null?[c.lat,c.lon]:null; }, onPick:it=>{ if(it.point){ CITY.ends[which]={at:it.point, label:it.label}; drawEnds(); } }}); }
   el.addEventListener('click', e=>{
-    const pk=e.target.closest('[data-cp-pick]'); if(pk){ CITY.pick=pk.dataset.cpPick; el.classList.add('picking'); setCityStatus(`Kliknij na mapie miejsce „${CITY.pick==='from'?'Skąd':'Dokąd'}”.`); return; }
+    if(e.target.closest('[data-cp-map]')){ setCityMap(el.classList.contains('map-hidden')); return; }
+    const pk=e.target.closest('[data-cp-pick]'); if(pk){ setCityMap(true); CITY.pick=pk.dataset.cpPick; el.classList.add('picking'); setCityStatus(`Kliknij na mapie miejsce „${CITY.pick==='from'?'Skąd':'Dokąd'}”.`); return; }
     if(e.target.closest('[data-cp-swap]')){ const f=el.querySelector('.cp-form'), a=f.from.value; f.from.value=f.to.value; f.to.value=a; [CITY.ends.from,CITY.ends.to]=[CITY.ends.to,CITY.ends.from]; drawEnds(); return; }
     const sv=e.target.closest('[data-cp-save]'); if(sv){ saveLocalTrip(+sv.dataset.cpSave); return; }
     if(e.target.closest('[data-cp-save-walk]')){ saveLocalTrip('walk'); return; }
@@ -3638,6 +3640,18 @@ function cityPanel(){
   });
   return el;
 }
+// Na stronach komunikacji miejskiej mapa jest domyślnie schowana (planer i wyniki są ważniejsze); otwiera ją przycisk
+// „Pokaż mapę”, wskazanie punktu na mapie albo wybór linii. W planie podróży mapa jest widoczna jak wcześniej.
+function setCityMap(on){
+  const el=CITY.el; if(!el) return;
+  el.classList.toggle('map-hidden', !on);
+  if(CTX.on && el.closest('#cityTxPage')) CITY.txMapOpen=on;
+  const b=el.querySelector('[data-cp-map]'); b.setAttribute('aria-expanded', String(on));
+  b.querySelector('span').textContent=on?'Ukryj mapę':'Pokaż mapę';
+  if(!on){ setCityStatus(''); return; }
+  setTimeout(()=>{ if(!CITY.map) return; CITY.map.invalidateSize(); if(CITY.route) CITY.map.fitBounds(CITY.route.getBounds(),{padding:[30,30], maxZoom:16}); loadVehicles(true); },0);
+}
+const cityMapShown=()=>!!CITY.map && !CITY.el?.classList.contains('map-hidden');
 function setCityStatus(text){ const s=CITY.el?.querySelector('.cp-status'); if(s) s.textContent=text; }
 function localNow(zone){ try{ return new Date().toLocaleString('sv-SE',{timeZone:zone}).slice(0,16).replace(' ','T'); }catch{ return ''; } }
 // Po każdym odświeżeniu planu panel trafia z powrotem do kroku 4; poza nim mapa przestaje pytać o pojazdy.
@@ -3663,6 +3677,7 @@ function mountCity(slot=document.querySelector('.city-slot')){
     if(w.airport) setEnd('from',[w.airport.lat,w.airport.lon],`Lotnisko ${w.code}`,true);
     else if(w.home) setEnd('from',[w.home.lat,w.home.lon],w.home.label,true);
   } else if(!CITY.code) CITY.map.setView([w.centre?.lat||RZ_CENTER[0], w.centre?.lon||RZ_CENTER[1]],13);
+  setCityMap(slot.closest('#cityTxPage') ? !!CITY.txMapOpen : true);
   setTimeout(()=>CITY.map.invalidateSize(),0);
   startVehicles();
 }
@@ -3681,7 +3696,7 @@ function drawShape(shape, fit=true){
   for(const s of shape){ const walk=s.kind==='walk';
     L.polyline(s.points,{color:'#fff', weight:walk?5:9, opacity:.9}).addTo(g);
     L.polyline(s.points,{color:walk?'#555':(s.color||VCOLORS[s.kind]||'#333'), weight:walk?3:6, dashArray:walk?'4 7':null, opacity:1}).addTo(g); }
-  CITY.route=g.addTo(CITY.map); if(fit) CITY.map.fitBounds(g.getBounds(),{padding:[30,30], maxZoom:16});
+  CITY.route=g.addTo(CITY.map); if(fit && cityMapShown()) CITY.map.fitBounds(g.getBounds(),{padding:[30,30], maxZoom:16});
 }
 async function placeOf(which){
   const f=CITY.el.querySelector('.cp-form'), text=f[which].value.trim(), known=CITY.ends[which];
@@ -3735,7 +3750,7 @@ function startVehicles(){ if(!CITY.timer){ CITY.timer=setInterval(()=>loadVehicl
 function stopVehicles(){ clearInterval(CITY.timer); clearInterval(CITY.anim); CITY.timer=CITY.anim=null; }
 function clearVehicles(){ CITY.vLayer?.clearLayers(); CITY.vehicles=[]; setCityStatus(''); }
 async function loadVehicles(force){
-  if(!CITY.map || !CITY.live || !CITY.el?.isConnected || !CITY.el.offsetParent || document.hidden || CITY.fetching) return;
+  if(!CITY.map || !CITY.live || !CITY.el?.isConnected || !CITY.map.getContainer().offsetParent || document.hidden || CITY.fetching) return;
   const z=CITY.map.getZoom(), b=CITY.map.getBounds();
   if(z<12){ clearVehicles(); setCityStatus('Przybliż mapę, by zobaczyć pojazdy.'); return; }
   const q={min:`${b.getSouth().toFixed(4)},${b.getWest().toFixed(4)}`, max:`${b.getNorth().toFixed(4)},${b.getEast().toFixed(4)}`, zoom:Math.round(z)};
@@ -3810,7 +3825,7 @@ function syncCityTx(){
   }
   if(S.sub==='linie'){
     page.innerHTML=`<section class="ctx">${head}<div id="ctxLines" class="ctx-lines"></div>
-      <small class="cp-src">${L2('Linie, które kursują w ciągu najbliższej godziny w obrębie miasta (Transitous, otwarte dane GTFS). Liczba to pojazdy w trasie.','Lines running within the next hour in the city (Transitous, open GTFS data). The number is vehicles on the way.')}</small></section>`;
+      <small class="cp-src">${L2('Linie miasta zebrane z otwartych rozkładów GTFS (Transitous) i zapisane w bazie; odświeżane kilka razy dziennie. Liczba to pojazdy w trasie w najbliższych 30 minutach.','City lines collected from open GTFS timetables (Transitous) and stored in the database; refreshed several times a day. The number is vehicles on the way in the next 30 minutes.')}</small></section>`;
     renderCtxLines(); loadCtxLines();
     return;
   }
@@ -3869,7 +3884,7 @@ document.getElementById('cityTxPage')?.addEventListener('click', e=>{
   if(b){ const st=CTX.stops.find(x=>x.id===b.dataset.ctxStop); if(!st) return; CTX.stop=st; store('onward.citystop.'+CTX.city, st); renderCtxStops(); loadCtxBoard(); return; }
   if(e.target.closest('[data-ctx-refresh]')) loadCtxBoard();
   const ln=e.target.closest('[data-ctx-line]');
-  if(ln){ CITY.lineFilter=ln.dataset.ctxLine; CITY.lastBox=''; goPage('ztm',''); return; }
+  if(ln){ CITY.lineFilter=ln.dataset.ctxLine; CITY.lastBox=''; CITY.txMapOpen=true; goPage('ztm',''); return; }
   if(e.target.closest('[data-ctx-unfilter]')){ CITY.lineFilter=''; CITY.lastBox=''; renderCtxFilter(); loadVehicles(true); }
 });
 document.getElementById('cityTxPage')?.addEventListener('change', e=>{
@@ -3893,16 +3908,20 @@ async function loadCtxLines(){
   const d=await fetch('/api/transit/lines?'+new URLSearchParams({city})).then(r=>r.json()).catch(()=>null);
   if(CTX.city!==city) return;
   if(!d || d.error){ CTX.linesErr=d?.error||L2('Lista linii jest chwilowo niedostępna.','The line list is unavailable right now.'); renderCtxLines(); return; }
-  CTX.lines={city, at:Date.now(), list:d.lines||[]}; CTX.linesErr=''; renderCtxLines();
+  CTX.lines={city, at:Date.now(), list:d.lines||[], running:d.running!==false}; CTX.linesErr=''; renderCtxLines();
+  // Zapisana lista bez świeżych pojazdów: serwer właśnie ją odświeża, więc pytamy jeszcze raz za chwilę.
+  if(d.running===false && !CTX.linesRetry){ CTX.linesRetry=setTimeout(()=>{ CTX.linesRetry=null; if(CTX.city===city && CTX.sub==='linie'){ CTX.lines.at=0; loadCtxLines(); } }, 20000); }
 }
 function renderCtxLines(){
   const el=document.getElementById('ctxLines'); if(!el) return;
   if(CTX.linesErr && !CTX.lines){ el.innerHTML=`<div class="empty-note">${esc(CTX.linesErr)}</div>`; return; }
   if(!CTX.lines || CTX.lines.city!==CTX.city){ el.innerHTML=searching(L2('Wczytuję linie…','Loading lines…')); return; }
-  const list=CTX.lines.list; if(!list.length){ el.innerHTML=`<div class="empty-note">${L2('Teraz nie kursuje żadna linia (np. w nocy).','No line is running right now (e.g. at night).')}</div>`; return; }
+  const list=CTX.lines.list, running=CTX.lines.running; if(!list.length){ el.innerHTML=`<div class="empty-note">${L2('Teraz nie kursuje żadna linia (np. w nocy).','No line is running right now (e.g. at night).')}</div>`; return; }
+  // Lista linii miasta jest zapisana w bazie; liczba pojazdów pochodzi z ostatniego sprawdzenia (gdy jest świeże).
+  const note=l=>!running?'':l.vehicles?`${l.vehicles} ${L2('w trasie','on the way')}${l.late?` · <span class="txt-red">${l.late} ${L2('spóźn.','late')}</span>`:''}`:L2('teraz nie kursuje','not running now');
   const KIND=[['metro','Metro','Metro'],['tram','Tramwaje','Trams'],['rail','Kolej miejska','City rail'],['bus','Autobusy','Buses'],['ferry','Promy','Ferries']];
   el.innerHTML=KIND.map(([k,pl,en])=>{ const ls=list.filter(l=>(KIND.some(x=>x[0]===l.kind)?l.kind:'bus')===k); if(!ls.length) return '';
-    return `<div><h4>${L2(pl,en)} · ${ls.length}</h4><div class="lg">${ls.map(l=>`<button type="button" class="ctx-line" data-ctx-line="${esc(l.line)}" title="${esc(L2('Pokaż pojazdy tej linii na mapie','Show this line’s vehicles on the map'))}">${lineChip(l)}<small>${l.vehicles} ${L2('w trasie','on the way')}${l.late?` · <span class="txt-red">${l.late} ${L2('spóźn.','late')}</span>`:''}</small></button>`).join('')}</div></div>`; }).join('');
+    return `<div><h4>${L2(pl,en)} · ${ls.length}</h4><div class="lg">${ls.map(l=>`<button type="button" class="ctx-line${running&&!l.vehicles?' idle':''}" data-ctx-line="${esc(l.line)}" title="${esc(L2('Pokaż pojazdy tej linii na mapie','Show this line’s vehicles on the map'))}">${lineChip(l)}${note(l)?`<small>${note(l)}</small>`:''}</button>`).join('')}</div></div>`; }).join('');
 }
 
 function stageTime(P){

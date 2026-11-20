@@ -204,7 +204,7 @@ test("every Polish city has a centre, a search radius and what runs there", () =
   for (const name of ["Warszawa", "Kraków", "Wrocław", "Gdańsk", "Poznań", "Łódź"]) assert.ok(publicCities().some((c) => c.name === name), name);
 });
 
-test("lines of a Polish city come from the vehicles on their way across the city, counted once per trip", async () => {
+test("lines of a Polish city come from the vehicles on their way, asked tile by tile and counted once per trip", async () => {
   const asked = [];
   const t0 = Date.parse("2026-11-20T11:00:00Z");
   const seg = (trip, line, mode, extra = {}) => ({ trips: [{ tripId: trip, routeShortName: line }], mode, routeColor: "", from: { name: "A" }, to: { name: "B" }, departure: "2026-11-20T11:05:00Z", arrival: "2026-11-20T11:07:00Z", polyline: "", ...extra });
@@ -215,11 +215,54 @@ test("lines of a Polish city come from the vehicles on their way across the city
   const city = createCityTransit({ transitous, now: () => t0 });
   const r = await city.lines({ city: "wroclaw" });
   assert.deepEqual(r.lines.map((l) => [l.line, l.kind, l.vehicles, l.late]), [["2", "bus", 1, 0], ["10", "tram", 2, 1]]);
+  assert.ok(asked.length > 1); // the same trips seen from several tiles are still counted once
   assert.equal(asked[0].startTime, "2026-11-20T11:00:00.000Z");
   assert.equal(asked[0].endTime, "2026-11-20T11:30:00.000Z");
-  const [s, w] = asked[0].min.split(",").map(Number), [n, e] = asked[0].max.split(",").map(Number);
-  assert.ok(s < 51.1079 && n > 51.1079 && w < 17.0385 && e > 17.0385);
+  const boxes = asked.map((q) => [...q.min.split(",").map(Number), ...q.max.split(",").map(Number)]);
+  for (const [s, w, n, e] of boxes) assert.ok(n - s <= 0.16 + 1e-9 && e - w <= 0.24 + 1e-9);
+  assert.ok(boxes.some(([s, w, n, e]) => s < 51.1079 && n > 51.1079 && w < 17.0385 && e > 17.0385));
+  const before = asked.length;
   await city.lines({ city: "wroclaw" });
-  assert.equal(asked.length, 1); // kept for 5 minutes
+  assert.equal(asked.length, before); // kept for 5 minutes
   await assert.rejects(city.lines({ city: "nigdzie" }), { status: 400 });
+});
+
+test("a box Transitous refuses with HTTP 422 is asked again in quarters, and Kraków lines load", async () => {
+  const asked = [];
+  const big = (q) => { const [s, w] = q.min.split(",").map(Number), [n, e] = q.max.split(",").map(Number); return n - s > 0.1; };
+  const transitous = { mapTrips: async (q) => {
+    asked.push(q);
+    if (big(q)) throw Object.assign(new Error("Transitous zwrócił HTTP 422."), { status: 502, upstream: 422 });
+    return [{ trips: [{ tripId: `t${asked.length}`, routeShortName: "52" }], mode: "TRAM", departure: "2026-11-20T11:05:00Z" }];
+  } };
+  const city = createCityTransit({ transitous, now: () => Date.parse("2026-11-20T11:00:00Z") });
+  const r = await city.lines({ city: "krakow" });
+  assert.equal(r.lines.length, 1);
+  assert.equal(r.lines[0].line, "52");
+  assert.ok(r.lines[0].vehicles > 1);
+  assert.ok(asked.some((q) => !big(q)));
+});
+
+test("every line seen is stored, shown with the stored list at once and kept when it is not running", async () => {
+  const saved = new Map();
+  const store = { read: async (key) => saved.get(key) || null, save: async (key, { body }) => { saved.set(key, body); } };
+  let t = Date.parse("2026-11-20T11:00:00Z"), running = ["4", "52"];
+  const transitous = { mapTrips: async () => running.map((line) => ({ trips: [{ tripId: `x${line}`, routeShortName: line }], mode: "TRAM", departure: "2026-11-20T11:05:00Z" })) };
+  const first = createCityTransit({ transitous, now: () => t, store, log: { warn() {} } });
+  assert.equal(await first.refreshAllLines({ pauseMs: 0, cities: [{ id: "krakow", centre: [50.0614, 19.9366], km: 25 }] }), 1);
+  assert.ok(saved.has("city-lines:krakow"));
+  // A new server reads the stored list: no question to Transitous is waited for.
+  running = ["52"];
+  t += 2 * 3600 * 1000;
+  let asked = 0;
+  const slow = { mapTrips: async (q) => { asked++; return transitous.mapTrips(q); } };
+  const second = createCityTransit({ transitous: slow, now: () => t, store, log: { warn() {} } });
+  const r = await second.lines({ city: "krakow" });
+  assert.deepEqual(r.lines.map((l) => [l.line, l.vehicles]), [["4", 0], ["52", 0]]);
+  assert.equal(r.running, false);
+  assert.ok(asked > 0); // and a refresh was started in the background
+  await new Promise((resolve) => setImmediate(resolve));
+  const again = await second.lines({ city: "krakow" });
+  assert.deepEqual(again.lines.map((l) => [l.line, l.vehicles]), [["4", 0], ["52", 1]]);
+  assert.equal(again.running, true);
 });

@@ -1098,7 +1098,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
   const eurRate = keep.wrap("fx", 12 * 3600000, async (code) => { const v = await fareRates(10000, code); return v ? v / 10000 : null; }, (code) => [code]);
   const transitClient = createTransitous({ fetchSource });
   const airportTransfers = transfers || createAirportTransfers({ transitous: transitClient, toPln: fareRates, geocode, snapshots, drive });
-  const city = cityTransit || createCityTransit({ transitous: transitClient });
+  const city = cityTransit || createCityTransit({ transitous: transitClient, store: snapshots });
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
@@ -1596,6 +1596,12 @@ async function main() {
   const alerts = createPriceAlerts({ db: createAlertDatabase(pool), flights, collector, sendEmail: (message) => auth.sendNotice(message) });
   alerts.start();
   const transitous = createTransitous();
+  // Lines of every city with city transport are collected into the database a minute after start and every 6 hours.
+  const cityTransit = createCityTransit({ transitous, store: snapshots });
+  const sweepLines = () => cityTransit.refreshAllLines().catch((error) => console.warn("City lines:", error.message));
+  const linesStart = setTimeout(sweepLines, 60 * 1000);
+  const linesTimer = setInterval(sweepLines, 6 * 3600 * 1000);
+  linesStart.unref?.(); linesTimer.unref?.();
   const transfers = createAirportTransfers({
     snapshots,
     transitous,
@@ -1615,7 +1621,7 @@ async function main() {
   const server = createServer({
     auth,
     transfers,
-    cityTransit: createCityTransit({ transitous }),
+    cityTransit,
     timetables,
     snapshots,
     plk,
@@ -1650,6 +1656,7 @@ async function main() {
     live.stop();
     flights.stop();
     alerts.stop();
+    clearTimeout(linesStart); clearInterval(linesTimer);
     await pool.close();
     process.exit(0);
   });
