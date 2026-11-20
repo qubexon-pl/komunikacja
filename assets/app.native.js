@@ -136,8 +136,16 @@
   /* ---------- GPS through the native permission prompt ---------- */
   if(P.Geolocation && navigator.geolocation){
     const Geo = P.Geolocation;
+    // Ask for the permission explicitly first: some plugin versions fail getCurrentPosition instead of prompting.
+    const granted = (st) => st && (st.location === 'granted' || st.coarseLocation === 'granted');
+    const allowed = async () => {
+      if(!Geo.checkPermissions) return;
+      const st = await Geo.checkPermissions();
+      if(granted(st)) return;
+      if(!granted(await Geo.requestPermissions())) throw new Error('Location permission denied');
+    };
     navigator.geolocation.getCurrentPosition = function(ok, fail, opts){
-      Geo.getCurrentPosition({ enableHighAccuracy: !!(opts && opts.enableHighAccuracy), timeout: (opts && opts.timeout) || 15000 })
+      allowed().then(() => Geo.getCurrentPosition({ enableHighAccuracy: !!(opts && opts.enableHighAccuracy), timeout: (opts && opts.timeout) || 15000, maximumAge: (opts && opts.maximumAge) || 0 }))
         .then(pos => ok({ coords: pos.coords, timestamp: pos.timestamp }))
         .catch(err => fail && fail({ code: /denied|permission/i.test(String(err && err.message)) ? 1 : 2, message: String(err && err.message || err) }));
     };

@@ -7502,27 +7502,36 @@ const WMO = {0:['Bezchmurnie','☀'],1:['Przeważnie pogodnie','🌤'],2:['Czę�
   66:['Marznący deszcz','🌧'],67:['Marznący deszcz','🌧'],71:['Słaby śnieg','🌨'],73:['Śnieg','🌨'],75:['Intensywny śnieg','❄'],77:['Ziarna śniegu','🌨'],
   80:['Przelotny deszcz','🌦'],81:['Przelotne opady','🌧'],82:['Silne przelotne opady','⛈'],85:['Przelotny śnieg','🌨'],86:['Silny przelotny śnieg','❄'],95:['Burza','⛈'],96:['Burza z gradem','⛈'],99:['Burza z gradem','⛈']};
 function wmo(c){ return WMO[c] || ['—','·']; }
-/* Pogoda tam, gdzie jestem: położenie z urządzenia (przeglądarka albo natywne GPS w aplikacji), zaokrąglone do ok. 1 km.
-   Bez zgody, bez GPS albo gdy serwis nie odpowie, widżet pokazuje Rzeszów, jak dotąd. Odmowę zapamiętujemy, żeby nie pytać
-   przy każdym otwarciu; przycisk w widżecie pozwala spróbować ponownie. */
-const WX_SPOT='onward.wxSpot', WX_NOLOC='onward.wxNoLoc2'; // nowy klucz: stara, błędna odmowa z WebView nie blokuje lokalizacji
-async function weatherSpot(ask){
-  if(!navigator.geolocation) return null;
-  if(!ask && !ONW.native && store(WX_NOLOC)) return null; // w aplikacji system sam pamięta odmowę i od razu ją zwraca
-  // W aplikacji Android/iOS zgodę daje natywne okno systemu, a WebView zgłasza tu „denied”, nawet gdy GPS jest dozwolony;
-  // pytamy więc wtedy od razu urządzenie. Gdy ktoś sam stuknie „Pokaż dla mojej lokalizacji”, też pytamy wprost.
-  if(!ask && !ONW.native){ try{ const st=await navigator.permissions?.query({name:'geolocation'}); if(st?.state==='denied'){ store(WX_NOLOC,true); return null; } }catch(e){} }
+/* Pogoda tam, gdzie jestem: położenie z urządzenia (przeglądarka albo natywne GPS w aplikacji), zaokrąglone do ok. 1 km,
+   albo miejscowość wybrana ręcznie w widżecie. Bez zgody, bez GPS albo gdy serwis nie odpowie, widżet pokazuje Rzeszów
+   i mówi dlaczego. Odmowę zapamiętujemy, żeby nie pytać przy każdym otwarciu; przycisk pozwala spróbować ponownie. */
+const WX_SPOT='onward.wxSpot', WX_NOLOC='onward.wxNoLoc2', WX_PICK='onward.wxPick';
+// Jedno zapytanie o położenie; odpowiada {spot} albo {why:'denied'|'unavailable'}.
+function askPosition(opts){
   return new Promise(res=>{
     try{
-      navigator.geolocation.getCurrentPosition(p=>{
-        const spot={lat:+p.coords.latitude.toFixed(2), lon:+p.coords.longitude.toFixed(2)};
-        store(WX_SPOT, spot); store(WX_NOLOC, false); res(spot);
-      }, e=>{
-        if(e?.code===1){ store(WX_NOLOC,true); store(WX_SPOT,null); res(null); }
-        else res(store(WX_SPOT)||null); // GPS chwilowo milczy: ostatnie znane miejsce
-      }, {enableHighAccuracy:false, timeout:10000, maximumAge:15*60*1000});
-    }catch(e){ res(null); }
+      navigator.geolocation.getCurrentPosition(
+        p=>res({spot:{lat:+p.coords.latitude.toFixed(2), lon:+p.coords.longitude.toFixed(2)}}),
+        e=>res({why:e?.code===1?'denied':'unavailable', msg:e?.message||''}), opts);
+    }catch(e){ res({why:'unavailable', msg:String(e?.message||e)}); }
   });
+}
+async function weatherSpot(ask){
+  WX.why=null;
+  const pick=store(WX_PICK);
+  if(!ask && pick && Number.isFinite(pick.lat)) return {...pick, picked:true};
+  if(!navigator.geolocation){ WX.why='unsupported'; return null; }
+  if(!ask && !ONW.native && store(WX_NOLOC)){ WX.why='denied'; return null; } // w aplikacji system sam pamięta odmowę
+  // W aplikacji WebView zgłasza tu „denied”, nawet gdy GPS jest dozwolony, więc pytamy wtedy od razu urządzenie.
+  if(!ask && !ONW.native){ try{ const st=await navigator.permissions?.query({name:'geolocation'}); if(st?.state==='denied'){ store(WX_NOLOC,true); WX.why='denied'; return null; } }catch(e){} }
+  let r=await askPosition({enableHighAccuracy:false, timeout:12000, maximumAge:15*60*1000});
+  // Samo przybliżone położenie (sieć) bywa niedostępne, np. w telefonie bez Wi-Fi: druga próba przez GPS.
+  if(r.why==='unavailable') r=await askPosition({enableHighAccuracy:true, timeout:20000, maximumAge:15*60*1000});
+  if(r.spot){ store(WX_SPOT, r.spot); store(WX_NOLOC, false); if(ask) store(WX_PICK, null); return r.spot; }
+  console.warn('Lokalizacja dla pogody:', r.why, r.msg);
+  WX.why=r.why;
+  if(r.why==='denied'){ store(WX_NOLOC,true); store(WX_SPOT,null); return null; }
+  return store(WX_SPOT)||null; // GPS chwilowo milczy: ostatnie znane miejsce
 }
 async function weatherTick(ask){
   if(CFG.weather===false) return;
@@ -7533,6 +7542,7 @@ async function weatherTick(ask){
     try{
       const buf=await fetchTimeout('/api/weather/now?'+new URLSearchParams({lat:spot.lat, lon:spot.lon}), 15000);
       const d=JSON.parse(new TextDecoder().decode(buf)); if(!d?.current) throw new Error(d?.error||'błąd');
+      if(spot.picked && spot.name) d.place=spot.name;
       WX.data=d; WX.local=true; WX.err=null; ok=true;
     }catch(e){ console.warn('weather here',e); }
   }
@@ -7541,17 +7551,38 @@ async function weatherTick(ask){
     try{ const buf=await fetchTimeout('/api/live/weather', 15000); WX.data=JSON.parse(new TextDecoder().decode(buf)); if(WX.data.error) throw new Error(WX.data.reason||'błąd'); WX.local=false; WX.err=null; }
     catch(e){ WX.err='Brak danych pogodowych'; console.warn('weather',e); }
   }
+  WX.busy=false;
   renderAlertsBtn();
   renderWeather();
 }
 function weatherTitle(){
-  if(!WX.local) return esc('Pogoda w Rzeszowie')+(WX.noLoc&&WX.spot!==undefined?` <small class="wx-why">· ${esc(L2('brak lokalizacji','no location'))}</small>`:WX.hereFailed?` <small class="wx-why">· ${esc(L2('Twoja okolica chwilowo niedostępna','your area is unavailable right now'))}</small>`:'');
+  if(!WX.local) return esc('Pogoda w Rzeszowie')+(WX.hereFailed?` <small class="wx-why">· ${esc(L2('Twoja okolica chwilowo niedostępna','your area is unavailable right now'))}</small>`:'');
   const place=WX.data?.place;
   return place ? esc(L2('Pogoda: ','Weather: ')+place) : esc(L2('Pogoda w Twojej okolicy','Weather near you'));
 }
+// Dlaczego nie ma mojej okolicy: przy odmowie przycisk nic nie da, dopóki zgody nie zmieni się w ustawieniach.
+function weatherWhy(){
+  if(WX.why==='denied') return ONW.native
+    ? L2('Aplikacja nie ma dostępu do lokalizacji. Włącz go w Ustawieniach telefonu → Aplikacje → podavo.voyage → Uprawnienia → Lokalizacja albo wpisz miejscowość.','The app has no access to your location. Allow it in phone Settings → Apps → podavo.voyage → Permissions → Location, or type a town.')
+    : L2('Przeglądarka blokuje lokalizację dla tej strony. Zezwól na nią w ustawieniach strony (ikona obok adresu) albo wpisz miejscowość.','Your browser blocks location for this site. Allow it in the site settings (icon next to the address) or type a town.');
+  if(WX.why==='unavailable') return L2('Nie udało się ustalić położenia (włączona lokalizacja w telefonie?). Spróbuj ponownie albo wpisz miejscowość.','Could not find your position (is location turned on?). Try again or type a town.');
+  if(WX.why==='unsupported') return L2('To urządzenie nie podaje lokalizacji. Wpisz miejscowość.','This device does not share its location. Type a town.');
+  return '';
+}
 function weatherHere(){
+  if(WX.busy) return; WX.busy=true;
   const b=document.getElementById('wxHere'); if(b){ b.disabled=true; b.textContent=L2('Szukam lokalizacji…','Finding your location…'); }
   store(WX_NOLOC,false); weatherTick(true);
+}
+async function weatherPick(q){
+  q=String(q||'').trim(); if(!q) return;
+  const msg=document.getElementById('wxPickMsg'); if(msg) msg.textContent=L2('Szukam…','Searching…');
+  const r=await fetch('/api/geocode?'+new URLSearchParams({q})).then(x=>x.ok?x.json():null).catch(()=>null);
+  const place=r?.places?.find(p=>p.points?.length);
+  if(!place){ if(msg) msg.textContent=L2('Nie znaleziono tej miejscowości.','Town not found.'); return; }
+  const [lat,lon]=place.points[0];
+  store(WX_PICK, {lat:+lat.toFixed(2), lon:+lon.toFixed(2), name:place.label});
+  weatherTick(false);
 }
 /* tytuł w nagłówku: ostatnie słowo wyróżnione kolorem (po przetłumaczeniu całości) */
 function setHeroTitle(title){
@@ -7564,7 +7595,11 @@ function renderWeather(){
   const el=document.getElementById('wx'); if(!el) return;
   if(CFG.weather===false){ el.classList.add('d-none'); return; }
   el.classList.remove('d-none');
-  const here = WX.noLoc && navigator.geolocation ? `<button type="button" class="wx-here" id="wxHere"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> ${esc(L2('Pokaż dla mojej lokalizacji','Show for my location'))}</button>` : '';
+  const btn = navigator.geolocation ? `<button type="button" class="wx-here" id="wxHere"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> ${esc(L2('Pokaż dla mojej lokalizacji','Show for my location'))}</button>` : '';
+  const why = weatherWhy();
+  const here = WX.spot?.picked ? btn
+    : WX.noLoc ? `${why?`<div class="wx-why-text">${esc(why)}</div>`:''}${btn}<form class="wx-pick" id="wxPick"><input type="text" name="q" enterkeyhint="search" autocomplete="off" aria-label="${esc(L2('Miejscowość','Town'))}" placeholder="${esc(L2('np. Tyczyn','e.g. Tyczyn'))}"><button type="submit">${esc(L2('Pokaż','Show'))}</button></form><small class="wx-pick-msg" id="wxPickMsg"></small>`
+    : '';
   const d=WX.data; if(!d||!d.current){ el.innerHTML=`<div class="cd-label">${WX.spot===undefined?esc(L2('Pogoda','Weather')):weatherTitle()}</div><div class="wx-err">${WX.err?esc(WX.err):'wczytywanie…'}</div>${here}`; return; }
   const c=d.current; const [desc,ico]=wmo(c.weather_code);
   const h=d.hourly||{}; const hrs=(h.time||[]).map((t,i)=>({t, temp:h.temperature_2m[i], pp:h.precipitation_probability?h.precipitation_probability[i]:null, pr:h.precipitation?h.precipitation[i]:0, code:h.weather_code?h.weather_code[i]:null})).slice(1,5);
@@ -7579,6 +7614,7 @@ function renderWeather(){
     <div class="wx-tip ${hard?'hard':wet?'wet':''}">${tip}</div>${here}`;
 }
 document.getElementById('wx')?.addEventListener('click', e=>{ if(e.target.closest('#wxHere')) weatherHere(); });
+document.getElementById('wx')?.addEventListener('submit', e=>{ if(e.target.id!=='wxPick') return; e.preventDefault(); weatherPick(e.target.q.value); });
 function weatherBoot(){ clearInterval(WX.timer); renderWeather(); if(CFG.weather===false) return; weatherTick(); WX.timer=setInterval(()=>{ if(!document.hidden) weatherTick(); }, 45*60*1000); }
 
 /* ============================================================

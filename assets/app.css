@@ -3090,6 +3090,12 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 .tp-photos.compact .tp-photos-foot{margin-top:8px; gap:6px}
 .tp-photos.compact .tp-cloud-switch{padding:8px 10px}
 .wx .cd-label .wx-why{font-size:.8em; font-weight:400; opacity:.8; text-transform:none; letter-spacing:0}
+.wx-why-text{margin-top:8px; font-size:.75rem; line-height:1.35; color:rgba(255,255,255,.88)}
+.wx-pick{display:flex; gap:6px; margin-top:8px; max-width:320px}
+.wx-pick input{flex:1; min-width:0; min-height:36px; padding:6px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.45); background:rgba(255,255,255,.1); color:#fff; font-size:16px}
+.wx-pick input::placeholder{color:rgba(255,255,255,.65)}
+.wx-pick button{min-height:36px; padding:6px 14px; border-radius:999px; border:0; background:#fff; color:#173B70; font-weight:600; font-size:.8rem}
+.wx-pick-msg{display:block; margin-top:4px; font-size:.72rem; color:rgba(255,255,255,.8)}
 
 /* ---- mapy na telefonie: jeden palec przewija stronę, dwa przesuwają mapę ---- */
 .two-finger-hint{position:absolute; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center; background:rgba(13,33,64,.55); color:#fff; font-weight:600; font-size:1rem; pointer-events:none; opacity:0; transition:opacity .25s}
