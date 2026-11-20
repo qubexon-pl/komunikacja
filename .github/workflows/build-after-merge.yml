@@ -56,7 +56,7 @@ jobs:
           rm -rf node_modules
           npm ci --omit=dev
           mkdir -p package
-          cp -r src assets data database index.html login.html package.json package-lock.json node_modules package/
+          cp -r src assets data database index.html login.html welcome.html package.json package-lock.json node_modules package/
           cd package
           # The packaged server must load all its modules (a missing one crashes it and Azure answers 503).
           node -e "require('./src/server.js')"

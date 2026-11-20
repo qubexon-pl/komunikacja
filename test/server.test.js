@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const zlib = require("node:zlib");
 const { once } = require("node:events");
 const test = require("node:test");
@@ -807,6 +809,9 @@ test("visitors who are not signed in start on the welcome page, signed-in users 
   const welcome = await guest.text();
   assert.match(welcome, /<title>Witaj · podavo\.voyage<\/title>/);
   assert.match(welcome, /href="\/plan\?tour=1"/);
+  // Both big choices lead to the login page, which then opens the chosen page.
+  assert.match(welcome, /data-role="plan"[^>]*href="\/login\?returnTo=%2Fplan"/);
+  assert.match(welcome, /data-role="explore"[^>]*href="\/login\?returnTo=%2Fdestinations"/);
   const signedIn = await fetch(`${baseUrl}/`, { headers: { cookie: "rzbus_session=test-session" } });
   assert.match(await signedIn.text(), /<title>Zaplanuj podróż · podavo\.voyage<\/title>/);
   const direct = await fetch(`${baseUrl}/welcome`, { headers: { cookie: "rzbus_session=test-session" } });
@@ -814,6 +819,28 @@ test("visitors who are not signed in start on the welcome page, signed-in users 
   assert.equal((await fetch(`${baseUrl}/plan`)).status, 200);
   assert.equal((await fetch(`${baseUrl}/assets/app.welcome.css`)).status, 200);
   assert.equal((await fetch(`${baseUrl}/assets/app.tour.js`)).status, 200);
+});
+
+test("the Azure deploy package carries every page the server serves", () => {
+  // welcome.html was once missing from the zip, so / answered {"error":"Not found."} on podavo-voyage.azurewebsites.net.
+  const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "build-after-merge.yml"), "utf8");
+  const copy = workflow.split("\n").find((line) => /^\s*cp -r src /.test(line));
+  assert.ok(copy, "package step copies the server files");
+  for (const page of ["index.html", "login.html", "welcome.html"]) assert.ok(copy.split(/\s+/).includes(page), `${page} is in the deploy zip`);
+});
+
+test("without welcome.html the site root shows the app instead of a 404", async (t) => {
+  const os = require("node:os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "voyage-root-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, "index.html"), "<title>app</title>");
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, staticRoot: root });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => server.close());
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/`);
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /<title>app<\/title>/);
 });
 
 test("the weather where the person is has its own public route and checks the place", async (t) => {
