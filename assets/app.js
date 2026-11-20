@@ -1305,9 +1305,11 @@ const pageHash=()=>OLD_HASH[location.hash]||location.hash;
 const FAVF={kind:'all'};
 // Moje podróże (/my-trips) i strona jednej zapisanej podróży (/trip?id=…).
 const TRIPV={id:'', city:false, map:false};
+// Moje podróże mają dwie zakładki: nadchodzące (domyślnie) i archiwum minionych (/my-trips#archive).
+const MYT={tab:'upcoming'};
 function pageFromLocation(){
   if(location.pathname==='/destinations') return {view:'podroz', sub:'kierunki', kind:'all'};
-  if(location.pathname==='/my-trips') return {view:'podroz', sub:'moje', kind:'all'};
+  if(location.pathname==='/my-trips'){ MYT.tab=pageHash()==='#archive'?'archive':'upcoming'; return {view:'podroz', sub:'moje', kind:'all'}; }
   if(location.pathname==='/trip'){ TRIPV.id=new URLSearchParams(location.search).get('id')||''; return {view:'podroz', sub:'trip', kind:'all'}; }
   if(location.pathname==='/favourites'){
     const kind=Object.keys(FAV_HASH).find(k=>'#'+FAV_HASH[k]===pageHash())||'all';
@@ -1319,7 +1321,7 @@ function pageFromLocation(){
 function pageUrl(view, sub, kind){
   if(sub==='ulubione') return '/favourites'+(kind&&kind!=='all'?'#'+FAV_HASH[kind]:'');
   if(sub==='kierunki') return '/destinations';
-  if(sub==='moje') return '/my-trips';
+  if(sub==='moje') return '/my-trips'+(MYT.tab==='archive'?'#archive':'');
   if(sub==='trip') return '/trip?id='+encodeURIComponent(TRIPV.id);
   return VIEWS[view].path+(sub==='rozklad'?'#timetable':'');
 }
@@ -1476,7 +1478,7 @@ function setSubpage(sub){
   if(sub==='rozklad'){ title=S.agency==='kolej'?'Rozkład pociągów':'Rozkład jazdy'; lead=S.agency==='kolej'?'Odjazdy i przyjazdy na wybranej stacji.':'Sprawdź rozkład według przystanku i linii.'; }
   if(sub==='ulubione'){ title=FAV_TITLES[FAVF.kind]; lead='Zapisane trasy, przystanki, stacje i podróże.'; }
   if(sub==='kierunki'){ title='Sprawdź kierunki'; lead=EXPLORE.summary||'Sprawdź, dokąd polecisz z polskich lotnisk.'; }
-  if(sub==='moje'){ title='Moje podróże'; lead='Twoje zaplanowane podróże w jednym miejscu.'; }
+  if(sub==='moje'){ title='Moje podróże'; lead=MYT.tab==='archive'?'Archiwum: Twoje minione podróże, ich plany i zdjęcia.':'Twoje zaplanowane podróże w jednym miejscu.'; }
   if(sub==='trip'){ const t=findTrip(TRIPV.id); title='Szczegóły podróży'; lead=t?tripLead(t):'Twoja podróż krok po kroku.'; }
   setHeroTitle(title);
   document.getElementById('heroLead').textContent=lead;
@@ -1763,11 +1765,11 @@ document.querySelectorAll('.brand, .view-tab[data-view="podroz"]').forEach(a=>a.
 }));
 document.getElementById('myTripsLink').addEventListener('click', e=>{
   if(e.ctrlKey||e.metaKey||e.shiftKey) return;
-  e.preventDefault(); goPage('podroz', 'moje');
+  e.preventDefault(); MYT.tab='upcoming'; goPage('podroz', 'moje');
 });
 document.addEventListener('click', e=>{
   const go=e.target.closest('[data-go-mytrips]'); if(!go || e.ctrlKey||e.metaKey||e.shiftKey) return;
-  e.preventDefault(); goPage('podroz','moje');
+  e.preventDefault(); MYT.tab=go.dataset.goMytrips==='archive'?'archive':'upcoming'; goPage('podroz','moje');
 });
 document.getElementById('favLink').addEventListener('click', e=>{
   if(e.ctrlKey||e.metaKey||e.shiftKey) return;
@@ -4550,6 +4552,7 @@ function saveFavorites(){
     try{ r=await fetch('/api/favorites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({favorites:FAV.items})}); }
     catch(e){ console.warn('Ulubione zapiszemy po powrocie połączenia', e); return false; }
     if(!r.ok) console.warn('Nie zapisano ulubionych', r.status);
+    else window.TripPhotos?.run(); // zdjęcia czekające, aż podróż trafi na konto, mogą już iść
     if(r.ok || (r.status>=400 && r.status<500 && r.status!==408 && r.status!==429)) store('onward.favsPending', false);
     return r.ok;
   });
@@ -4642,27 +4645,37 @@ const longDay=(d, opts)=>new Date(d+'T12:00:00Z').toLocaleDateString(document.do
 // Daty podróży bez samolotu: dzień wyjazdu i (jeśli jest) powrotu.
 function groundDates(f){ const m=f.trip?.multi?f.trip.legs:null; if(m?.length){ const last=m[m.length-1].arrDay||m[m.length-1].day; return {day:m[0].day, back:last>m[0].day?last:'', ground:true}; }
   const g=f.trip?.ground; if(!g?.out) return null; const last=(g.legs||[g.out]).at(-1)?.day||''; return {day:g.out.day, back:g.back?.day||g.roundBack||(last>g.out.day?last:''), ground:true, ...(g.roundBack&&!g.back?{noReturn:true}:{})}; }
-function tripTimeline(list, {booked=false}={}){
+// Koniec podróży (dzień powrotu albo wyjazdu); minione to te, które skończyły się przed dzisiaj.
+const tripEnd=f=>{ const fl=f.type==='trip'?(savedFlight(f)||groundDates(f)):null; return fl?.back||fl?.day||''; };
+const tripIsPast=f=>{ const end=tripEnd(f); return !!end && end<ymdOf(0); };
+// only: 'upcoming' (nadchodzące i bez dat), 'past' (archiwum, pogrupowane latami) albo nic (wszystko, minione na końcu).
+function tripTimeline(list, {booked=false, only=''}={}){
   const today=ymdOf(0), dated=[], rest=[];
   for(const f of list){ const fl=f.type==='trip'?(savedFlight(f)||groundDates(f)):null; (fl?.day?dated:rest).push({f, fl}); }
   const end=x=>x.fl.back||x.fl.day;
-  const upcoming=dated.filter(x=>end(x)>=today).sort((a,b)=>a.fl.day.localeCompare(b.fl.day));
-  const past=dated.filter(x=>end(x)<today).sort((a,b)=>b.fl.day.localeCompare(a.fl.day));
+  const upcoming=only==='past'?[]:dated.filter(x=>end(x)>=today).sort((a,b)=>a.fl.day.localeCompare(b.fl.day));
+  const past=only==='upcoming'?[]:dated.filter(x=>end(x)<today).sort((a,b)=>b.fl.day.localeCompare(a.fl.day));
   const between=(a,b)=>Math.round((Date.parse(b)-Date.parse(a))/86400000);
+  const archive=only==='past';
   const item=({f, fl})=>{
     const key=esc(favKey(f)), gone=end({fl})<today, now=fl.day<=today&&!gone, inDays=between(today, fl.day);
     const stay=fl.back?between(fl.day, fl.back)+1:0;
-    const when=gone?'minęła':now?'trwa':inDays===0?'dziś':`za ${inDays} ${inDays===1?'dzień':'dni'}`;
-    return `<div class="tl-item ${gone?'past':''}">
+    const when=gone?(archive?'':'minęła'):now?'trwa':inDays===0?'dziś':`za ${inDays} ${inDays===1?'dzień':'dni'}`;
+    const mine=SHARED.mine[f.tid]||[];
+    // „Udostępnij” i z kim podróż jest udostępniona idą osobnym wierszem pod nazwą, żeby nazwa miała całą szerokość karty.
+    const share=booked&&!f.shared&&f.tid&&FAV.user&&!gone?`<button type="button" class="tl-share" data-trip-share="${esc(f.tid)}" title="${L2('Udostępnij podróż znajomemu','Share the trip with a friend')}"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępnij','Share')}${mine.length?` <small>${mine.length}</small>`:''}</button>`:'';
+    const sharedText=f.shared?`<span class="tl-badge-shared"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępnił(a)','Shared by')}: ${esc(f.shared.ownerName)}</span>`
+      :mine.length?`<span class="tl-shared"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępniona','Shared with')}: ${esc(mine.join(', '))}</span>`:'';
+    return `<div class="tl-item ${gone&&!archive?'past':''}">
       <div class="tl-date"><b>${longDay(fl.day,{day:'numeric'})}</b><small>${longDay(fl.day,{month:'short'})}</small></div>
       <div class="tl-card">
-        <div class="tl-head"><span class="fav-ico"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i></span>
+        <div class="tl-head"><span class="fav-ico"><i class="fa-solid fa-${archive?'box-archive':'suitcase-rolling'}" aria-hidden="true"></i></span>
           <button class="fav-card-open" type="button" ${f.shared?`data-trip-open="${esc(tidOf(f))}"`:`data-fav-open="${key}"`}><b>${f.title?esc(f.title):`Podróż do ${esc(f.to)}`}</b>
             <small class="tl-dates"><span>${longDay(fl.day,{weekday:'short', day:'numeric', month:'long'})}</span>${fl.back?` – <span>${longDay(fl.back,{weekday:'short', day:'numeric', month:'long', year:'numeric'})}</span>`:` <span>${longDay(fl.day,{year:'numeric'})}</span>`}${stay?` · <span>${stay} ${stay===1?'dzień':'dni'}</span>`:''}</small></button>
-          <span class="tl-side">${f.shared||SHARED.mine[f.tid]?.length?`<span class="tl-badge-shared" title="${esc(f.shared?L2('Udostępnił(a)','Shared by')+': '+f.shared.ownerName:L2('Udostępniona','Shared with')+': '+SHARED.mine[f.tid].join(', '))}"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępniona','Shared')}</span>`:''}<span class="tl-when ${now?'now':''}">${when}</span>${booked&&!f.shared&&f.tid&&FAV.user&&!gone?`<button type="button" class="tl-share" data-trip-share="${esc(f.tid)}" title="${L2('Udostępnij podróż znajomemu','Share the trip with a friend')}"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępnij','Share')}${SHARED.mine[f.tid]?.length?` <small>${SHARED.mine[f.tid].length}</small>`:''}</button>`:''}</span>
+          ${when?`<span class="tl-when ${now?'now':''}">${when}</span>`:''}
           ${f.shared?'':`<button class="fav-card-remove" type="button" data-fav-remove="${key}" title="${booked?'Usuń podróż':'Usuń z ulubionych'}" aria-label="${booked?'Usuń podróż':'Usuń z ulubionych'}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`}</div>
-        ${f.shared?'':SHARED.mine[f.tid]?.length?`<span class="tl-shared"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępniona','Shared with')}: ${esc(SHARED.mine[f.tid].join(', '))}</span>`:''}
-        <div class="tl-sub"><span>${esc(routeText(f))}</span>${f.name?` · <span>${esc(f.name)}</span>`:''}${f.trip?.xfer?` · <span>${f.trip.xfer.skip?'odbiór z lotniska':esc(f.trip.xfer.name)}</span>`:''}${fl.noReturn?` · <span class="tl-noreturn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> Nie wybrano powrotu</span>`:''}</div>
+        ${share||sharedText?`<div class="tl-actions">${share}${sharedText}</div>`:''}
+        <div class="tl-sub"><span>${esc(routeText(f))}</span>${f.name?` · <span>${esc(f.name)}</span>`:''}${f.trip?.xfer?` · <span>${f.trip.xfer.skip?'odbiór z lotniska':esc(f.trip.xfer.name)}</span>`:''}${fl.noReturn&&!gone?` · <span class="tl-noreturn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> Nie wybrano powrotu</span>`:''}</div>
         ${gone||booked||fl.ground?'':savedPriceHtml(favKey(f), fl, f.flight?.price)}
       </div></div>`;
   };
@@ -4672,8 +4685,10 @@ function tripTimeline(list, {booked=false}={}){
     if(m!==month){ html+=`<div class="tl-month">${m}</div>`; month=m; }
     html+=item(x);
   }
-  if(past.length) html+=`<div class="tl-month tl-past">Minione</div>`+past.map(item).join('');
-  return (html?`<div class="trip-timeline">${html}</div>`:'')+(rest.length?`<h4 class="fav-subtitle">Zapisane trasy</h4><div class="fav-grid">${rest.map(x=>favCard(x.f)).join('')}</div>`:'');
+  if(archive){ let year=''; for(const x of past){ const y=x.fl.day.slice(0,4); if(y!==year){ html+=`<div class="tl-month">${y}</div>`; year=y; } html+=item(x); } }
+  else if(past.length) html+=`<div class="tl-month tl-past">Minione</div>`+past.map(item).join('');
+  const others=only==='past'?[]:rest;
+  return (html?`<div class="trip-timeline">${html}</div>`:'')+(others.length?`<h4 class="fav-subtitle">Zapisane trasy</h4><div class="fav-grid">${others.map(x=>favCard(x.f)).join('')}</div>`:'');
 }
 // Liczniki w prawym górnym rogu przycisków „Moje podróże” i „Ulubione”.
 function navCounts(){
@@ -4762,6 +4777,7 @@ function saveMyTrip(P, status, title){
 }
 // Moje podróże: oś czasu jak w ulubionych, bez cen do sprawdzania (bilety są już kupione).
 document.getElementById('myTripsPage')?.addEventListener('click', e=>{
+  const tab=e.target.closest('[data-mytrips-tab]'); if(tab){ if(MYT.tab!==tab.dataset.mytripsTab){ MYT.tab=tab.dataset.mytripsTab; goPage('podroz','moje'); } return; }
   const sh=e.target.closest('[data-trip-share]'); if(sh){ e.preventDefault(); e.stopPropagation(); openTrip(sh.dataset.tripShare, {invite:true}); return; }
   const to=e.target.closest('[data-trip-open]'); if(to){ e.preventDefault(); openTrip(to.dataset.tripOpen); }
 });
@@ -4769,7 +4785,18 @@ function renderMyTrips(){
   const page=document.getElementById('myTripsPage'); if(!page) return;
   const list=FAV.items.filter(f=>f.type==='trip' && f.status==='booked');
   const shared=SHARED.items.map(x=>({...x.trip, shared:{ownerId:x.ownerId, ownerName:x.ownerName}}));
-  page.innerHTML=list.length||shared.length?tripTimeline([...list, ...shared],{booked:true}):`<div class="empty-note">${stateIll(assetPaths.noTrips)}Nie masz jeszcze zapisanych podróży. Zaplanuj lot, a na ostatnim kroku „Z lotniska do centrum” kliknij „Zapisz moją podróż”. Plany, których nie jesteś pewien, zapisuj w ulubionych.</div>`;
+  const all=[...list, ...shared], past=all.filter(tripIsPast), next=all.length-past.length;
+  const archive=MYT.tab==='archive';
+  const tabs=all.length?`<div class="fav-filters mytrips-tabs" role="tablist" aria-label="Moje podróże">
+    <button type="button" role="tab" class="fav-filter ${archive?'':'on'}" data-mytrips-tab="upcoming" aria-selected="${!archive}"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> ${L2('Nadchodzące','Upcoming')} <small>${next}</small></button>
+    <button type="button" role="tab" class="fav-filter ${archive?'on':''}" data-mytrips-tab="archive" aria-selected="${archive}"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> ${L2('Archiwum','Archive')} <small>${past.length}</small></button></div>`:'';
+  let body;
+  if(!all.length) body=`<div class="empty-note">${stateIll(assetPaths.noTrips)}Nie masz jeszcze zapisanych podróży. Zaplanuj lot, a na ostatnim kroku „Z lotniska do centrum” kliknij „Zapisz moją podróż”. Plany, których nie jesteś pewien, zapisuj w ulubionych.</div>`;
+  else if(archive) body=past.length?`<p class="mytrips-note">${L2('Podróże, które już się skończyły. Otwórz podróż, aby zobaczyć jej plan i dodać zdjęcia.','Trips that have already ended. Open a trip to see its plan and add photos.')}</p>${tripTimeline(past,{booked:true, only:'past'})}`
+    :`<div class="empty-note">${L2('Archiwum jest puste. Podróże trafiają tu same, gdy minie dzień powrotu.','The archive is empty. Trips move here on their own once the return day has passed.')}</div>`;
+  else body=next?tripTimeline(all,{booked:true, only:'upcoming'})
+    :`<div class="empty-note">${stateIll(assetPaths.noTrips)}${L2('Nie masz nadchodzących podróży. Minione znajdziesz w zakładce „Archiwum”.','You have no upcoming trips. Past ones are in the “Archive” tab.')}</div>`;
+  page.innerHTML=tabs+body;
 }
 const fmtTs=ts=>ts?`${fmtDay(dayOfTs(ts))} ${fmtClock(ts)}`:'';
 /* ---------- Pogoda jako mała plakietka przy miejscu (start, lotniska, centrum) ---------- */
@@ -5159,7 +5186,7 @@ function renderTripPage(){
       ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-plan><i class="fa-solid fa-pen" aria-hidden="true"></i> Edytuj w planerze</button>'}
       ${f.tid&&FAV.user?`<span class="tp-share-wrap"><button type="button" class="btn-ghost ${PEOPLE.open?'on':''}" data-tp-share aria-expanded="${PEOPLE.open}" aria-controls="tripPeople"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${f.shared?L2('Uczestnicy','Participants'):L2('Udostępnij','Share')}</button></span>`:''}
       ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-remove><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Usuń</button>'}
-      <a class="tp-back" href="${booked?'/my-trips':'/favourites#trips'}" ${booked?'data-go-mytrips':'data-fav-goto'}><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${booked?'Moje podróże':'Ulubione'}</a>
+      <a class="tp-back" href="${booked?(when==='minęła'?'/my-trips#archive':'/my-trips'):'/favourites#trips'}" ${booked?`data-go-mytrips="${when==='minęła'?'archive':''}"`:'data-fav-goto'}><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${booked?(when==='minęła'?'Archiwum':'Moje podróże'):'Ulubione'}</a>
     </div></div>`+
     (booked&&when!=='minęła'?`<div class="tp-ready"><img src="${assetPaths.readyToGo}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>${T?.ground||T?.multi?'Przygotuj się do wyjazdu: sprawdź poniżej przebieg podróży i pogodę po drodze. Bilety kupisz u przewoźników.':'Przygotuj się do wyjazdu: sprawdź poniżej dojazd na lotnisko, lot i drogę do centrum. Bilety i rezerwacje potwierdzisz u przewoźników.'}</p>${photosSlot}</div>`
       :!booked?`<div class="tp-ready"><img src="${assetPaths.journeyPlanned}" alt="" aria-hidden="true" width="150" height="88" loading="lazy" decoding="async"><p>To plan zapisany w ulubionych. Sprawdź ceny i dojazdy, a gdy podróż będzie pewna, zapisz ją jako swoją.</p>${photosSlot}</div>`:'');
