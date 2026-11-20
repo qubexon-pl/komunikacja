@@ -9,7 +9,7 @@
 
 const crypto = require("node:crypto");
 const { createTransitous, localToUtc, utcToLocal, validZone, kindOf, decodePolyline, itinerary } = require("./transitous");
-const { cityById } = require("./pl-cities");
+const { CITIES, cityById } = require("./pl-cities");
 
 const PLAN_KEEP_MS = 10 * 60 * 1000;
 const VEHICLES_KEEP_MS = 60 * 1000;
@@ -20,7 +20,11 @@ const MIN_ZOOM = 12;
 const LOCAL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const STOPS_KEEP_MS = 60 * 60 * 1000;
 const DEPARTURES_KEEP_MS = 30 * 1000;
-const LINES_KEEP_MS = 5 * 60 * 1000;
+const LINES_KEEP_MS = 5 * 60 * 1000; // a city's lines are swept again when opened after this
+const LINES_RUNNING_MS = 45 * 60 * 1000; // vehicle counts of a sweep are shown this long
+const LINES_FORGET_MS = 21 * 86400000; // a line not seen for three weeks is dropped
+const LINES_REACH_KM = 18;
+const TILE_LAT = 0.16, TILE_LON = 0.24; // degrees; one box Transitous answers at zoom 14 (no bigger than the vehicle map asks)
 const PL_ZONE = "Europe/Warsaw";
 
 const bad = (message) => Object.assign(new Error(message), { status: 400 });
@@ -67,7 +71,7 @@ function clip(points, dep, arr, from, to) {
   return { t0, t1, stepMs, path: out.map(([a, b]) => [Math.round(a * 1e5) / 1e5, Math.round(b * 1e5) / 1e5]), moving: d1 - d0 > 0 };
 }
 
-function createCityTransit({ transitous = null, fetchSource = fetch, now = Date.now, minGapMs } = {}) {
+function createCityTransit({ transitous = null, fetchSource = fetch, now = Date.now, minGapMs, store = null, log = console } = {}) {
   const client = transitous || createTransitous({ fetchSource, now, ...(minGapMs == null ? {} : { minGapMs }) });
   const plans = new Map();
   const views = new Map();
@@ -101,34 +105,115 @@ function createCityTransit({ transitous = null, fetchSource = fetch, now = Date.
     return result;
   }
 
-  // Lines running in a Polish city within the next half hour, from the vehicles on their way across the whole city.
-  const lineLists = new Map();
+  // Lines of a Polish city. Transitous has no list of routes, so lines are collected from the vehicles on their way: the
+  // city is asked in tiles small enough for Transitous to answer (one box over a big city such as Kraków is refused with
+  // HTTP 422), and every line ever seen is kept in the database with the day it was last seen. A background sweep goes
+  // through every city a few times a day, so a traveller gets the stored list at once, with the vehicles of the last
+  // sweep; the list of one city is refreshed when it is opened and its last sweep is older than five minutes.
+  const sweeps = new Map(); // city → running sweep
+  const catalogues = new Map(); // city → { lines: {key: {line, kind, color, seen}}, sweptAt, running }
+  const catalogueKey = (id) => `city-lines:${id}`;
+  async function readCatalogue(c) {
+    if (catalogues.has(c.id)) return catalogues.get(c.id);
+    let saved = null;
+    if (store?.read) {
+      const body = await store.read(catalogueKey(c.id)).catch(() => null);
+      if (body) try { saved = JSON.parse(Buffer.from(body).toString("utf8")); } catch { saved = null; }
+    }
+    const entry = saved && saved.lines && typeof saved.lines === "object" ? saved : { lines: {}, sweptAt: 0, running: [] };
+    catalogues.set(c.id, entry);
+    return entry;
+  }
+  function tiles(c) {
+    const reach = Math.min(c.km, LINES_REACH_KM), dLat = reach / 111, dLon = reach / (111 * Math.cos((c.centre[0] * Math.PI) / 180));
+    const s = c.centre[0] - dLat, w = c.centre[1] - dLon, rows = Math.ceil((2 * dLat) / TILE_LAT), cols = Math.ceil((2 * dLon) / TILE_LON);
+    const out = [];
+    for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) {
+      out.push({ s: s + (i * 2 * dLat) / rows, n: s + ((i + 1) * 2 * dLat) / rows, w: w + (j * 2 * dLon) / cols, e: w + ((j + 1) * 2 * dLon) / cols });
+    }
+    return out;
+  }
+  async function sweep(c, windowMin) {
+    const start = Math.floor(now() / 60000) * 60000;
+    const r4 = (v) => v.toFixed(4);
+    const by = new Map();
+    let answered = 0, failed = 0, lastError = null;
+    const ask = async (box, depth) => {
+      try {
+        const segments = await client.mapTrips({ min: `${r4(box.s)},${r4(box.w)}`, max: `${r4(box.n)},${r4(box.e)}`, zoom: "14", startTime: new Date(start).toISOString(), endTime: new Date(start + windowMin * 60000).toISOString() });
+        answered++;
+        for (const seg of Array.isArray(segments) ? segments : []) {
+          const trip = seg.trips?.[0] || {};
+          const line = String(trip.displayName || trip.routeShortName || "").trim();
+          if (!line) continue;
+          const kind = kindOf(seg.mode), key = `${kind}|${line}`;
+          let g = by.get(key);
+          if (!g) { g = { line, kind, color: hex(seg.routeColor), trips: new Set(), late: new Set() }; by.set(key, g); }
+          const id = trip.tripId || `${seg.from?.name}-${seg.departure}`;
+          g.trips.add(id);
+          if (seg.realTime && seg.scheduledDeparture && Date.parse(seg.departure) - Date.parse(seg.scheduledDeparture) >= 3 * 60000) g.late.add(id);
+        }
+      } catch (error) {
+        // Too much in one box: ask about its four quarters instead.
+        if (error.upstream === 422 && depth < 2) {
+          const mLat = (box.s + box.n) / 2, mLon = (box.w + box.e) / 2;
+          for (const q of [{ s: box.s, n: mLat, w: box.w, e: mLon }, { s: box.s, n: mLat, w: mLon, e: box.e }, { s: mLat, n: box.n, w: box.w, e: mLon }, { s: mLat, n: box.n, w: mLon, e: box.e }]) await ask(q, depth + 1);
+          return;
+        }
+        failed++; lastError = error;
+      }
+    };
+    for (const box of tiles(c)) await ask(box, 0);
+    if (!answered) throw lastError || Object.assign(new Error("Lista linii jest chwilowo niedostępna."), { status: 502 });
+    const running = [...by.values()].map((g) => ({ line: g.line, kind: g.kind, color: g.color, vehicles: g.trips.size, late: g.late.size }));
+    const cat = await readCatalogue(c);
+    const day = new Date(start).toISOString().slice(0, 10);
+    for (const l of running) {
+      const key = `${l.kind}|${l.line}`;
+      cat.lines[key] = { line: l.line, kind: l.kind, color: l.color || cat.lines[key]?.color || null, seen: day };
+    }
+    const oldest = new Date(start - LINES_FORGET_MS).toISOString().slice(0, 10);
+    for (const [key, l] of Object.entries(cat.lines)) if (!l.seen || l.seen < oldest) delete cat.lines[key];
+    cat.sweptAt = now(); cat.running = running; cat.partial = failed > 0;
+    if (store?.save) {
+      const body = Buffer.from(JSON.stringify(cat));
+      await store.save(catalogueKey(c.id), { body, type: "application/json", etag: `"${crypto.createHash("sha256").update(body).digest("hex").slice(0, 32)}"` })
+        .catch((error) => log.warn(`City lines (${c.id}): could not save.`, error.message));
+    }
+    return cat;
+  }
+  function sweepOnce(c, windowMin = 30) {
+    if (sweeps.has(c.id)) return sweeps.get(c.id);
+    const run = sweep(c, windowMin).finally(() => sweeps.delete(c.id));
+    sweeps.set(c.id, run);
+    return run;
+  }
+  function answer(c, cat) {
+    const fresh = now() - (cat.sweptAt || 0) < LINES_RUNNING_MS;
+    const running = new Map((fresh ? cat.running || [] : []).map((l) => [`${l.kind}|${l.line}`, l]));
+    const all = new Map(Object.entries(cat.lines).map(([key, l]) => [key, { line: l.line, kind: l.kind, color: l.color || null, vehicles: 0, late: 0 }]));
+    for (const [key, l] of running) all.set(key, { ...all.get(key), ...l });
+    const lines = [...all.values()].sort((a, b) => a.line.localeCompare(b.line, "pl", { numeric: true, sensitivity: "base" }));
+    return { city: c.id, lines, running: fresh, sweptAt: cat.sweptAt || null, fetchedAt: now(), source: "Transitous" };
+  }
   async function lines({ city }) {
     const c = cityById(city);
     if (!c) throw bad("Nieznane miasto.");
-    const hit = lineLists.get(c.id);
-    if (hit && now() - hit.fetchedAt < LINES_KEEP_MS) return hit;
-    const reach = Math.min(c.km, 18), dLat = reach / 111, dLon = reach / (111 * Math.cos((c.centre[0] * Math.PI) / 180));
-    const start = Math.floor(now() / 60000) * 60000;
-    const r4 = (v) => v.toFixed(4);
-    const segments = await client.mapTrips({ min: `${r4(c.centre[0] - dLat)},${r4(c.centre[1] - dLon)}`, max: `${r4(c.centre[0] + dLat)},${r4(c.centre[1] + dLon)}`, zoom: "13", startTime: new Date(start).toISOString(), endTime: new Date(start + 30 * 60000).toISOString() });
-    const by = new Map();
-    for (const s of Array.isArray(segments) ? segments : []) {
-      const trip = s.trips?.[0] || {};
-      const line = String(trip.displayName || trip.routeShortName || "").trim();
-      if (!line) continue;
-      const kind = kindOf(s.mode), key = `${kind}|${line}`;
-      let g = by.get(key);
-      if (!g) { g = { line, kind, color: hex(s.routeColor), trips: new Set(), late: new Set() }; by.set(key, g); }
-      const id = trip.tripId || `${s.from?.name}-${s.departure}`;
-      g.trips.add(id);
-      if (s.realTime && s.scheduledDeparture && Date.parse(s.departure) - Date.parse(s.scheduledDeparture) >= 3 * 60000) g.late.add(id);
+    const cat = await readCatalogue(c);
+    if (Object.keys(cat.lines).length) {
+      if (now() - (cat.sweptAt || 0) >= LINES_KEEP_MS) sweepOnce(c).catch((error) => log.warn(`City lines (${c.id}):`, error.message));
+      return answer(c, cat);
     }
-    const list = [...by.values()].map((g) => ({ line: g.line, kind: g.kind, color: g.color, vehicles: g.trips.size, late: g.late.size }))
-      .sort((a, b) => a.line.localeCompare(b.line, "pl", { numeric: true, sensitivity: "base" }));
-    const result = { city: c.id, lines: list, fetchedAt: now(), source: "Transitous" };
-    lineLists.set(c.id, result);
-    return result;
+    return answer(c, await sweepOnce(c));
+  }
+  // Every city in turn, with a pause between them so travellers' own questions to Transitous are not held up.
+  async function refreshAllLines({ pauseMs = 15000, cities = CITIES } = {}) {
+    let done = 0;
+    for (const c of cities) {
+      try { await sweepOnce(c, 60); done++; } catch (error) { log.warn(`City lines (${c.id}):`, error.message); }
+      if (pauseMs) await new Promise((resolve) => setTimeout(resolve, pauseMs));
+    }
+    return done;
   }
 
   // Next departures from one stop (and its platforms), with live delays where the operator publishes them.
@@ -222,7 +307,7 @@ function createCityTransit({ transitous = null, fetchSource = fetch, now = Date.
     return pending;
   }
 
-  return { plan, vehicles, stops, departures, lines };
+  return { plan, vehicles, stops, departures, lines, refreshAllLines };
 }
 
 module.exports = { createCityTransit, clip };

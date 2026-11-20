@@ -1646,6 +1646,12 @@ body.explore-mode #exploreMap{height:clamp(420px,calc(100vh - 340px),760px)}
 .cp-body{display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px}
 .cp-map-wrap{position:relative} .cp-map{height:520px; border-radius:12px; overflow:hidden; border:1px solid var(--line)}
 .city-panel.picking .cp-map{cursor:crosshair; outline:3px solid var(--gold)}
+.cp-map-toggle{display:inline-flex; align-items:center; gap:8px; padding:6px 14px; border:1px solid var(--line); border-radius:999px; background:var(--bg-alt, #fff); color:var(--ink); font-size:.84rem; font-weight:700}
+.cp-map-toggle i{color:var(--red, #2878D0)}
+.cp-map-toggle:hover{border-color:var(--red, #2878D0)}
+.city-panel.map-hidden .cp-map-wrap,.city-panel.map-hidden .cp-live,.city-panel.map-hidden .cp-status{display:none}
+.city-panel.map-hidden .cp-body{grid-template-columns:minmax(0,720px)}
+.ctx:has(.city-panel.map-hidden) .ctx-stats{display:none}
 .cp-legend{display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:6px; font-size:.75rem; color:var(--ink-soft)}
 .cp-legend span{display:inline-flex; align-items:center; gap:5px}
 .cp-veh span,.cp-veh-l{display:grid; place-items:center; width:100%; height:100%; border-radius:50%; color:#fff; border:1.5px solid rgba(255,255,255,.75); box-shadow:0 1px 3px rgba(0,0,0,.35)}
@@ -2814,6 +2820,7 @@ body.lines-mode #lines-sec{margin-top:8px !important}
 .ctx-lines .lg{display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:6px}
 .ctx-line{display:flex; flex-direction:column; align-items:flex-start; gap:4px; border:1px solid var(--line); background:var(--bg-alt); color:inherit; border-radius:12px; padding:8px 10px; text-align:left; min-width:0}
 .ctx-line:hover,.ctx-line:focus-visible{border-color:#2878D0; outline:none}
+.ctx-line.idle{opacity:.6}
 .ctx-line small{color:var(--ink-soft); font-size:.7rem; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%}
 .ctx-stats{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px}
 .ctx-stats > div{border:1px solid var(--line); background:var(--bg-alt); border-radius:14px; padding:10px 12px}
@@ -2825,7 +2832,8 @@ body.lines-mode #lines-sec{margin-top:8px !important}
 .ctx-filter .cs-chip{cursor:default}
 .ctx-when-bar{display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end}
 .ctx-when-bar label{display:flex; flex-direction:column; gap:4px; font-size:.78rem; font-weight:700; color:var(--ink-soft)}
-.ctx-when-bar input,.ctx-when-bar select{min-height:44px; border:1px solid var(--line); border-radius:12px; padding:0 10px; background:var(--bg); color:inherit; font:inherit}
+.ctx-when-bar input,.ctx-when-bar select{min-height:44px; border:1px solid var(--line); border-radius:12px; padding:0 10px; background:var(--bg-alt, #fff); color:var(--ink); font:inherit; font-weight:500}
+.ctx-when-bar input:focus,.ctx-when-bar select:focus{outline:none; border-color:#2878D0; box-shadow:0 0 0 3px rgba(40,120,208,.18)}
 body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribution){display:none !important}
 .ctx{display:flex; flex-direction:column; gap:12px; min-width:0}
 .ctx-head{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px}
@@ -2837,13 +2845,13 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 .ctx .city-panel{margin:0}
 .ctx-search{display:flex; flex-direction:column; gap:4px; max-width:520px}
 .ctx-search label{font-size:.78rem; font-weight:700; color:var(--ink-soft, #6B7A90)}
-.ctx-search .pl-inp{display:flex; align-items:center; gap:8px; border:1px solid var(--line, #E3EAF3); border-radius:12px; padding:0 12px; background:var(--bg, #fff)}
+.ctx-search .pl-inp{display:flex; align-items:center; gap:8px; border:1px solid var(--line, #E3EAF3); border-radius:12px; padding:0 12px; background:var(--bg-alt, #fff)}
 .ctx-search input{flex:1; min-width:0; min-height:44px; border:0; background:transparent; font:inherit; color:inherit}
 .ctx-search input:focus{outline:none}
 .ctx-search .pl-inp:focus-within{border-color:#2878D0; box-shadow:0 0 0 3px rgba(40,120,208,.18)}
 .ctx-stops{list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px}
 .ctx-stops:empty{display:none}
-.ctx-stops button{display:flex; flex-direction:column; align-items:flex-start; border:1px solid var(--line, #E3EAF3); background:var(--bg, #fff); color:inherit; border-radius:12px; padding:6px 12px; text-align:left}
+.ctx-stops button{display:flex; flex-direction:column; align-items:flex-start; border:1px solid var(--line, #E3EAF3); background:var(--bg-alt, #fff); color:inherit; border-radius:12px; padding:6px 12px; text-align:left}
 .ctx-stops button:hover,.ctx-stops button.on{border-color:#2878D0; background:#E5F1FD; color:#172B45}
 .ctx-stops b{font-size:.88rem} .ctx-stops small{font-size:.72rem; opacity:.75}
 .ctx-none{color:var(--ink-soft, #6B7A90); font-size:.85rem; padding:4px 2px}
