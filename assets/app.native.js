@@ -128,6 +128,15 @@
       input.click();
     });
   };
+  // In the browser the gallery button takes several photos at once.
+  ON.pickPhotos = function(){
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file'; input.multiple = true; input.accept = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
+      input.addEventListener('change', () => resolve(Array.from(input.files || [])), { once: true });
+      input.click();
+    });
+  };
 
   /* ---------- keyboard: the field you type in goes up to just under the top bar (browser and apps) ----------
      On a phone the top bar (logo, PL/EN, Konto) and the bottom menu always stay on screen; pages, dialogs and the
