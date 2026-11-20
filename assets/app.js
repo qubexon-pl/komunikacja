@@ -7704,11 +7704,17 @@ function weatherTitle(){
   const place=WX.data?.place;
   return place ? esc(L2('Pogoda: ','Weather: ')+place) : esc(L2('Pogoda w Twojej okolicy','Weather near you'));
 }
+// Strona zainstalowana na ekranie głównym (PWA): bez paska adresu, więc rada o „ikonie obok adresu” nic nie da.
+const weatherInstalled=()=>matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || navigator.standalone===true;
 // Dlaczego nie ma mojej okolicy: przy odmowie przycisk nic nie da, dopóki zgody nie zmieni się w ustawieniach.
 function weatherWhy(){
   if(WX.why==='denied') return ONW.native
     ? L2('Aplikacja nie ma dostępu do lokalizacji. Włącz go w Ustawieniach telefonu → Aplikacje → podavo.voyage → Uprawnienia → Lokalizacja albo wpisz miejscowość.','The app has no access to your location. Allow it in phone Settings → Apps → podavo.voyage → Permissions → Location, or type a town.')
-    : L2('Przeglądarka blokuje lokalizację dla tej strony. Zezwól na nią w ustawieniach strony (ikona obok adresu) albo wpisz miejscowość.','Your browser blocks location for this site. Allow it in the site settings (icon next to the address) or type a town.');
+    : weatherInstalled()
+      ? (/iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1)
+        ? L2('Aplikacja nie ma dostępu do lokalizacji. Włącz go w Ustawieniach → Prywatność → Usługi lokalizacji → Witryny Safari → Podczas używania, potem stuknij „Pokaż dla mojej lokalizacji” albo wpisz miejscowość.','The app has no access to your location. Allow it in Settings → Privacy → Location Services → Safari Websites → While Using, then tap “Show for my location”, or type a town.')
+        : L2('Aplikacja nie ma dostępu do lokalizacji. Przytrzymaj ikonę podavo.voyage → Informacje o aplikacji → Uprawnienia → Lokalizacja → Zezwalaj, potem stuknij „Pokaż dla mojej lokalizacji” albo wpisz miejscowość.','The app has no access to your location. Long-press the podavo.voyage icon → App info → Permissions → Location → Allow, then tap “Show for my location”, or type a town.'))
+      : L2('Przeglądarka blokuje lokalizację dla tej strony. Zezwól na nią w ustawieniach strony (ikona obok adresu) albo wpisz miejscowość.','Your browser blocks location for this site. Allow it in the site settings (icon next to the address) or type a town.');
   if(WX.why==='unavailable') return L2('Nie udało się ustalić położenia (włączona lokalizacja w telefonie?). Spróbuj ponownie albo wpisz miejscowość.','Could not find your position (is location turned on?). Try again or type a town.');
   if(WX.why==='unsupported') return L2('To urządzenie nie podaje lokalizacji. Wpisz miejscowość.','This device does not share its location. Type a town.');
   return '';
