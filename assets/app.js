@@ -1688,6 +1688,7 @@ function multiSaveView(){
       (k<n-1&&M.stays[k]?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(M.places[k+1])}: postój ${fmtStay(M.stays[k])}</div>`:'')).join('');
   return `<div class="plan-head"><span>${M.places.map(esc).join(' <span class="txt-red">→</span> ')}</span></div>${cards}
     <div class="cs-save"><div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz całą podróż w ulubionych albo jako swoją podróż.${legs.length?` <small>Koszt: ${unknown?'od ':'ok. '}${zl(total)}</small>`:''}</div>
+      ${planStayBox('multi',M)}
       ${tripTitleField(M)}
       <div class="cs-save-btns"><button type="button" class="btn-ghost" data-multi-save="planned"><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
       <button type="button" class="btn-grad" data-multi-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${savedNote(M)}</div>`;
@@ -1704,7 +1705,7 @@ function saveMultiTrip(status, title){
   const people=Math.max(1,+document.getElementById('plPeople')?.value||1);
   const item={type:'trip', view:'podroz', id, tid:before?.tid||newTid(), status, from:M.places[0], to:M.places[n], stops:stops.map(x=>x.label), title:(title||'').trim().slice(0,80),
     name:legs.map(L=>L.title).join(' + ').slice(0,190), detail:`${fmtDay(legs[0].day)} – ${fmtDay(legs[n-1].arrDay)} · ${n} ${n<5?'etapy':'etapów'}`,
-    trip:{multi:true, legs, home, dest, stops, people, weather, savedAt:new Date().toISOString(), ...(before?.trip?.hotel?{hotel:before.trip.hotel}:{})}};
+    trip:{multi:true, legs, home, dest, stops, people, weather, savedAt:new Date().toISOString(), ...stayForTrip('multi',M,{},before)}};
   FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && (x.id===id || (before && x.tid===before.tid)))), item].slice(-50);
   M.savedOk=null; M.saved=item.tid;
   saveFavorites().then(ok=>{ if(ok!==false && M.saved===item.tid){ M.savedOk=item.tid; if(M.cur==='save') document.getElementById('planResults').innerHTML=multiSaveView(); } }).catch(e=>console.warn('Nie zapisano podróży', e));
@@ -2329,6 +2330,7 @@ function groundSaveAll(J){
   const cards=legs.map((g,k)=>groundLegCard(g, multi?`Etap ${k+1}`:'Tam')+(multi&&k<st.length-1&&st[k].stay?`<div class="trip-stop-note"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(st[k].to)}: postój ${fmtStay(st[k].stay)}</div>`:'')).join('')+(back?groundLegCard(back,'Powrót'):!multi&&P0.round?'<div class="empty-note tp-noreturn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> Nie wybrano powrotu — możesz zapisać podróż bez niego albo wrócić i wybrać połączenie powrotne.</div>':'');
   return `<div class="plan-head"><span>${[P0.from, ...st.map(P=>P.to)].map(esc).join(' <span class="txt-red">→</span> ')}</span></div>`+groundStepBar(P0)+cards+(S.multi&&S.multi.cur!=='save'?multiLegBar(P0,'ground'):
     `<div class="cs-save"><div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz plan w ulubionych albo jako swoją podróż.${all.length?` <small>Koszt: ${unknown?'od ':'ok. '}${zl(total)}${n>1?` za ${peopleText(n)}`:''}</small>`:''}</div>
+      ${planStayBox('ground',P0,{stages:st})}
       ${tripTitleField(P0)}
       <div class="cs-save-btns"><button type="button" class="btn-ghost" data-ground-save="planned"><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
       <button type="button" class="btn-grad" data-ground-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${savedNote(P0)}</div>`)+
@@ -2348,7 +2350,7 @@ function saveGroundTrip(J, status, title){
     ...wx('location-dot','Na miejscu',last.to,dest,arrDay(legs[legs.length-1]),legs[legs.length-1].arrive), ...(back?wx('rotate-left','Powrót',last.to,dest,back.day,back.leave):[])];
   const item={type:'trip', view:'podroz', id, tid:before?.tid||newTid(), status, from:P0.from, to:last.to, ...(stops.length?{stops:stops.map(x=>x.label)}:{}), title:(title||'').trim().slice(0,80),
     name:legs.map(g=>g.title).join(' + ').slice(0,120), detail:`${groundWhen(legs[0])}${legs.length>1?` · ${legs.length} etapy`:''}${back?` · powrót ${fmtDay(back.day)}`:''}`,
-    trip:{ground:{out:legs[0], legs, back:back||null, roundBack:last.round?.back||null}, home, dest, stops, people:Math.max(1,P0.people||1), weather, savedAt:new Date().toISOString(), ...(before?.trip?.hotel?{hotel:before.trip.hotel}:{})}};
+    trip:{ground:{out:legs[0], legs, back:back||null, roundBack:last.round?.back||null}, home, dest, stops, people:Math.max(1,P0.people||1), weather, savedAt:new Date().toISOString(), ...stayForTrip('ground',P0,{stages:st},before)}};
   FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && (x.id===id || (before && x.tid===before.tid)))), item].slice(-50);
   P0.savedOk=null;
   saveFavorites().then(ok=>{ if(ok!==false && P0.saved===item.tid){ P0.savedOk=item.tid; runPlan(false); } }).catch(e=>console.warn('Nie zapisano podróży', e));
@@ -3500,6 +3502,7 @@ function tripSaveBar(P, f, d){
   const done=savedNote(P);
   return `<div class="cs-save">
     <div class="cs-choice"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Zapisz plan w ulubionych albo jako swoją podróż.</div>
+    ${planStayBox('flight',P,{f,d})}
     ${tripTitleField(P)}
     <div class="cs-save-btns">
       <button type="button" class="btn-ghost" data-trip-save="planned" ${ready?'':'disabled'}><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
@@ -4764,7 +4767,7 @@ function saveMyTrip(P, status, title){
   const id=`f:${fareKey(f)}:${o?.id||''}`, before=FAV.items.find(x=>x.type==='trip' && x.id===id);
   const item={type:'trip', view:'podroz', id, tid:before?.tid||newTid(), status, from:P.from, to:P.to, title:(title ?? before?.title ?? '').trim().slice(0,80),
     name:o?`${o.title} · ${airlineOf(f).name}`:airlineOf(f).name, detail:f.ret?`${flightDetail(f)} · powrót ${fmtDay(f.ret.day)}`:flightDetail(f),
-    flight:tripFlight(f), plan:{out:fareKey(f), ret:f.ret?fareKey(f.ret):'', access:o?.id||'', xfer:P.xferPick}, trip:{...tripSnapshot(P,f,o,d), ...(before?.trip?.hotel?{hotel:before.trip.hotel}:{})}};
+    flight:tripFlight(f), plan:{out:fareKey(f), ret:f.ret?fareKey(f.ret):'', access:o?.id||'', xfer:P.xferPick}, trip:{...tripSnapshot(P,f,o,d), ...stayForTrip('flight',P,{f,d},before)}};
   FAV.items=[...FAV.items.filter(x=>!(x.type==='trip' && x.id===id)), item].slice(-50);
   P.savedOk=null;
   saveFavorites().then(ok=>{ if(ok!==false && P.saved===item.tid){ P.savedOk=item.tid; runPlan(false); } }).catch(e=>console.warn('Nie zapisano podróży', e));
@@ -5394,6 +5397,7 @@ function groundCosts(T){
   const n=Math.max(1,T.people||1), rows=[];
   if(T.multi){
     T.legs.forEach((L,k)=>rows.push({group:'Etapy', icon:L.icon, label:`Etap ${k+1}: ${L.from} → ${L.to} · ${L.title}`, value:L.cost, note:L.cost==null?'cena nieznana':L.kind==='flight'?'lot z dojazdami':''}));
+    (T.stopHotels||[]).forEach(h=>{ if(h.price!=null) rows.push({group:'Nocleg', icon:'hotel', label:`${h.place?h.place+': ':''}${h.name}`, value:h.price, note:''}); });
     if(T.hotel?.price!=null) rows.push({group:'Nocleg', icon:'hotel', label:T.hotel.name, value:T.hotel.price, note:''});
     const total=Math.round(rows.reduce((a,r)=>a+(r.value||0),0));
     return {rows, total, people:n, perPerson:Math.round(total/n), missing:rows.some(r=>r.value==null)};
@@ -5474,6 +5478,138 @@ function tripCostsWithHotel(T){
   const rows=[...c.rows, {group:'Nocleg', icon:'hotel', label:h.name, value:h.currency&&h.currency!=='PLN'?null:h.price, note:h.currency&&h.currency!=='PLN'?`${Math.round(h.price)} ${h.currency}`:'za cały pobyt'}];
   return {...c, rows, total:Math.round(rows.reduce((s,r)=>s+(r.value||0),0)), missing:c.missing||rows.some(r=>r.value==null)};
 }
+/* ---------- Nocleg w planerze: na ostatnim kroku (przed zapisem) hotel w miejscu docelowym, a w podróży w etapach
+   także w każdym mieście z noclegiem po drodze. Szukamy przez Booking.com (Demand API, gdy serwer ma klucz), zawsze
+   jest link do wyszukiwania na Booking.com z datami i można wpisać własny hotel. Wybór zapisuje się razem z podróżą. ---------- */
+const STAY={holder:null, kind:'', ctx:null};
+const MAX_NIGHTS=30;
+// Miejsca noclegu dla bieżącego planu: [{key, city, lat, lon, checkin, nights}].
+function planStaySlots(kind, H, ctx={}){
+  const at=p=>{ const q=Array.isArray(p)?p:p?.lat!=null?[p.lat,p.lon]:null; return q&&q[0]!=null?{lat:+q[0], lon:+q[1]}:null; };
+  const nightsOf=(a,b)=>a&&b&&b>a?Math.round((Date.parse(b)-Date.parse(a))/86400000):1;
+  const slot=(key, city, p, checkin, checkout)=>p&&checkin?[{key, city, ...p, checkin, nights:Math.min(MAX_NIGHTS, Math.max(1, H.stayNights?.[key]||nightsOf(checkin, checkout)))}]:[];
+  if(kind==='flight'){
+    const f=ctx.f, d=ctx.d; if(!f) return [];
+    const p=at(d?.target)||at(H.dest?.points?.[0])||(d?.airport?at(d.airport):null);
+    return slot('dest', H.to||d?.city||'', p, (f.arrival||'').slice(0,10)||f.day, f.ret?.day||'');
+  }
+  if(kind==='ground'){
+    const st=ctx.stages||[H], last=st[st.length-1], g=last.groundPick; if(!g) return [];
+    const arrive=g.arrive!=null?dayOfTs(g.arrive):g.day;
+    return slot('dest', last.to, at(last.dest?.points?.[0]), arrive, st.length===1?H.groundBack?.day||'':'');
+  }
+  // W etapach: każde miasto po drodze, w którym nocujemy (następny etap rusza innego dnia), i cel, jeśli to nie dom.
+  const legs=H.legs||[], n=H.places.length-1, out=[];
+  legs.forEach((L,k)=>{
+    if(!L) return;
+    const arrive=L.arrDay||L.day, next=legs[k+1];
+    if(k<n-1){ if(next?.day && next.day>arrive) out.push(...slot(`p${k+1}`, H.places[k+1], at(L.b), arrive, next.day)); }
+    else if(H.places[n]!==H.places[0]) out.push(...slot(`p${k+1}`, H.places[k+1], at(L.b), arrive, ''));
+  });
+  return out;
+}
+const stayCheckout=s=>addDays(s.checkin, s.nights);
+const stayQuery=(s, people)=>({lat:s.lat.toFixed(5), lon:s.lon.toFixed(5), checkin:s.checkin, checkout:stayCheckout(s), adults:String(Math.min(8,Math.max(1,people||1))), city:s.city||''});
+const stayKey=(s, people)=>'stay|'+new URLSearchParams(stayQuery(s, people));
+function stayPeople(kind, H){ return Math.max(1, kind==='multi'?+document.getElementById('plPeople')?.value||1:H.people||1); }
+// Hotel wybrany w planerze; przy edycji zapisanej podróży — ten, który już w niej był (dopóki go nie usunięto).
+function stayHotel(H, key){
+  if(H.stayHotels && key in H.stayHotels) return H.stayHotels[key];
+  const ed=S.editing?.tid?FAV.items.find(x=>x.type==='trip'&&x.tid===S.editing.tid)?.trip:null; if(!ed) return null;
+  return ed.stopHotels?.find(x=>x.key===key) || (key==='dest'||ed.multi&&key===`p${ed.legs?.length||0}`?ed.hotel||null:null);
+}
+function stayLink(s, people){
+  const k=stayKey(s, people), st=HOT.get(k), q=stayQuery(s, people);
+  if(st?.bookingUrl) return st.bookingUrl;
+  if(!HOT.has(k+'|link')){ HOT.set(k+'|link', 1);
+    fetch('/api/hotels?'+new URLSearchParams({...q, link:'1'})).then(r=>r.ok?r.json():null).then(d=>{ if(d?.bookingUrl){ HOT.set(k,{...(HOT.get(k)||{}), linkOnly:!HOT.get(k), bookingUrl:d.bookingUrl}); rerenderStay(); } }).catch(()=>{}); }
+  return `https://www.booking.com/searchresults.html?${new URLSearchParams({ss:q.city||`${q.lat},${q.lon}`, checkin:q.checkin, checkout:q.checkout, group_adults:q.adults, no_rooms:'1', group_children:'0'})}`;
+}
+function staySlotHtml(H, s, people, many){
+  const h=stayHotel(H, s.key), k=stayKey(s, people), st=HOT.get(k), live=st&&!st.linkOnly?st:null, link=stayLink(s, people);
+  const nights=`<label class="stay-nights">Nocy <input type="number" min="1" max="${MAX_NIGHTS}" value="${s.nights}" data-stay-nights="${esc(s.key)}" aria-label="Liczba nocy w ${esc(s.city)}"></label>`;
+  const head=`<div class="stay-head"><b><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(s.city||'Na miejscu')}</b><small>${fmtDay(s.checkin)} – ${fmtDay(stayCheckout(s))}</small>${h?'':nights}</div>`;
+  if(h) return `<div class="stay-slot" data-stay-slot="${esc(s.key)}">${head}<div class="hotel-chosen">${hotelCard(h, `${h.url?linkBtn(h.url,'arrow-up-right-from-square',h.manual?'Rezerwacja':'Zarezerwuj na Booking.com'):''}<button type="button" class="btn-ghost" data-stay-remove="${esc(s.key)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Zmień nocleg</button>`)}</div></div>`;
+  let body='', search=`<button type="button" class="btn-grad" data-stay-search="${esc(s.key)}"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj noclegu</button>`;
+  if(live?.loading){ body=searching('Szukam noclegów na Booking.com…'); search=''; }
+  else if(live?.error) body=`<div class="empty-note">${esc(live.error)}</div>`;
+  else if(live?.configured===false){ body='<div class="empty-note">Wyszukiwarka noclegów w aplikacji czeka na klucz Booking.com. Szukaj na Booking.com przyciskiem obok i dodaj wybrany hotel ręcznie.</div>'; search=''; }
+  else if(live && !live.hotels?.length){ body='<div class="empty-note">Booking.com nie znalazł wolnych pokoi w okolicy w tych dniach.</div>'; search=''; }
+  else if(live){ search=''; body=`${live.sandbox?'<small class="text-soft">Dane z piaskownicy Booking.com (sandbox) — testowe.</small>':''}<div class="hotel-list">${live.hotels.slice(0,many?4:6).map(x=>hotelCard(x, `<button type="button" class="btn-grad" data-stay-add="${esc(s.key)}" data-stay-id="${esc(x.id)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> Wybierz</button>${x.url?linkBtn(x.url,'arrow-up-right-from-square','Booking.com'):''}`)).join('')}</div>`; }
+  return `<div class="stay-slot" data-stay-slot="${esc(s.key)}">${head}${body}<div class="hotel-bar">${search}${linkBtn(link,'arrow-up-right-from-square','Szukaj na Booking.com')}
+    <details class="hotel-manual"><summary>Mam już nocleg — dodaj ręcznie</summary>
+      <form class="hotel-form" data-stay-form="${esc(s.key)}"><input name="hname" placeholder="Nazwa hotelu" required maxlength="120"><input name="address" placeholder="Adres (pokażemy go na mapie)" maxlength="160"><input name="price" type="number" min="0" step="1" placeholder="Cena za pobyt (zł)"><input name="url" type="url" placeholder="Link do rezerwacji (opcjonalnie)" maxlength="300"><button class="btn-grad" type="submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj nocleg</button></form></details></div></div>`;
+}
+// Sekcja „Nocleg” na ostatnim kroku planera: kind 'flight' (H = etap z lotem), 'ground' (H = pierwszy etap) albo 'multi' (H = S.multi).
+function planStayBox(kind, H, ctx={}){
+  STAY.holder=H; STAY.kind=kind; STAY.ctx=ctx;
+  const slots=planStaySlots(kind, H, ctx); if(!slots.length) return '';
+  const people=stayPeople(kind, H), chosen=slots.map(s=>stayHotel(H, s.key)).filter(Boolean);
+  const cost=chosen.filter(h=>h.price!=null && (!h.currency||h.currency==='PLN')).reduce((a,h)=>a+h.price,0);
+  return `<section class="plan-stay" data-stay-box><div class="stay-title"><h4 class="trip-title"><i class="fa-solid fa-bed" aria-hidden="true"></i> Nocleg <small>(opcjonalnie)</small></h4>${cost?`<small><span>Noclegi razem</span>: <b>${zl(cost)}</b></small>`:''}</div>
+    <p class="text-soft stay-intro">Dodaj nocleg do planu — zapisze się razem z podróżą. Rezerwację potwierdzasz na Booking.com.</p>
+    ${slots.map(s=>staySlotHtml(H, s, people, slots.length>1)).join('')}</section>`;
+}
+function rerenderStay(){
+  const box=document.querySelector('#planResults [data-stay-box]'); if(!box || !STAY.holder) return;
+  const html=planStayBox(STAY.kind, STAY.holder, STAY.ctx);
+  if(html) box.outerHTML=html; else box.remove();
+}
+function staySlot(key){ return planStaySlots(STAY.kind, STAY.holder, STAY.ctx).find(s=>s.key===key); }
+function setStayHotel(key, hotel){
+  const H=STAY.holder; if(!H) return;
+  H.stayHotels={...(H.stayHotels||{}), [key]:hotel};
+  rerenderStay();
+}
+async function searchStay(key){
+  const s=staySlot(key); if(!s) return;
+  const people=stayPeople(STAY.kind, STAY.holder), k=stayKey(s, people), link=HOT.get(k)?.bookingUrl;
+  HOT.set(k,{loading:true, bookingUrl:link}); rerenderStay();
+  try{
+    const r=await fetch('/api/hotels?'+new URLSearchParams(stayQuery(s, people))); const d=await r.json().catch(()=>({}));
+    HOT.set(k, r.ok?d:{error:d.error||'Wyszukiwarka noclegów jest chwilowo niedostępna.', bookingUrl:d.bookingUrl||link});
+  }catch(e){ HOT.set(k,{error:'Wyszukiwarka noclegów jest chwilowo niedostępna.', bookingUrl:link}); }
+  rerenderStay();
+}
+// Hotele do zapisu z podróżą: hotel = cel (jak dotąd), stopHotels = noclegi po drodze w podróży w etapach.
+function stayForTrip(kind, H, ctx, before){
+  const slots=planStaySlots(kind, H, ctx), out={};
+  const pick=s=>{ const h=stayHotel(H, s.key); return h?{...h, key:s.key, place:s.city, checkin:s.checkin, checkout:stayCheckout(s)}:null; };
+  const destKey=kind==='multi'?`p${H.places.length-1}`:'dest', dest=slots.find(s=>s.key===destKey);
+  const destHotel=dest?pick(dest):(H.stayHotels && destKey in H.stayHotels?null:before?.trip?.hotel||null);
+  if(destHotel) out.hotel=destHotel;
+  const stops=slots.filter(s=>s.key!==destKey).map(pick).filter(Boolean);
+  if(stops.length) out.stopHotels=stops;
+  return out;
+}
+document.getElementById('planResults').addEventListener('click', e=>{
+  const sr=e.target.closest('[data-stay-search]'); if(sr){ searchStay(sr.dataset.staySearch); return; }
+  const sa=e.target.closest('[data-stay-add]'); if(sa){
+    const s=staySlot(sa.dataset.stayAdd); if(!s) return;
+    const h=HOT.get(stayKey(s, stayPeople(STAY.kind, STAY.holder)))?.hotels?.find(x=>String(x.id)===sa.dataset.stayId);
+    if(h){ setStayHotel(s.key, h); toast(`${L2('Nocleg','Stay')}: ${h.name}.`); } return;
+  }
+  const rm=e.target.closest('[data-stay-remove]'); if(rm){ setStayHotel(rm.dataset.stayRemove, null); return; }
+});
+document.getElementById('planResults').addEventListener('change', e=>{
+  const nn=e.target.closest('[data-stay-nights]'); if(!nn || !STAY.holder) return;
+  const v=Math.min(MAX_NIGHTS, Math.max(1, Math.round(+nn.value||1)));
+  STAY.holder.stayNights={...(STAY.holder.stayNights||{}), [nn.dataset.stayNights]:v}; rerenderStay();
+});
+document.getElementById('planResults').addEventListener('submit', async e=>{
+  const form=e.target.closest('[data-stay-form]'); if(!form) return;
+  e.preventDefault();
+  const s=staySlot(form.dataset.stayForm); if(!s) return;
+  const name=form.hname.value.trim(), address=form.address.value.trim(), price=form.price.value!==''?Number(form.price.value):null, url=form.url.value.trim();
+  if(!name) return;
+  let lat=null, lon=null;
+  if(address){
+    const r=await fetch('/api/geocode?'+new URLSearchParams({q:s.city&&!address.toLowerCase().includes(s.city.toLowerCase())?`${address}, ${s.city}`:address, scope:'world'})).then(x=>x.ok?x.json():null).catch(()=>null);
+    const p=r?.places?.[0]?.points?.[0]; if(p){ lat=p[0]; lon=p[1]; }
+  }
+  setStayHotel(s.key, {id:'manual', manual:true, name, address, lat, lon, price, currency:'PLN', url:/^https:\/\//.test(url)?url:''});
+  toast(`${L2('Nocleg','Stay')}: ${name}${address&&lat==null?L2(' (adresu nie znaleźliśmy na mapie)',' (address not found on the map)'):''}.`);
+});
 /* ---------- Mapa podróży: dom, lotniska, dojazd do centrum i hotel ---------- */
 const TRIPMAP={el:null, map:null, layer:null, key:'', marks:{}, base:[], baseKey:null};
 function mountTripMap(f, T){

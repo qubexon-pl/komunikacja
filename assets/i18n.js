@@ -225,6 +225,14 @@
     'Przygotuj się do wyjazdu: sprawdź poniżej dojazd na lotnisko, lot i drogę do centrum. Bilety i rezerwacje potwierdzisz u przewoźników.':'Get ready to go: check the trip to the airport, the flight and the way into town below. Confirm tickets and bookings with the carriers.',
     'To plan zapisany w ulubionych. Sprawdź ceny i dojazdy, a gdy podróż będzie pewna, zapisz ją jako swoją.':'This is a plan saved in favourites. Check prices and journeys, and save it as your trip once it is certain.',
   });
+  // Nocleg w planerze.
+  Object.assign(EXACT,{
+    'Dodaj nocleg do planu — zapisze się razem z podróżą. Rezerwację potwierdzasz na Booking.com.':'Add a place to stay to the plan; it is saved with the trip. You confirm the booking on Booking.com.',
+    'Szukaj noclegu':'Find a place to stay','Noclegi razem':'Stays in total','Nocy':'Nights','Zarezerwuj na Booking.com':'Book on Booking.com','Rezerwacja':'Booking','Zmień nocleg':'Change the stay',
+    'Mam już nocleg — dodaj ręcznie':'I already have a place to stay: add it by hand','Dodaj nocleg':'Add the stay','Szukam noclegów na Booking.com…':'Searching Booking.com for places to stay…',
+    'Wyszukiwarka noclegów w aplikacji czeka na klucz Booking.com. Szukaj na Booking.com przyciskiem obok i dodaj wybrany hotel ręcznie.':'In-app search for places to stay is waiting for a Booking.com key. Search on Booking.com with the button next to it and add the hotel you choose by hand.',
+    'Wyszukiwarka noclegów jest chwilowo niedostępna.':'Search for places to stay is unavailable right now.',
+  });
   const PATTERNS=[
     [/^Krok (\d+) z (\d+)$/,'Step $1 of $2'],
     [/^Brak lotów (\S+)( z powrotem (\S+))?$/,(m,d,x,b)=>'No flights on '+d+(b?' returning '+b:'')],[/^(\d+) km · pokaż lotniska do (\d+) km$/,'$1 km · show airports up to $2 km'],[/^od (\d+) zł w obie strony$/,'from $1 zł return'],

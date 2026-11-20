@@ -894,7 +894,7 @@ body:not([data-view="ztm"]):not([data-view="pks"]) .only-live{display:none !impo
 /* PKS: mapa tylko z wybraną trasą, otwierana z karty miejscowości lub linii */
 body[data-view="pks"]:not(.map-open) .map-open-bar{display:none !important}
 
-/* ================================================================
+/* =========================================================
    W drogę · premium: granat, złoto i czytelne karty
    (układ jak w porównywarkach podróży, ale spokojniejszy i bardziej elegancki)
    ================================================================ */
@@ -2947,6 +2947,21 @@ body.multi-mode #multiForm{display:none !important}
 .wx-here:hover,.wx-here:focus-visible{background:rgba(255,255,255,.12)}
 .wx-here:disabled{opacity:.7; cursor:default}
 
+/* Nocleg w planerze (ostatni krok, przed zapisem) */
+.cs-save > .plan-stay{flex:1 1 100%; min-width:0}
+.plan-stay{display:flex; flex-direction:column; gap:10px; padding:12px 0 4px; border-top:1px dashed var(--line)}
+.plan-stay .stay-title{display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px 12px}
+.plan-stay .stay-title h4{margin:0}
+.plan-stay .stay-title h4 small{font-weight:500; color:var(--ink-soft); font-size:.8rem}
+.plan-stay .stay-intro{margin:0; font-size:.86rem}
+.stay-slot{display:flex; flex-direction:column; gap:8px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--bg); min-width:0}
+.stay-head{display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px}
+.stay-head small{color:var(--ink-soft)}
+.stay-nights{display:inline-flex; align-items:center; gap:6px; margin-left:auto; font-size:.86rem}
+.stay-nights input{width:64px; padding:4px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink)}
+.plan-stay .hotel-list{grid-template-columns:repeat(auto-fill,minmax(min(330px,100%),1fr))}
+.plan-stay .hotel-card{background:var(--bg-alt)}
+=======
 /* Moje podróże: zakładki „Nadchodzące” i „Archiwum” */
 .mytrips-tabs{margin:0 0 18px}
 .mytrips-note{margin:0 0 14px; color:var(--ink-soft); font-size:.88rem}

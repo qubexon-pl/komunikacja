@@ -50,3 +50,18 @@ test("both price shapes of the Demand API are read", () => {
   assert.deepEqual(priceOf({ currency: { booker: "PLN" }, price: { total: { booker_currency: 512.345 } } }), { total: 512.35, currency: "PLN" });
   assert.equal(priceOf({}), null);
 });
+
+test("with an affiliate ID the Booking.com links are affiliate deep links, also without an API key", () => {
+  const plain = createHotels({ apiKey: "", affiliateId: "" }).link({ lat: 54.35, lon: 18.65, checkin: "2026-12-01", checkout: "2026-12-03", adults: 2, city: "Gdańsk" });
+  assert.equal(plain.configured, false);
+  assert.doesNotMatch(plain.bookingUrl, /aid=/);
+  const tagged = createHotels({ apiKey: "", affiliateId: "1234567", label: "voyage-planner" }).link({ lat: 54.35, lon: 18.65, checkin: "2026-12-01", checkout: "2026-12-03", adults: 2, city: "Gdańsk" });
+  const url = new URL(tagged.bookingUrl);
+  assert.equal(url.searchParams.get("aid"), "1234567");
+  assert.equal(url.searchParams.get("label"), "voyage-planner");
+  assert.equal(url.searchParams.get("ss"), "Gdańsk");
+  assert.equal(url.searchParams.get("checkin"), "2026-12-01");
+  assert.equal(url.searchParams.get("checkout"), "2026-12-03");
+  assert.equal(url.searchParams.get("group_adults"), "2");
+  assert.throws(() => createHotels({}).link({ lat: 54.35, lon: 18.65, checkin: "2026-12-03", checkout: "2026-12-01" }), { status: 400 });
+});
