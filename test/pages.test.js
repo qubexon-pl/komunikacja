@@ -18,7 +18,7 @@ function loadSubpage() {
     pks: { title: "Komunikacja podmiejska", lead: "pks" }, kolej: { title: "Pociągi w Polsce", lead: "kolej" },
   };
   const context = {
-    S: { agency: "podroz", sub: "kierunki" }, VIEWS, FAVF: { kind: "all" }, TRIPV: { id: "" }, APP_NAME: "podavo.voyage",
+    S: { agency: "podroz", sub: "kierunki" }, VIEWS, FAVF: { kind: "all" }, TRIPV: { id: "" }, MYT: { tab: "upcoming" }, APP_NAME: "podavo.voyage",
     FAV_TITLES: { all: "Ulubione" }, EXPLORE: { summary: "" },
     document: { getElementById: el, body: { classList: { toggle() {} } }, title: "" },
     location: { pathname: "/destinations", search: "", hash: "" }, history: { replaceState: (a, b, url) => { page.url = url; } },
