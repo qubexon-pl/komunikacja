@@ -1,6 +1,7 @@
 "use strict";
 
 const SEARCH_URL = "https://nominatim.openstreetmap.org/search";
+const REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
 const SUGGEST_URL = "https://photon.komoot.io/api/";
 const USER_AGENT = "komunikacja-rzeszow/1.0 (https://github.com/qubexon-pl/komunikacja)";
 const VIEWBOX = "21.45,50.30,22.55,49.75";
@@ -115,7 +116,42 @@ function createGeocoder({ fetchSource = fetch, minGapMs = MIN_REQUEST_GAP_MS } =
     return townFirst(rzeszowFirst([...near, ...far.filter((place) => !known.has(place.label.toLowerCase()))]), query);
   }
 
-  return async function geocode(value, { world = false } = {}) {
+  // The address at a point (the planner's "use my location"): street and house number, never a nearby stop or shop.
+  const reverseCache = new Map();
+  function reverse(lat, lon) {
+    lat = Number(lat);
+    lon = Number(lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      return Promise.reject(Object.assign(new Error("Podaj położenie."), { status: 400 }));
+    }
+    const key = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+    const cached = reverseCache.get(key);
+    if (cached && Date.now() - cached.at < CACHE_TTL_MS) return Promise.resolve(cached.result);
+    const run = queue.then(async () => {
+      const wait = lastRequestAt + minGapMs - Date.now();
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      lastRequestAt = Date.now();
+      const url = new URL(REVERSE_URL);
+      // Zoom 18 is the building level, so the answer names the street and house number at the point.
+      url.search = new URLSearchParams({ lat: lat.toFixed(5), lon: lon.toFixed(5), format: "jsonv2", addressdetails: "1", zoom: "18", layer: "address" }).toString();
+      const response = await fetchSource(url, {
+        headers: { "User-Agent": USER_AGENT, "Accept-Language": "pl" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) throw new Error(`Nominatim returned HTTP ${response.status}.`);
+      return toAddress(await response.json(), [Number(lat.toFixed(5)), Number(lon.toFixed(5))]);
+    });
+    queue = run.catch(() => {});
+    return run.then((result) => {
+      if (result) {
+        if (reverseCache.size >= CACHE_LIMIT) reverseCache.delete(reverseCache.keys().next().value);
+        reverseCache.set(key, { at: Date.now(), result });
+      }
+      return result;
+    });
+  }
+
+  async function geocode(value, { world = false } = {}) {
     const query = normalizeQuery(value);
     const key = `${world ? "world:" : ""}${query.toLowerCase()}`;
     const cached = cache.get(key);
@@ -141,7 +177,20 @@ function createGeocoder({ fetchSource = fetch, minGapMs = MIN_REQUEST_GAP_MS } =
     if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value);
     cache.set(key, { at: Date.now(), result });
     return result;
-  };
+  }
+  geocode.reverse = reverse;
+  return geocode;
+}
+
+// "Promykowa 32, Rzeszów" from a reverse answer; the point stays where the person is, not on the building's outline.
+function toAddress(item, point) {
+  const address = item?.address || {};
+  const locality = localityOf(address);
+  const road = address.road || address.pedestrian || address.footway || address.square || "";
+  const street = road ? (address.house_number ? `${road} ${address.house_number}` : road) : "";
+  const label = street ? (locality && locality !== road ? `${street}, ${locality}` : street) : locality;
+  if (!label) return null;
+  return { label, locality, exact: Boolean(street && address.house_number), points: [point] };
 }
 
 function fold(value) {
@@ -301,4 +350,4 @@ function createStreetSuggester({ fetchSource = fetch, minGapMs = SUGGEST_GAP_MS 
   return suggest;
 }
 
-module.exports = { createGeocoder, createStreetSuggester, normalizeQuery };
+module.exports = { createGeocoder, createStreetSuggester, normalizeQuery, toAddress };

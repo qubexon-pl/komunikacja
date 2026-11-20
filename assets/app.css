@@ -3134,3 +3134,32 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 /* ---- mapy na telefonie: jeden palec przewija stronę, dwa przesuwają mapę ---- */
 .two-finger-hint{position:absolute; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center; background:rgba(13,33,64,.55); color:#fff; font-weight:600; font-size:1rem; pointer-events:none; opacity:0; transition:opacity .25s}
 .two-finger-show .two-finger-hint{opacity:1}
+
+/* ---- „Najtaniej łącznie z dojazdem na lotnisko”: ciepła karta podpowiedzi, nie w kolorze przycisków ---- */
+.trip-best{background:#FFF4DC; color:#5C3B00; border:1px solid #F3D59A; border-left:4px solid var(--gold); border-radius:14px; font-weight:600; box-shadow:none}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .trip-best{background:#3A2B0C; color:#FFE2A6; border-color:#5E4614; border-left-color:var(--gold)} }
+:root[data-theme="dark"] .trip-best{background:#3A2B0C; color:#FFE2A6; border-color:#5E4614; border-left-color:var(--gold)}
+
+/* ---- „Dalej” w planerze: na komputerze wyraźniejszy niż niebieskie ikony i przyciski wokół ---- */
+@media (min-width:768px){
+  .btn-grad.btn-next,:root[data-theme="dark"] .btn-grad.btn-next{display:inline-flex; align-items:center; gap:10px; padding:14px 28px; font-size:1rem; font-weight:800; color:#14233D;
+    background:linear-gradient(135deg,#FFD27A 0%,#F2B84B 100%); box-shadow:0 14px 28px -14px rgba(201,140,20,.9),0 0 0 3px rgba(242,184,75,.25)}
+  .btn-grad.btn-next:hover,.btn-grad.btn-next:focus-visible,:root[data-theme="dark"] .btn-grad.btn-next:hover{color:#14233D; background:linear-gradient(135deg,#FFDB91 0%,#E9A93A 100%); transform:translateY(-1px)}
+  .btn-grad.btn-next .fa-arrow-right{transition:transform .15s}
+  .btn-grad.btn-next:hover .fa-arrow-right{transform:translateX(3px)}
+}
+
+/* ---- pogoda: brak dostępu do lokalizacji jako czerwony dzwonek z okienkiem ---- */
+.wx-alert{position:relative; display:inline-block; vertical-align:middle; margin:10px 8px 0 0}
+.wx-alert-btn{display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border:0; border-radius:50%; background:#E5484D; color:#fff; font-size:.95rem; box-shadow:0 6px 14px -6px rgba(229,72,77,.9); cursor:pointer}
+.wx-alert-btn:hover,.wx-alert-btn:focus-visible{background:#C9363B}
+.wx-alert-btn[aria-expanded="false"] .fa-bell{animation:wx-ring 2.4s ease-in-out 2}
+@keyframes wx-ring{0%,60%,100%{transform:rotate(0)} 10%,30%{transform:rotate(14deg)} 20%,40%{transform:rotate(-14deg)}}
+@media (prefers-reduced-motion:reduce){ .wx-alert-btn .fa-bell{animation:none !important} }
+.wx-here{vertical-align:middle}
+.wx-alert-pop{position:fixed; z-index:1060; top:0; left:0; width:min(300px,80vw); padding:12px 34px 12px 14px; border-radius:12px; border-top:3px solid #E5484D;
+  background:var(--bg-alt,#fff); color:var(--ink,#14233D); font-size:.8rem; font-weight:400; line-height:1.4; text-align:left; box-shadow:0 18px 40px -12px rgba(10,30,60,.45)}
+.wx-alert-pop[hidden]{display:none}
+.wx-alert-pop b{display:block; margin-bottom:4px; color:#C9363B; font-size:.82rem}
+.wx-alert-close{position:absolute; top:6px; right:6px; width:26px; height:26px; border:0; border-radius:50%; background:transparent; color:var(--ink-soft,#5A6B82)}
+.wx-alert-close:hover{background:var(--soft,#EEF3F9)}

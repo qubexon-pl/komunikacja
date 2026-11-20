@@ -864,3 +864,24 @@ test("Polish city lines are public and a Transitous failure answers with an empt
   assert.equal(down.status, 502);
   assert.deepEqual((await down.json()).lines, []);
 });
+
+test("the address at the person's location is served without naming the provider on failure", async (t) => {
+  const geocode = async () => ({ places: [], approximate: false });
+  geocode.reverse = async (lat) => {
+    if (lat > 60) throw new Error("nominatim down");
+    return lat > 55 ? null : { label: "Promykowa 32, Rzeszów", locality: "Rzeszów", exact: true, points: [[lat, 22]] };
+  };
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, geocode });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}/api/geocode/reverse`;
+  const found = await fetch(`${base}?lat=50.02311&lon=21.97012`);
+  assert.equal(found.status, 200);
+  assert.equal((await found.json()).place.label, "Promykowa 32, Rzeszów");
+  assert.equal((await fetch(`${base}?lat=56&lon=22`)).status, 404);
+  assert.equal((await fetch(`${base}?lat=abc&lon=22`)).status, 400);
+  assert.equal((await fetch(`${base}?lon=22`)).status, 400);
+  const failed = await fetch(`${base}?lat=61&lon=22`);
+  assert.equal(failed.status, 502);
+  assert.doesNotMatch(await failed.text(), /nominatim/);
+});

@@ -26,7 +26,7 @@ Bus and PKS pages list every departure from a stop for today or the next six day
 
 ## Street search
 
-"Jak dojechać" accepts a street, with or without a house number, as well as a stop or station name. The server checks the address with OpenStreetMap's public Nominatim service through `/api/geocode`, at most one request per second and with a 24-hour cache. Nominatim does not allow search-as-you-type, so live suggestions come from the Photon service through `/api/streets` and the chosen address is still checked with Nominatim when the form is submitted. The planner then compares several stops near each address and counts the estimated walk. Heavier traffic would need a self-hosted or paid geocoder.
+"Jak dojechać" accepts a street, with or without a house number, as well as a stop or station name. The server checks the address with OpenStreetMap's public Nominatim service through `/api/geocode`, at most one request per second and with a 24-hour cache. Nominatim does not allow search-as-you-type, so live suggestions come from the Photon service through `/api/streets` and the chosen address is still checked with Nominatim when the form is submitted. The planner then compares several stops near each address and counts the estimated walk. On the trip planner page the "Skąd?" field takes only addresses (no stops or map places), and its location button fills in the street and house number where the person is, from Nominatim's reverse search through `/api/geocode/reverse?lat=&lon=`. Heavier traffic would need a self-hosted or paid geocoder.
 
 ## Flights and European cities
 
