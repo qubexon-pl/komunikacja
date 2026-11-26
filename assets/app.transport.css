@@ -1,0 +1,156 @@
+/* Transport workspace (docs/TRANSPORT_REDESIGN.md): split view planner + map, route cards, journey timeline,
+   selected-route summary. Loaded after app.css and app.mobile.css; uses the Podavo variables already in the app
+   (--navy, --red = interactive blue, --gold = amber, --line, --ink, --ink-soft, --bg-alt, --soft) so light and
+   dark themes keep working, plus the --pv-* sizes from onward/css/tokens.css. */
+
+/* ---------- Panel and split view ---------- */
+.city-panel{border-radius:var(--pv-radius-card,18px); background:var(--bg-alt); border:1px solid var(--line); box-shadow:none; padding:var(--pv-space-4,16px)}
+.city-panel .cp-body{grid-template-columns:minmax(300px,40%) minmax(0,1fr); gap:var(--pv-space-4,16px); align-items:start}
+@media (min-width:1200px){ .city-panel .cp-body{grid-template-columns:minmax(360px,420px) minmax(0,1fr)} }
+.city-panel.map-hidden .cp-body{grid-template-columns:minmax(0,720px)}
+.cp-plan{min-width:0; display:flex; flex-direction:column; gap:var(--pv-space-3,12px)}
+.cp-plan h5{margin:0}
+.cp-map-wrap{position:sticky; top:72px; min-width:0}
+.cp-map{height:calc(100vh - 140px); min-height:460px; max-height:860px; border-radius:16px}
+.cp-results{max-height:none; overflow:visible; margin-top:0; gap:var(--pv-space-2,8px)}
+.cp-results:empty{display:none}
+@media (max-width:1199px){ .cp-map{height:calc(100vh - 160px); min-height:420px} }
+
+/* ---------- Search form ---------- */
+.cp-form{gap:var(--pv-space-2,8px)}
+.cp-ends{display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:var(--pv-space-2,8px); row-gap:var(--pv-space-2,8px); align-items:center}
+.cp-ends > label{grid-column:1; min-width:0}
+.cp-ends .cp-swap{grid-column:2; grid-row:1 / span 2; align-self:center; transform:none; width:var(--pv-target,44px); height:var(--pv-target,44px); padding:0; border-radius:var(--pv-radius-input,12px); display:grid; place-items:center}
+.cp-ends .cp-swap i{transform:rotate(90deg); color:var(--red)}
+.cp-lbl{display:flex; align-items:center; gap:6px; font-size:.76rem; font-weight:700; color:var(--ink-soft)}
+.cp-lbl .fa-circle-dot{color:var(--red)} .cp-lbl .fa-location-dot{color:var(--navy)}
+.cp-field{gap:6px}
+.cp-field input,.cp-when input[type=datetime-local]{min-height:var(--pv-control-h,46px); border-radius:var(--pv-radius-input,12px); padding:0 12px; background:var(--bg-alt); font-size:.92rem; font-weight:600}
+.cp-field input:focus,.cp-when input:focus{outline:none; border-color:var(--red); box-shadow:0 0 0 3px color-mix(in srgb,var(--red) 18%,transparent)}
+.cp-pin{min-width:var(--pv-target,44px); min-height:var(--pv-target,44px); border-radius:var(--pv-radius-input,12px); background:var(--bg-alt)}
+.cp-pin .fa-location-arrow{color:var(--red)}
+.cp-pin:disabled{opacity:.5}
+.cp-when{gap:var(--pv-space-2,8px)}
+.cp-when > label:first-child{font-size:.76rem; color:var(--ink-soft)}
+.cp-arrive{min-height:var(--pv-target,44px)}
+.cp-form .cp-go{width:100%; min-height:48px; border:0; border-radius:var(--pv-radius-input,12px); background:var(--gold); color:var(--navy); font-weight:800; font-size:.95rem; display:inline-flex; align-items:center; justify-content:center; gap:8px; box-shadow:none}
+.cp-form .cp-go:hover{filter:brightness(.97)} .cp-form .cp-go:focus-visible{outline:3px solid color-mix(in srgb,var(--red) 45%,transparent); outline-offset:2px}
+.cp-err{color:var(--danger,#E5484D); font-size:.8rem; font-weight:600} .cp-err:empty{display:none}
+.cp-count{font-size:.74rem; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft); padding:2px 2px 0}
+
+/* ---------- Route card ---------- */
+.tr-card.cp-trip{padding:0; border:1px solid var(--line); border-radius:16px; background:var(--bg-alt); overflow:hidden; box-shadow:none; transition:border-color .15s}
+.tr-card.cp-trip.on{border-color:var(--red); box-shadow:0 0 0 1px var(--red)}
+.tr-head.cp-trip-head{all:unset; box-sizing:border-box; display:grid; gap:6px; width:100%; padding:12px 14px; cursor:pointer}
+.tr-head:focus-visible{outline:3px solid color-mix(in srgb,var(--red) 45%,transparent); outline-offset:-3px; border-radius:16px}
+.tr-row{display:flex; align-items:baseline; justify-content:space-between; gap:4px 12px; flex-wrap:wrap; min-width:0}
+.tr-dur{font-size:1.12rem; font-weight:800; color:var(--navy)}
+:root[data-theme="dark"] .tr-dur{color:var(--ink)}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tr-dur{color:var(--ink)} }
+.tr-price{font-weight:800; color:var(--ink)}
+.tr-times{font-weight:700; font-size:.9rem; color:var(--ink)}
+.tr-meta{font-size:.8rem; color:var(--ink-soft)}
+.tr-head .tr-meta,.tr-head .tr-times{color:inherit}
+.tr-head .tr-meta{color:var(--ink-soft)}
+.tr-seq{display:flex; flex-wrap:wrap; align-items:center; gap:4px; min-width:0}
+.tr-seq .cs-chip{font-size:.76rem; padding:2px 7px}
+.tr-walk{display:inline-flex; align-items:center; gap:2px; color:var(--ink-soft); font-size:.8rem} .tr-walk small{font-size:.68rem; font-weight:700}
+.tr-sep{font-size:.55rem; color:var(--ink-soft); opacity:.7}
+.tr-badges{display:flex; flex-wrap:wrap; align-items:center; gap:6px}
+.tr-more{border-top:1px solid var(--line)}
+.tr-more > summary{list-style:none; display:flex; align-items:center; gap:6px; min-height:var(--pv-target,44px); padding:0 14px; cursor:pointer; font-size:.84rem; font-weight:700; color:var(--red)}
+.tr-more > summary::-webkit-details-marker{display:none}
+.tr-more > summary::after{content:""; width:7px; height:7px; border-right:2px solid currentColor; border-bottom:2px solid currentColor; transform:rotate(45deg); margin:-3px 0 0 4px; transition:transform .15s}
+.tr-more[open] > summary::after{transform:rotate(225deg); margin-top:3px}
+.tr-actions{display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 12px}
+.tr-act{display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:0 12px; border:1px solid var(--line); border-radius:12px; background:transparent; color:var(--ink); font-size:.8rem; font-weight:700; text-decoration:none}
+.tr-act:hover,.tr-act:focus-visible{border-color:var(--red); color:var(--ink); outline:none}
+.tr-act i{color:var(--red)}
+@media (pointer:coarse){ .tr-act{min-height:var(--pv-target,44px)} }
+
+/* ---------- Real-time state (scheduled vs live, never inferred from refreshing) ---------- */
+.pvt-rt{display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-size:.72rem; font-weight:700; white-space:nowrap; background:var(--soft); color:var(--ink-soft)}
+.pvt-rt i{font-size:.66rem}
+.pvt-rt.ontime{background:#E7F6EE; color:#1a7f4b} .pvt-rt.minor{background:#FDF0DC; color:#8a5300}
+.pvt-rt.late,.pvt-rt.cancelled{background:#FDECEC; color:#b42318} .pvt-rt.early{background:#E5F1FD; color:#1F63B3}
+:root[data-theme="dark"] .pvt-rt.ontime{background:#123d2c; color:#8FE0BE} :root[data-theme="dark"] .pvt-rt.minor{background:#3d2c0b; color:#F6CB7E}
+:root[data-theme="dark"] .pvt-rt.late,:root[data-theme="dark"] .pvt-rt.cancelled{background:#431b1d; color:#F4A3A3} :root[data-theme="dark"] .pvt-rt.early{background:#14304f; color:#9CC6F4}
+.pvt-fresh{margin-top:2px}
+
+/* ---------- Journey timeline ---------- */
+.jt{list-style:none; margin:0; padding:6px 14px 12px; display:flex; flex-direction:column}
+.jt-ev{position:relative; display:grid; grid-template-columns:48px 30px minmax(0,1fr) auto; column-gap:10px; align-items:start; padding:6px 0; min-height:42px}
+.jt-ev::before{content:""; position:absolute; left:calc(48px + 10px + 14px); top:0; bottom:0; border-left:2px solid var(--line)}
+.jt-ev:first-child::before{top:18px} .jt-ev:last-child::before{bottom:calc(100% - 18px)}
+.jt-ev.jt-k-walk::before{border-left-style:dashed; border-left-color:var(--pv-mode-walk,#64748B)}
+.jt-time{display:flex; flex-direction:column; align-items:flex-end; line-height:1.15; padding-top:5px}
+.jt-time b{font-size:.86rem; font-variant-numeric:tabular-nums} .jt-time small{font-size:.72rem; color:var(--ink-soft); font-variant-numeric:tabular-nums}
+.jt-dot{position:relative; z-index:1; display:grid; place-items:center; width:30px; height:30px; border-radius:50%; background:var(--soft); color:var(--ink-soft); border:2px solid var(--bg-alt); font-size:.78rem}
+.jt-ev.jt-k-bus .jt-dot{background:var(--lc,var(--pv-mode-bus,#2878D0)); color:#fff}
+.jt-ev.jt-k-tram .jt-dot{background:var(--lc,var(--pv-mode-tram,#D9480F)); color:#fff}
+.jt-ev.jt-k-rail .jt-dot{background:var(--lc,var(--pv-mode-rail,#6B4FD8)); color:#fff}
+.jt-ev.jt-k-metro .jt-dot{background:var(--lc,var(--pv-mode-metro,#C2185B)); color:#fff}
+.jt-ev.jt-k-ferry .jt-dot{background:var(--lc,var(--pv-mode-ferry,#0288D1)); color:#fff}
+.jt-ev.jt-k-plane .jt-dot{background:var(--navy); color:#fff}
+.jt-ev.jt-k-arrive .jt-dot{background:var(--gold); color:var(--navy)}
+.jt-ev.jt-k-transfer{min-height:34px} .jt-ev.jt-k-transfer .jt-dot{width:24px; height:24px; margin-left:3px; font-size:.66rem}
+.jt-body{min-width:0; display:flex; flex-direction:column; gap:2px; padding-top:4px}
+.jt-title{display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; min-width:0}
+.jt-title b{font-size:.88rem; overflow-wrap:anywhere}
+.jt-place{font-size:.8rem; color:var(--ink-soft); overflow-wrap:anywhere}
+.jt-facts{font-size:.74rem; color:var(--ink-soft); overflow-wrap:anywhere}
+.jt-ev.jt-k-transfer .jt-title b,.jt-ev.jt-k-walk .jt-title b{font-weight:600}
+.jt-side{display:flex; flex-direction:column; align-items:flex-end; gap:4px; padding-top:5px}
+.jt-plat{font-size:.72rem; font-weight:700; padding:2px 8px; border-radius:8px; background:var(--soft); color:var(--ink); white-space:nowrap}
+.jt.dense{padding:4px 0 6px} .jt.dense .jt-ev{padding:4px 0}
+@media (max-width:420px){
+  .jt-ev{grid-template-columns:42px 28px minmax(0,1fr); grid-template-areas:"time dot body" ". . side"}
+  .jt-ev::before{left:calc(42px + 10px + 13px)}
+  .jt-time{grid-area:time} .jt-dot{grid-area:dot; width:28px; height:28px} .jt-body{grid-area:body}
+  .jt-side{grid-area:side; flex-direction:row; justify-content:flex-start; padding-top:2px}
+}
+
+/* ---------- Map overlays: legend, selected-route summary, phone close button ---------- */
+.cp-map-wrap .cp-legend{position:absolute; top:10px; right:10px; z-index:800; margin:0; max-width:min(60%,420px); justify-content:flex-end; padding:5px 10px; border-radius:12px; background:color-mix(in srgb,var(--bg-alt) 92%,transparent); border:1px solid var(--line); font-size:.7rem}
+.cp-summary{position:absolute; left:12px; right:12px; bottom:12px; z-index:800; max-width:760px; margin:0 auto; padding:10px 14px; border-radius:16px; background:var(--bg-alt); border:1px solid var(--line); box-shadow:0 10px 30px -16px rgba(23,43,73,.45); display:flex; flex-direction:column; gap:8px}
+.cp-summary[hidden]{display:none}
+.ms-head{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; font-size:.86rem}
+.ms-head > span{color:var(--ink-soft); font-size:.8rem}
+.ms-detail{margin-left:auto; display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:0 12px; border:1px solid var(--line); border-radius:10px; background:transparent; color:var(--red); font-weight:700; font-size:.8rem}
+.ms-detail i{font-size:.65rem}
+.ms-legs{list-style:none; margin:0; padding:0 0 2px; display:flex; align-items:center; gap:8px; overflow-x:auto; scrollbar-width:thin}
+.ms-leg{display:flex; align-items:center; gap:6px; flex:0 0 auto; font-size:.8rem}
+.ms-leg span{display:flex; flex-direction:column; line-height:1.2}
+.ms-leg small{font-size:.7rem; color:var(--ink-soft); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.ms-leg.walk{color:var(--ink-soft)}
+.ms-sep{flex:0 0 auto; font-size:.55rem; color:var(--ink-soft)}
+.cp-map-close{display:none}
+
+/* ---------- Phone: list first, map full screen on demand with the summary as a bottom sheet ---------- */
+@media (max-width:760px){
+  .city-panel .cp-body{grid-template-columns:minmax(0,1fr) !important}
+  .cp-map-wrap{position:relative; top:auto}
+  .city-panel:not(.map-full) .cp-map{height:min(55vh,380px) !important}
+  .city-panel.map-full .cp-map-wrap{position:fixed; left:0; right:0; top:calc(56px + env(safe-area-inset-top,0px)); bottom:calc(72px + env(safe-area-inset-bottom,0px)); z-index:1025; background:var(--bg)}
+  .city-panel.map-full .cp-map{height:100% !important; min-height:0; max-height:none; border:0; border-radius:0}
+  .city-panel.map-full .cp-map-close{display:inline-flex; align-items:center; gap:8px; position:absolute; top:12px; right:12px; z-index:850; min-height:var(--pv-target,44px); padding:0 16px; border-radius:999px; border:1px solid var(--line); background:var(--bg-alt); color:var(--ink); font-weight:800; font-size:.86rem; box-shadow:0 6px 18px -10px rgba(23,43,73,.5)}
+  .city-panel.map-full .cp-map-close i{color:var(--red)}
+  .city-panel.map-full .cp-legend{display:none}
+  .city-panel.map-full .cp-summary{left:0; right:0; bottom:0; max-width:none; border-radius:18px 18px 0 0; padding:16px 16px 14px; border-bottom:0}
+  .city-panel.map-full .cp-summary::before{content:""; position:absolute; top:6px; left:50%; width:36px; height:4px; margin-left:-18px; border-radius:2px; background:var(--line)}
+  .city-panel:not(.map-full) .cp-summary{display:none}
+  body.cp-map-open{overflow:hidden}
+  /* Swap sits on the "Dokąd" label line at the right, so both fields keep the full width for long Polish addresses. */
+  .cp-ends{position:relative; grid-template-columns:minmax(0,1fr)}
+  .cp-ends > label + label .cp-lbl{min-height:50px; padding-right:52px}
+  .cp-ends .cp-swap{position:absolute; right:0; top:calc(var(--pv-control-h,46px) + 31px); grid-row:auto; grid-column:auto; background:var(--bg-alt)}
+  .cp-when input[type=datetime-local]{width:100%; max-width:100%; box-sizing:border-box}
+  .cp-when > label:first-child{min-width:0; max-width:100%}
+}
+
+/* Narrow tablets: not enough width for two useful columns, so the map follows the results. */
+@media (min-width:761px) and (max-width:899px){
+  .city-panel .cp-body{grid-template-columns:minmax(0,1fr)}
+  .cp-map-wrap{position:relative; top:auto}
+  .cp-map{height:440px; min-height:0}
+}

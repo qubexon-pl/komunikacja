@@ -3482,11 +3482,8 @@ const CS_OPEN=new Set();
 document.addEventListener('toggle', e=>{ const d=e.target; if(!d.classList?.contains('cs-more')) return; const id=d.closest('[data-cs-id]')?.dataset.csId; if(id){ if(d.open) CS_OPEN.add(id); else CS_OPEN.delete(id); } }, true);
 const CS_SORTS=[['price','Najtaniej'],['time','Najszybciej'],['dep','Najwcześniej']];
 const lineChip=(l)=>{ const [ic]=XMODE[l.kind]||XMODE.bus; const st=l.color?` style="--lc:${esc(l.color)};--lt:${esc(l.textColor||'#fff')}"`:''; return `<span class="cs-chip ${l.color?'own':esc(l.kind)}"${st}><i class="fa-solid fa-${ic}" aria-hidden="true"></i> ${esc(l.line||'')}</span>`; };
-function csSteps(steps){
-  return `<ol class="cs-steps">${steps.map(s=>s.kind==='walk'
-    ?`<li class="walk"><i class="fa-solid fa-person-walking" aria-hidden="true"></i><span>Pieszo ${s.minutes} min${s.to?` do: <b>${esc(s.to)}</b>`:''}</span></li>`
-    :`<li><span class="cs-step-t">${esc(s.dep)}<small>${esc(s.arr)}</small></span>${lineChip(s)}<span><b>${esc(s.from)}</b> → <b>${esc(s.to)}</b><small>${[s.headsign&&'kierunek '+s.headsign, s.stops?`${s.stops} ${s.stops===1?'przystanek':s.stops<5?'przystanki':'przystanków'}`:'', s.minutes+' min', s.agency, s.live?(s.delayMin>0?`opóźnienie ${s.delayMin} min`:'na żywo, punktualnie'):''].filter(Boolean).map(esc).join(' · ')}</small></span></li>`).join('')}</ol>`;
-}
+// Krok po kroku: wspólna oś podróży (assets/app.transport.js) — ta sama dla dojazdów z lotniska i przejazdów po mieście.
+function csSteps(steps){ return PVT.journeyTimeline(PVT.stepsToEvents(steps, L2), {t:L2, dense:true}); }
 function fareText(fr){
   if(!fr) return '<span class="cs-price none">cena: sprawdź u przewoźnika</span>';
   return `<span class="cs-price">${fr.pln!=null?`<b>${fr.pln===0?'bezpłatnie':'ok. '+fr.pln+' zł'}</b>`:''}<small>${esc(fr.text)}${fr.curated&&fr.checked?` · orientacyjnie, stan ${esc(fr.checked)}`:''}</small></span>`;
@@ -3572,24 +3569,32 @@ const VCOLORS={rail:'#2a5bd7', metro:'#c2185b', tram:'#e8590c', bus:'#1a7f4b', f
 function cityPanel(){
   if(CITY.el) return CITY.el;
   const el=document.createElement('section'); el.className='city-panel';
-  el.innerHTML=`<div class="cp-head"><h4><i class="fa-solid fa-train-subway" aria-hidden="true"></i> <span class="cp-title">Komunikacja w mieście</span></h4>
-      <button type="button" class="cp-map-toggle" data-cp-map aria-expanded="true"><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> <span>Ukryj mapę</span></button>
-      <label class="cp-live"><input type="checkbox" checked data-cp-live> Pojazdy na mapie</label><span class="cp-status" aria-live="polite"></span></div>
+  // Układ jak w docs/TRANSPORT_REDESIGN.md: panel wyszukiwania i wyników po lewej, mapa po prawej (na komputerze obok siebie,
+  // na telefonie mapa otwiera się na cały ekran z podsumowaniem wybranej trasy u dołu).
+  el.innerHTML=`<div class="cp-head"><h4><i class="fa-solid fa-train-subway" aria-hidden="true"></i> <span class="cp-title">${L2('Komunikacja w mieście','City transport')}</span></h4>
+      <button type="button" class="cp-map-toggle" data-cp-map aria-expanded="true"><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> <span>${L2('Ukryj mapę','Hide map')}</span></button>
+      <label class="cp-live"><input type="checkbox" checked data-cp-live> ${L2('Pojazdy na mapie','Vehicles on the map')}</label><span class="cp-status" aria-live="polite"></span></div>
     <div class="cp-body">
-      <div class="cp-map-wrap"><div class="cp-map"></div><div class="cp-legend">${[['metro','Metro'],['rail','Kolej'],['tram','Tramwaj'],['bus','Autobus'],['ferry','Prom']].map(([k,l])=>`<span><b class="cp-veh-l" style="background:${VCOLORS[k]}"><i class="fa-solid fa-${XMODE[k][0]}" aria-hidden="true"></i></b>${l}</span>`).join('')}<span><b class="cp-veh-l live" style="background:#888"><i class="fa-solid fa-bus" aria-hidden="true"></i></b>na żywo</span></div></div>
       <aside class="cp-plan">
-        <h5><i class="fa-solid fa-route" aria-hidden="true"></i> Zaplanuj przejazd po mieście</h5>
+        <h5><i class="fa-solid fa-route" aria-hidden="true"></i> ${L2('Zaplanuj przejazd po mieście','Plan a trip in the city')}</h5>
         <form class="cp-form" autocomplete="off">
-          <label>Skąd<span class="cp-field"><input name="from" placeholder="np. adres hotelu, Sagrada Família" required><button type="button" class="cp-pin" data-cp-pick="from" title="Wskaż na mapie" aria-label="Wskaż „Skąd” na mapie"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i></button></span></label>
-          <button type="button" class="cp-swap" data-cp-swap title="Zamień" aria-label="Zamień skąd i dokąd"><i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i></button>
-          <label>Dokąd<span class="cp-field"><input name="to" placeholder="np. Park Güell" required><button type="button" class="cp-pin" data-cp-pick="to" title="Wskaż na mapie" aria-label="Wskaż „Dokąd” na mapie"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i></button></span></label>
-          <div class="cp-when"><label>Kiedy (czas lokalny)<input type="datetime-local" name="when"></label><label class="cp-arrive"><input type="checkbox" name="arrive"> przyjazd na</label></div>
-          <button class="btn-grad" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj połączeń</button>
+          <div class="cp-ends">
+            <label><span class="cp-lbl"><i class="fa-regular fa-circle-dot" aria-hidden="true"></i> ${L2('Skąd','From')}</span><span class="cp-field"><input name="from" placeholder="np. adres hotelu, Sagrada Família" required><button type="button" class="cp-pin" data-cp-here title="${L2('Moja lokalizacja','My location')}" aria-label="${L2('Użyj mojej lokalizacji jako „Skąd”','Use my location as “From”')}"><i class="fa-solid fa-location-arrow" aria-hidden="true"></i></button><button type="button" class="cp-pin" data-cp-pick="from" title="${L2('Wskaż na mapie','Pick on the map')}" aria-label="${L2('Wskaż „Skąd” na mapie','Pick “From” on the map')}"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i></button></span></label>
+            <label><span class="cp-lbl"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${L2('Dokąd','To')}</span><span class="cp-field"><input name="to" placeholder="np. Park Güell" required><button type="button" class="cp-pin" data-cp-pick="to" title="${L2('Wskaż na mapie','Pick on the map')}" aria-label="${L2('Wskaż „Dokąd” na mapie','Pick “To” on the map')}"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i></button></span></label>
+            <button type="button" class="cp-swap" data-cp-swap title="${L2('Zamień','Swap')}" aria-label="${L2('Zamień skąd i dokąd','Swap from and to')}"><i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i></button>
+          </div>
+          <div class="cp-when"><label>${L2('Kiedy (czas lokalny)','When (local time)')}<input type="datetime-local" name="when"></label><label class="cp-arrive"><input type="checkbox" name="arrive"> ${L2('przyjazd na','arrive by')}</label></div>
+          <button class="btn-grad cp-go" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> ${L2('Szukaj połączeń','Find connections')}</button>
+          <small class="cp-err" role="alert"></small>
         </form>
-        <div class="cp-results"></div>
+        <div class="cp-results" aria-live="polite"></div>
       </aside>
+      <div class="cp-map-wrap"><div class="cp-map"></div>
+        <button type="button" class="cp-map-close" data-cp-map-close><i class="fa-solid fa-list" aria-hidden="true"></i> ${L2('Lista','List')}</button>
+        <div class="cp-summary" aria-live="polite" hidden></div>
+        <div class="cp-legend">${[['metro','Metro'],['rail','Kolej'],['tram','Tramwaj'],['bus','Autobus'],['ferry','Prom']].map(([k,l])=>`<span><b class="cp-veh-l" style="background:${VCOLORS[k]}"><i class="fa-solid fa-${XMODE[k][0]}" aria-hidden="true"></i></b>${l}</span>`).join('')}<span><b class="cp-veh-l live" style="background:#888"><i class="fa-solid fa-bus" aria-hidden="true"></i></b>${L2('na żywo','live')}</span></div></div>
     </div>
-    <small class="cp-src">Pojazdy i rozkłady: Transitous (otwarte dane GTFS). Pozycje wynikają z rozkładu; „na żywo” oznacza, że przewoźnik publikuje opóźnienia.</small>`;
+    <small class="cp-src">${L2('Pojazdy i rozkłady: Transitous (otwarte dane GTFS). Pozycje wynikają z rozkładu; „na żywo” oznacza, że przewoźnik publikuje opóźnienia.','Vehicles and timetables: Transitous (open GTFS data). Positions follow the timetable; “live” means the operator publishes delays.')}</small>`;
   CITY.el=el;
   el.querySelector('[data-cp-live]').addEventListener('change', e=>{ CITY.live=e.target.checked; if(CITY.live) loadVehicles(true); else clearVehicles(); });
   el.querySelector('.cp-form').addEventListener('submit', e=>{ e.preventDefault(); cityPlan(); });
@@ -3602,21 +3607,67 @@ function cityPanel(){
     if(e.target.closest('[data-cp-swap]')){ const f=el.querySelector('.cp-form'), a=f.from.value; f.from.value=f.to.value; f.to.value=a; [CITY.ends.from,CITY.ends.to]=[CITY.ends.to,CITY.ends.from]; drawEnds(); return; }
     const sv=e.target.closest('[data-cp-save]'); if(sv){ saveLocalTrip(+sv.dataset.cpSave); return; }
     if(e.target.closest('[data-cp-save-walk]')){ saveLocalTrip('walk'); return; }
-    const it=e.target.closest('[data-cp-trip]'); if(it){ const t=CITY.trips?.[+it.dataset.cpTrip]; if(t){ el.querySelectorAll('.cp-trip').forEach(x=>x.classList.toggle('on',x===it.closest('.cp-trip'))); drawShape(t.shape); } }
+    const it=e.target.closest('[data-cp-trip]'); if(it){ selectCityTrip(+it.dataset.cpTrip); return; }
+    const sh=e.target.closest('[data-cp-show]'); if(sh){ selectCityTrip(+sh.dataset.cpShow); setCityMap(true); return; }
+    const dt=e.target.closest('[data-cp-detail]'); if(dt){ openCityTripDetails(+dt.dataset.cpDetail); return; }
+    if(e.target.closest('[data-cp-map-close]')){ setCityMap(false); return; }
+    if(e.target.closest('[data-cp-here]')){ cityHere(); return; }
   });
   return el;
 }
 // Na stronach komunikacji miejskiej mapa jest domyślnie schowana (planer i wyniki są ważniejsze); otwiera ją przycisk
 // „Pokaż mapę”, wskazanie punktu na mapie albo wybór linii. W planie podróży mapa jest widoczna jak wcześniej.
+// Na telefonie (≤760 px) na stronie komunikacji mapa otwiera się na cały ekran (lista wraca przyciskiem „Lista”,
+// z zachowaniem miejsca przewinięcia); na komputerze i tablecie mapa stoi obok wyników.
+const phoneWidth=()=>window.matchMedia?.('(max-width: 760px)').matches;
 function setCityMap(on){
   const el=CITY.el; if(!el) return;
+  const inTx=!!el.closest('#cityTxPage'), full=on && inTx && phoneWidth();
+  if(full && !el.classList.contains('map-full')) CITY.listScroll=window.scrollY;
+  const leaving=!full && el.classList.contains('map-full');
   el.classList.toggle('map-hidden', !on);
-  if(CTX.on && el.closest('#cityTxPage')) CITY.txMapOpen=on;
+  el.classList.toggle('map-full', full);
+  document.body.classList.toggle('cp-map-open', full);
+  if(leaving && CITY.listScroll!=null){ const y=CITY.listScroll; CITY.listScroll=null; setTimeout(()=>window.scrollTo(0,y),0); }
+  if(CTX.on && inTx) CITY.txMapOpen=phoneWidth()?false:on;
   const b=el.querySelector('[data-cp-map]'); b.setAttribute('aria-expanded', String(on));
-  b.querySelector('span').textContent=on?'Ukryj mapę':'Pokaż mapę';
+  b.querySelector('span').textContent=on?L2('Ukryj mapę','Hide map'):L2('Pokaż mapę','Show map');
   if(!on){ setCityStatus(''); return; }
   setTimeout(()=>{ if(!CITY.map) return; CITY.map.invalidateSize(); if(CITY.route) CITY.map.fitBounds(CITY.route.getBounds(),{padding:[30,30], maxZoom:16}); loadVehicles(true); },0);
 }
+// Wybór trasy: zaznacza kartę, rysuje trasę na mapie i odświeża podsumowanie na mapie (jedno źródło stanu: CITY.sel).
+function selectCityTrip(i){
+  const t=CITY.trips?.[i]; if(!t) return;
+  CITY.sel=i;
+  CITY.el.querySelectorAll('.cp-trip').forEach(x=>{ const on=+x.dataset.cpCard===i; x.classList.toggle('on',on); x.querySelector('[data-cp-trip]')?.setAttribute('aria-pressed',String(on)); });
+  drawShape(t.shape); renderCitySummary();
+}
+function renderCitySummary(){
+  const box=CITY.el?.querySelector('.cp-summary'); if(!box) return;
+  const t=CITY.trips?.[CITY.sel];
+  box.hidden=!t; box.innerHTML=t?PVT.mapSummary(t, CITY.sel, {t:L2}):'';
+}
+function openCityTripDetails(i){
+  if(CITY.el.classList.contains('map-full')) setCityMap(false);
+  const card=CITY.el.querySelector(`[data-cp-card="${i}"]`); if(!card) return;
+  const d=card.querySelector('details'); if(d) d.open=true;
+  setTimeout(()=>card.scrollIntoView({block:'nearest', behavior:'smooth'}),50);
+}
+// „Moja lokalizacja” jako punkt startu: tylko gdy urządzenie pozwala; adres z odwrotnego geokodowania, inaczej opis punktu.
+function cityHere(){
+  const err=CITY.el.querySelector('.cp-err'); err.textContent='';
+  if(!navigator.geolocation){ err.textContent=L2('To urządzenie nie podaje lokalizacji. Wpisz adres.','This device does not share its location. Type an address.'); return; }
+  const btn=CITY.el.querySelector('[data-cp-here]'); btn.disabled=true;
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const lat=pos.coords.latitude, lon=pos.coords.longitude;
+    let label=L2('Moja lokalizacja','My location');
+    try{ const r=await fetch('/api/geocode/reverse?'+new URLSearchParams({lat:lat.toFixed(5), lon:lon.toFixed(5)})); const place=r.ok?(await r.json())?.place:null; if(place?.label) label=place.label; }catch{}
+    btn.disabled=false; setEnd('from',[lat,lon],label);
+  }, e=>{ btn.disabled=false; err.textContent=e?.code===1?L2('Przeglądarka nie zezwala na lokalizację. Wpisz adres.','Your browser blocks location. Type an address.'):L2('Nie udało się ustalić położenia. Wpisz adres.','Could not find your position. Type an address.'); },
+  {enableHighAccuracy:true, timeout:15000, maximumAge:60000});
+}
+// Obrót telefonu albo zmiana szerokości okna: pełnoekranowa mapa tylko na wąskim ekranie.
+window.addEventListener('resize', ()=>{ const el=CITY.el; if(el?.classList.contains('map-full') && !phoneWidth()) setCityMap(true); });
 const cityMapShown=()=>!!CITY.map && !CITY.el?.classList.contains('map-hidden');
 function setCityStatus(text){ const s=CITY.el?.querySelector('.cp-status'); if(s) s.textContent=text; }
 function localNow(zone){ try{ return new Date().toLocaleString('sv-SE',{timeZone:zone}).slice(0,16).replace(' ','T'); }catch{ return ''; } }
@@ -3633,8 +3684,8 @@ function mountCity(slot=document.querySelector('.city-slot')){
   }
   pickBaseLayer(CITY.map, CITY);
   if(fresh && w.centre){
-    CITY.code=w.code; CITY.zone=w.zone; CITY.ends={from:null,to:null}; CITY.trips=null; clearRoute(); drawEnds();
-    el.querySelector('.cp-title').textContent=`Komunikacja: ${w.city}`;
+    CITY.code=w.code; CITY.zone=w.zone; CITY.ends={from:null,to:null}; CITY.trips=null; CITY.sel=null; renderCitySummary(); clearRoute(); drawEnds();
+    el.querySelector('.cp-title').textContent=`${L2('Komunikacja','Transport')}: ${w.city}`;
     el.querySelector('.cp-results').innerHTML='';
     const form=el.querySelector('.cp-form'); form.reset();
     form.from.placeholder=w.fromHint||'np. adres hotelu, Sagrada Família'; form.to.placeholder=w.toHint||'np. Park Güell';
@@ -3643,7 +3694,8 @@ function mountCity(slot=document.querySelector('.city-slot')){
     if(w.airport) setEnd('from',[w.airport.lat,w.airport.lon],`Lotnisko ${w.code}`,true);
     else if(w.home) setEnd('from',[w.home.lat,w.home.lon],w.home.label,true);
   } else if(!CITY.code) CITY.map.setView([w.centre?.lat||RZ_CENTER[0], w.centre?.lon||RZ_CENTER[1]],13);
-  setCityMap(slot.closest('#cityTxPage') ? !!CITY.txMapOpen : true);
+  // Strona komunikacji: na tablecie i komputerze mapa od razu obok wyników; na telefonie po „Pokaż mapę” (pełny ekran).
+  setCityMap(slot.closest('#cityTxPage') ? (CITY.txMapOpen ?? !phoneWidth()) : true);
   setTimeout(()=>CITY.map.invalidateSize(),0);
   startVehicles();
 }
@@ -3685,7 +3737,8 @@ async function placeOf(which){
 }
 async function cityPlan(){
   const el=CITY.el, out=el.querySelector('.cp-results'), f=el.querySelector('.cp-form');
-  out.innerHTML=searching('Szukam połączeń…');
+  el.querySelector('.cp-err').textContent='';
+  out.innerHTML=searching(L2('Szukam połączeń…','Finding connections…'));
   const [a,b]=[await placeOf('from'), await placeOf('to')];
   if(!a||!b){ out.innerHTML=`<div class="empty-note">Nie znaleźliśmy miejsca „${esc(!a?f.from.value:f.to.value)}”. Wpisz inaczej albo wskaż je na mapie.</div>`; return; }
   const q={from:`${a[0]},${a[1]}`, to:`${b[0]},${b[1]}`, zone:CITY.zone, time:f.when.value||''}; if(f.arrive.checked) q.arriveBy='1';
@@ -3706,9 +3759,16 @@ async function cityPlan(){
   CITY.walk={minutes:walkMin, estimated:!d.walk};
   const walkHtml=`<div class="cp-walk"><div><b><i class="fa-solid fa-person-walking" aria-hidden="true"></i> Pieszo ok. ${fmtDuration(walkMin)}</b><small>${d.walk?'trasa piesza':'szacunek z odległości'} · ${fmtKm(hav(a,b)*WALK_FACTOR/1000)}</small></div>
     <div class="cp-walk-btns">${linkBtn(gDir(a,b,'walking'),'diamond-turn-right','Wskazówki (Google Maps)')}${CITY.want?.canSave?'<button type="button" class="btn-ghost cp-save" data-cp-save-walk><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj do planu</button>':''}</div></div>`;
-  if(!d.trips.length){ out.innerHTML=walkHtml+`<div class="empty-note">${stateIll(assetPaths.noResults)}Brak połączeń komunikacją w otwartych rozkładach.</div>`; if(d.walk) drawShape(d.walk.shape); return; }
+  if(!d.trips.length){ CITY.sel=null; renderCitySummary(); out.innerHTML=walkHtml+`<div class="empty-note">${stateIll(assetPaths.noResults)}${L2('Brak połączeń komunikacją w otwartych rozkładach.','No public transport connections in the open timetables.')}</div>`; if(d.walk) drawShape(d.walk.shape); return; }
+  // Karty tras (assets/app.transport.js): zwinięte — godziny, czas, przesiadki, linie, stan na żywo; rozwinięte — oś podróży.
   const fastest=Math.min(...d.trips.map(t=>t.minutes)), fewest=Math.min(...d.trips.map(t=>t.transfers));
-  out.innerHTML=(proxy?`<div class="cs-hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <span>Rozkład na ${esc(fmtDay(want))} nie jest jeszcze opublikowany — pokazujemy połączenia z ${esc(fmtDay(proxy))} (ten sam dzień tygodnia).</span></div>`:'')+walkHtml+d.trips.map((t,i)=>`<div class="cp-trip ${i?'':'on'}"><button type="button" class="cp-trip-head" data-cp-trip="${i}"><b>${esc(t.dep.clock)} → ${esc(t.arr.clock)}</b><span>${fmtDuration(t.minutes)}${t.transfers?` · ${t.transfers} ${t.transfers===1?'przesiadka':'przesiadki'}`:' · bez przesiadek'}${t.walkMin?` · ${t.walkMin} min pieszo`:''}</span>${i===d.trips.findIndex(x=>x.minutes===fastest)?'<span class="cs-badge fast">Najszybciej</span>':''}${i===d.trips.findIndex(x=>x.transfers===fewest&&x.minutes!==fastest)?'<span class="cs-badge direct">Najmniej przesiadek</span>':''}<span class="cp-lines">${t.steps.filter(s=>s.kind!=='walk').map(lineChip).join('')}</span></button>${CITY.want?.canSave?`<button type="button" class="btn-ghost cp-save" data-cp-save="${i}"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj do planu</button>`:''}<details><summary>Szczegóły</summary>${csSteps(t.steps)}</details></div>`).join('')+`<small class="cs-src">Transitous · godziny lokalne (${esc(CITY.zone)})</small>`;
+  const iFast=d.trips.findIndex(x=>x.minutes===fastest), iFew=d.trips.findIndex(x=>x.transfers===fewest&&x.minutes!==fastest);
+  CITY.sel=0;
+  out.innerHTML=(proxy?`<div class="cs-hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <span>Rozkład na ${esc(fmtDay(want))} nie jest jeszcze opublikowany — pokazujemy połączenia z ${esc(fmtDay(proxy))} (ten sam dzień tygodnia).</span></div>`:'')
+    +`<div class="cp-count">${d.trips.length} ${L2(d.trips.length===1?'połączenie':d.trips.length<5?'połączenia':'połączeń', d.trips.length===1?'connection':'connections')}</div>`
+    +d.trips.map((t,i)=>PVT.routeCard(t,i,{t:L2, selected:i===0, fastest:i===iFast, fewest:i===iFew, canSave:!!CITY.want?.canSave, navUrl:gDir(a,b,'transit')})).join('')
+    +walkHtml+PVT.freshness(d.fetchedAt, CITY.zone, d.source||'Transitous', L2);
+  renderCitySummary();
   drawShape(d.trips[0].shape);
 }
 /* Pojazdy: serwer podaje, gdzie każdy będzie przez najbliższe 3 minuty; przeglądarka przesuwa kropki co sekundę. */
