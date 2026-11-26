@@ -8,3 +8,24 @@
   --onward-text: #172B45;
   --onward-border: #E2E9F2;
 }
+
+/* Transport redesign foundation (docs/TRANSPORT_REDESIGN.md §1): the Podavo palette above plus shared sizes. */
+:root {
+  --pv-text-secondary: #64748B;
+  --pv-radius-card: 18px;
+  --pv-radius-input: 12px;
+  --pv-control-h: 46px;
+  --pv-target: 44px;
+  --pv-space-1: 4px;
+  --pv-space-2: 8px;
+  --pv-space-3: 12px;
+  --pv-space-4: 16px;
+  --pv-space-5: 24px;
+  --pv-space-6: 32px;
+  --pv-mode-bus: #2878D0;
+  --pv-mode-tram: #D9480F;
+  --pv-mode-rail: #6B4FD8;
+  --pv-mode-metro: #C2185B;
+  --pv-mode-ferry: #0288D1;
+  --pv-mode-walk: #64748B;
+}
