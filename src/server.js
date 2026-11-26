@@ -65,7 +65,7 @@ const MAX_AUTH_BODY_BYTES = 16 * 1024;
 const MAX_FEED_BYTES = 50 * 1024 * 1024;
 const SESSION_COOKIE = "rzbus_session";
 const OAUTH_COOKIE = "rzbus_oauth_state";
-const APP_PAGES = new Set(["/", "/buses", "/suburban", "/trains", "/plan", "/destinations", "/favourites", "/my-trips", "/trip"]);
+const APP_PAGES = new Set(["/", "/start", "/buses", "/suburban", "/trains", "/plan", "/destinations", "/favourites", "/my-trips", "/trip"]);
 // Polish addresses used before the pages got English names: saved links and bookmarks still work.
 const OLD_PAGES = { "/podroz": "/plan", "/autobusy": "/buses", "/pks": "/suburban", "/pociagi": "/trains", "/kierunki": "/destinations", "/ulubione": "/favourites", "/moje-podroze": "/my-trips", "/podroz-szczegoly": "/trip", "/koncowe": "/plan" };
 const ADMIN_USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

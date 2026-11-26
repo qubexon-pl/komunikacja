@@ -1046,7 +1046,7 @@ function dataIssueCard(i){
     <div class="di-meta"><span><b>${L2("Co działa:","What works:")}</b> ${esc(i.works)}</span><span><b>${L2("Co dalej:","What next:")}</b> ${esc(i.retry)}</span></div></div>`;
 }
 /* Baner w nagłówku: jedna grafika na stronę (pakiet ON/WARD, page-banners). Strona główna planera zostaje przy ilustracji wybrzeża. */
-const PAGE_BANNER={kierunki:'flight-destinations', moje:'my-trips', ulubione:'favourites', trip:'trip-details', rozklad:'timetable'};
+const PAGE_BANNER={start:'flight-destinations', kierunki:'flight-destinations', moje:'my-trips', ulubione:'favourites', trip:'trip-details', rozklad:'timetable'};
 function updateBanner(){
   const view=S.agency, sub=S.sub||'';
   const b=PAGE_BANNER[sub] || (view==='ztm'?'city-buses':view==='pks'?'suburban-buses':view==='kolej'?'trains':S.plan?'search-results':'');
@@ -1281,6 +1281,8 @@ const TRIPV={id:'', city:false, map:false, sheet:'', back:''};
 // Moje podróże mają dwie zakładki: nadchodzące (domyślnie) i archiwum minionych (/my-trips#archive).
 const MYT={tab:'upcoming'};
 function pageFromLocation(){
+  // Pulpit (ekran startowy): „/” dla zalogowanych i w aplikacji na telefonie, oraz „/start”.
+  if(location.pathname==='/' || location.pathname==='/start' || location.pathname==='/index.html') return {view:'podroz', sub:'start', kind:'all'};
   if(location.pathname==='/destinations') return {view:'podroz', sub:'kierunki', kind:'all'};
   if(location.pathname==='/my-trips'){ MYT.tab=pageHash()==='#archive'?'archive':'upcoming'; return {view:'podroz', sub:'moje', kind:'all'}; }
   if(location.pathname==='/trip'){ TRIPV.id=new URLSearchParams(location.search).get('id')||''; return {view:'podroz', sub:'trip', kind:'all'}; }
@@ -1297,6 +1299,7 @@ function pageFromLocation(){
 function pageUrl(view, sub, kind){
   if(sub==='ulubione') return '/favourites'+(kind&&kind!=='all'?'#'+FAV_HASH[kind]:'');
   if(sub==='kierunki') return '/destinations';
+  if(sub==='start') return '/start';
   if(sub==='moje') return '/my-trips'+(MYT.tab==='archive'?'#archive':'');
   if(sub==='trip') return '/trip?id='+encodeURIComponent(TRIPV.id);
   return VIEWS[view].path+(sub==='rozklad'?'#timetable':sub==='linie'?'#lines':'');
@@ -1492,6 +1495,7 @@ function syncNav(){
   if(trip && trip.status!=='booked') all.classList.add('active');
   document.querySelectorAll('[data-proxy]').forEach(b=>b.classList.toggle('active', !!document.getElementById(b.dataset.proxy)?.classList.contains('active')));
   document.querySelectorAll('[data-transit]').forEach(b=>b.classList.toggle('active', TRANSIT.includes(current)));
+  document.querySelector('.bn-more-btn')?.classList.toggle('active', TRANSIT.includes(current) || fav);
 }
 function transitHead(agency, sub, city, tx){
   if(agency==='kolej') return sub==='rozklad'?[`Rozkład pociągów: ${city}`,'Odjazdy i przyjazdy na stacjach w mieście.']
@@ -1508,7 +1512,7 @@ function transitHead(agency, sub, city, tx){
 function setSubpage(sub){
   if((sub==='rozklad'||sub==='linie') && S.agency==='podroz') sub='';
   if(sub==='kierunki' && S.agency!=='podroz') sub='';
-  if((sub==='moje'||sub==='trip') && S.agency!=='podroz') sub='';
+  if((sub==='moje'||sub==='trip'||sub==='start') && S.agency!=='podroz') sub='';
   if(S.sub==='trip' && sub!=='trip'){ document.getElementById('tripPage').innerHTML=''; TRIPV.city=false; TRIPV.sheet=''; TRIPV.map=false; stopVehicles(); }
   S.sub=sub;
   const V=VIEWS[S.agency];
@@ -1517,6 +1521,7 @@ function setSubpage(sub){
   document.body.classList.toggle('fav-mode', sub==='ulubione');
   document.body.classList.toggle('explore-mode', sub==='kierunki');
   document.body.classList.toggle('mytrips-mode', sub==='moje');
+  document.body.classList.toggle('start-mode', sub==='start');
   document.body.classList.toggle('trip-mode', sub==='trip');
   let title=V.title, lead=V.lead;
   // Nagłówki stron jak w arkuszu ON/WARD: krótki tytuł (ostatnie słowo na złoto) i jedno zdanie opisu.
@@ -1526,6 +1531,7 @@ function setSubpage(sub){
   if(sub==='ulubione'){ title=FAV_TITLES[FAVF.kind]; lead='Zapisane trasy, przystanki, stacje i podróże.'; }
   if(sub==='kierunki'){ title='Sprawdź kierunki'; lead=EXPLORE.summary||'Sprawdź, dokąd polecisz z polskich lotnisk.'; }
   if(sub==='moje'){ title='Moje podróże'; lead=MYT.tab==='archive'?'Archiwum: Twoje minione podróże, ich plany i zdjęcia.':'Twoje zaplanowane podróże w jednym miejscu.'; }
+  if(sub==='start'){ const n=firstName(); title=n?L2(`Cześć, ${n}!`,`Hi, ${n}!`):L2('Cześć!','Hi!'); lead=L2('Dokąd teraz? Zaplanuj kolejną podróż albo wróć do zapisanych.','Where to next? Plan your next trip or go back to a saved one.'); }
   if(sub==='trip'){ const t=findTrip(TRIPV.id); title='Szczegóły podróży'; lead=t?tripLead(t):'Twoja podróż krok po kroku.'; }
   setHeroTitle(title);
   document.getElementById('heroLead').textContent=lead;
@@ -1538,6 +1544,7 @@ function setSubpage(sub){
   if(sub==='linie' && !tx){ if(S.agency==='kolej') renderTrainLines(); else renderLinesGrid(); }
   if(sub==='ulubione') renderFavorites();
   if(sub==='moje') renderMyTrips();
+  if(sub==='start') renderStart();
   if(sub==='trip') renderTripPage();
   if(sub==='kierunki'){ EXPLORE.open=true; setTimeout(()=>{ renderExplore(); EXPLORE.map?.invalidateSize(); }, 60); }
 }
@@ -1843,7 +1850,8 @@ document.getElementById('mapToggle').addEventListener('click', ()=>setMapOpen(!d
 document.querySelectorAll('.view-tab:not(.dropdown-toggle):not([data-go]), [data-brand], .topbar a.brand').forEach(a=>a.addEventListener('click', e=>{
   if(e.ctrlKey||e.metaKey||e.shiftKey) return;
   e.preventDefault();
-  goPage(a.dataset.view||'podroz');
+  // Logo prowadzi na pulpit (storyboard); zakładki — do swoich stron.
+  if(a.matches('.topbar a.brand, [data-brand]')) goPage('podroz','start'); else goPage(a.dataset.view||'podroz');
 }));
 function openPage(page, push){ setView(page.view, push, page.sub, page.kind); }
 window.addEventListener('popstate', ()=>openPage(pageFromLocation(), false));
@@ -4827,7 +4835,7 @@ function toggleFavorite(item){
   const key=favKey(item);
   FAV.items=isFavorite(item) ? FAV.items.filter(f=>favKey(f)!==key) : [...FAV.items, item].slice(-50);
   saveFavorites().catch(e=>console.warn('Nie zapisano ulubionych', e));
-  renderFavorites(); syncStars(); if(S.sub==='moje') renderMyTrips();
+  renderFavorites(); syncStars(); if(S.sub==='moje') renderMyTrips(); if(S.sub==='start') renderStart();
 }
 // Rodzaj ulubionego: trasy i podróże należą do planera, przystanki zapisane w planerze to autobusy.
 function favKind(f){ return f.type==='route'||f.type==='trip' ? 'podroz' : f.view==='podroz' ? 'ztm' : f.view; }
@@ -5047,6 +5055,64 @@ document.getElementById('myTripsPage')?.addEventListener('click', e=>{
   const sh=e.target.closest('[data-trip-share]'); if(sh){ e.preventDefault(); e.stopPropagation(); openTrip(sh.dataset.tripShare, {invite:true}); return; }
   const to=e.target.closest('[data-trip-open]'); if(to){ e.preventDefault(); openTrip(to.dataset.tripOpen); }
 });
+/* ---------- Pulpit (ekran startowy, storyboard: ekrany 1 i 11) ----------
+   Powitanie z wyszukiwarką celu, szybkie akcje i najbliższa zapisana podróż. Tylko funkcje, które aplikacja już ma. */
+function firstName(){ const n=(FAV.user?.displayName||'').trim(); return n?n.split(/\s+/)[0]:''; }
+function nextTrip(){
+  const all=[...FAV.items.filter(f=>f.type==='trip' && f.status==='booked'), ...SHARED.items.map(x=>({...x.trip, shared:{ownerId:x.ownerId, ownerName:x.ownerName}}))];
+  const today=ymdOf(0);
+  return all.map(f=>({f, fl:savedFlight(f)||groundDates(f)})).filter(x=>x.fl?.day && (x.fl.back||x.fl.day)>=today)
+    .sort((a,b)=>a.fl.day.localeCompare(b.fl.day))[0]||null;
+}
+function renderStart(){
+  const page=document.getElementById('startPage'); if(!page) return;
+  const trips=FAV.items.filter(f=>f.type==='trip' && f.status==='booked').length+SHARED.items.length;
+  const tile=(attrs,ic,title,sub,count)=>`<a class="st-tile" ${attrs}><span class="st-ico"><i class="${ic}" aria-hidden="true"></i></span><span class="st-txt"><b>${title}</b><small>${sub}</small></span>${count?`<b class="st-count">${count}</b>`:''}<i class="fa-solid fa-chevron-right st-go" aria-hidden="true"></i></a>`;
+  const n=nextTrip();
+  let next;
+  if(n){
+    const {f, fl}=n, today=ymdOf(0), days=Math.round((Date.parse(fl.day)-Date.parse(today))/86400000), now=fl.day<=today;
+    const when=now?L2('trwa','now'):days===0?L2('dziś','today'):L2(`za ${days} ${days===1?'dzień':'dni'}`,`in ${days} ${days===1?'day':'days'}`);
+    const open=f.shared?`data-trip-open="${esc(tidOf(f))}"`:`data-fav-open="${esc(favKey(f))}"`;
+    next=`<div class="st-trip"><div class="st-trip-head"><span class="st-when ${now?'now':''}">${when}</span></div>
+      <h4>${f.title?esc(f.title):`${L2('Podróż do','Trip to')} ${esc(f.to)}`}</h4>
+      <small class="st-dates">${longDay(fl.day,{weekday:'short', day:'numeric', month:'long'})}${fl.back?` – ${longDay(fl.back,{weekday:'short', day:'numeric', month:'long', year:'numeric'})}`:` ${longDay(fl.day,{year:'numeric'})}`}</small>
+      <div class="st-route"><i class="fa-solid fa-route" aria-hidden="true"></i> ${esc(routeText(f))}</div>
+      ${f.shared?`<div class="st-shared"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${L2('Udostępnił(a)','Shared by')}: ${esc(f.shared.ownerName)}</div>`:''}
+      <button type="button" class="st-open" ${open}>${L2('Zobacz całą podróż','See the whole trip')} <i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button></div>`;
+  } else next=`<div class="st-trip empty">${stateIll(assetPaths.noTrips)}<p>${FAV.user?L2('Nie masz nadchodzących podróży.','You have no upcoming trips.'):L2('Zaloguj się, by widzieć tu swoje podróże.','Sign in to see your trips here.')}</p><a class="st-open" href="/plan" data-go="podroz" data-sub="">${L2('Zaplanuj podróż','Plan a trip')} <i class="fa-solid fa-chevron-right" aria-hidden="true"></i></a></div>`;
+  page.innerHTML=`<form class="st-search" id="stSearch" role="search" autocomplete="off"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="stTo" placeholder="${L2('Dokąd chcesz pojechać?','Where do you want to go?')}" aria-label="${L2('Dokąd chcesz pojechać?','Where do you want to go?')}"><button type="submit" class="st-go-btn" aria-label="${L2('Szukaj','Search')}"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></form>
+    <nav class="st-tiles" aria-label="${L2('Szybkie akcje','Quick actions')}">
+      ${tile('href="/plan" data-go="podroz" data-sub="" data-st-new','oi oi-plane',L2('Nowa podróż','New trip'),L2('Loty, pociągi, autobusy, nocleg','Flights, trains, buses, stays'))}
+      ${tile('href="/my-trips" data-go="podroz" data-sub="moje"','oi oi-suitcase',L2('Moje podróże','My trips'),L2('Zaplanowane i zapisane','Planned and saved'),trips)}
+      ${tile('href="/destinations" data-go="podroz" data-sub="kierunki"','oi oi-pin',L2('Kierunki','Destinations'),L2('Dokąd polecisz z polskich lotnisk','Where you can fly from Poland'))}
+      ${tile('href="/buses" data-go="ztm" data-sub=""','oi oi-bus',L2('Komunikacja','Transport'),L2('Transport lokalny, odjazdy, mapy','Local transport, departures, maps'))}
+    </nav>
+    <section class="st-cards"><div class="st-card"><h3>${L2('Najbliższa podróż','Next trip')}</h3>${next}</div>
+      <div class="st-card st-side"><h3>${L2('Ulubione','Favourites')}</h3>${startFavs()}</div></section>`;
+}
+// Kilka ostatnich ulubionych (przystanki, trasy, plany podróży) jako skróty.
+function startFavs(){
+  const list=FAV.items.filter(f=>!(f.type==='trip' && f.status==='booked')).slice(-4).reverse();
+  if(!list.length) return `<p class="st-empty">${L2('Gwiazdką zapiszesz przystanki, stacje, trasy i plany podróży — pojawią się tutaj.','Star stops, stations, routes and trip plans — they will show up here.')}</p>`;
+  return `<ul class="st-favs">${list.map(f=>`<li><button type="button" data-fav-open="${esc(favKey(f))}"><i class="fa-solid fa-star" aria-hidden="true"></i><span>${esc(f.title||f.name||f.label||(f.from&&f.to?`${f.from} → ${f.to}`:f.to)||'')}</span></button></li>`).join('')}</ul>
+    <a class="st-open" href="/favourites" data-go="podroz" data-sub="ulubione">${L2('Wszystkie ulubione','All favourites')} <i class="fa-solid fa-chevron-right" aria-hidden="true"></i></a>`;
+}
+// Linki pulpitu (dodawane po starcie strony) działają jak menu; wyszukiwarka celu otwiera planer z wpisanym „Dokąd?”.
+document.getElementById('startPage')?.addEventListener('click', e=>{
+  const to=e.target.closest('[data-trip-open]'); if(to){ e.preventDefault(); openTrip(to.dataset.tripOpen); return; }
+  const a=e.target.closest('a[data-go]'); if(!a || e.ctrlKey||e.metaKey||e.shiftKey) return;
+  e.preventDefault(); const sub=a.dataset.sub||'';
+  if(a.hasAttribute('data-st-new')) document.getElementById('plReset')?.click();
+  goPage(a.dataset.go, sub, sub==='ulubione'?a.dataset.go:'all');
+});
+document.getElementById('startPage')?.addEventListener('submit', e=>{
+  if(e.target.id!=='stSearch') return; e.preventDefault();
+  const q=document.getElementById('stTo').value.trim();
+  goPage('podroz','');
+  if(q) plTo.value=q;
+  setTimeout(()=>(plFrom.value?plDate:plFrom).focus(), 60);
+});
 function renderMyTrips(){
   const page=document.getElementById('myTripsPage'); if(!page) return;
   const list=FAV.items.filter(f=>f.type==='trip' && f.status==='booked');
@@ -5182,6 +5248,7 @@ async function loadShared(){
     if(b.ok) SHARED.mine=(await b.json()).shares||{};
   }catch(e){ console.warn('Udostępnione podróże', e); SHARED.why='offline'; }
   if(S.sub==='moje') renderMyTrips();
+  if(S.sub==='start') renderStart();
   if(S.sub==='trip') renderTripPage();
 }
 function sharedTrip(tid){ const x=SHARED.items.find(s=>s.trip?.tid===tid); return x?{...x.trip, shared:{ownerId:x.ownerId, ownerName:x.ownerName}}:null; }
@@ -6261,6 +6328,7 @@ document.addEventListener('click', e=>{
 sessionUser.then(async user=>{
   if(!user) return;
   FAV.user=user;
+  if(S.sub==='start') setSubpage('start'); // powitanie z imieniem
   loadShared(); startSending(); loadInbox();
   setInterval(()=>{ if(!document.hidden) loadInbox(); }, 120000);
   // Zmiany zrobione bez internetu są nowsze niż kopia na serwerze: wysyłamy je zamiast łączyć.
