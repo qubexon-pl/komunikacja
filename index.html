@@ -25,12 +25,13 @@
 <link rel="stylesheet" href="/assets/app.css">
 <link rel="stylesheet" href="/assets/app.mobile.css">
 <link rel="stylesheet" href="/assets/app.transport.css">
+<link rel="stylesheet" href="/assets/app.shell.css">
 </head>
 <body>
 
 <nav class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="/plan"><img class="brand-wordmark" src="/assets/onward/logos/wordmark-on-dark.svg" alt="podavo.voyage" width="230" height="32"></a>
+    <a class="brand" href="/"><img class="brand-wordmark" src="/assets/onward/logos/wordmark-on-dark.svg" alt="podavo.voyage" width="230" height="32"></a>
     <div class="view-tabs" aria-label="Kategorie">
       <a class="view-tab" data-view="podroz" href="/plan" title="Zaplanuj podróż"><i class="oi oi-plane" aria-hidden="true"></i> Planuj</a>
       <a class="view-tab" data-view="kierunki" data-go="podroz" data-sub="kierunki" href="/destinations"><i class="oi oi-pin" aria-hidden="true"></i> Kierunki</a>
@@ -68,6 +69,16 @@
     </div>
   </div>
 </nav>
+<!-- Menu boczne na komputerze (≥1200 px), jak w storyboardzie: te same strony co w górnym i dolnym pasku -->
+<aside class="sidenav" aria-label="Menu">
+  <a class="sn-brand" data-brand href="/"><img src="/assets/onward/logos/wordmark-on-dark.svg" alt="podavo.voyage" width="184" height="26"></a>
+  <a data-go="podroz" data-sub="start" href="/"><i class="oi oi-home" aria-hidden="true"></i><span>Pulpit</span></a>
+  <a data-proxy="myTripsLink" href="/my-trips"><i class="oi oi-suitcase" aria-hidden="true"></i><span>Moje podróże</span><b class="sn-count" data-count-of="myTripsCount" hidden></b></a>
+  <a data-go="podroz" data-sub="" href="/plan"><i class="oi oi-plane" aria-hidden="true"></i><span>Planuj podróż</span></a>
+  <a data-go="podroz" data-sub="kierunki" href="/destinations"><i class="oi oi-pin" aria-hidden="true"></i><span>Kierunki</span></a>
+  <a data-go="ztm" data-sub="" data-transit href="/buses"><i class="oi oi-bus" aria-hidden="true"></i><span>Komunikacja</span></a>
+  <a data-proxy="favLink" href="/favourites"><i class="oi oi-star" aria-hidden="true"></i><span>Ulubione</span><b class="sn-count" data-count-of="favCount" hidden></b></a>
+</aside>
 <header class="hero">
   <div class="hero-inner">
     <div class="hero-left">
@@ -92,6 +103,7 @@
 
 <div class="toast-note" id="toastNote" role="status" aria-live="polite" hidden></div>
 <main class="shell">
+  <div id="startPage" class="start-part"></div>
   <nav class="transit-tabs" id="transitTabs" aria-label="Komunikacja" hidden></nav>
   <div id="cityTxPage" class="citytx-part"></div>
   <div class="stats-band only-live map-part">
@@ -519,11 +531,17 @@
 <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.4.0/dist/protobuf.min.js"></script>
 <!-- Dolny pasek na telefonach (w aplikacji i w przeglądarce) -->
 <nav class="bottom-nav" aria-label="Nawigacja">
-  <a data-go="podroz" data-sub="" href="/plan"><i class="oi oi-plane" aria-hidden="true"></i><span>Planuj</span></a>
+  <a data-go="podroz" data-sub="start" href="/"><i class="oi oi-home" aria-hidden="true"></i><span>Start</span></a>
   <a data-go="podroz" data-sub="kierunki" href="/destinations"><i class="oi oi-pin" aria-hidden="true"></i><span>Kierunki</span></a>
+  <a class="bn-plan" data-go="podroz" data-sub="" href="/plan" aria-label="Zaplanuj podróż"><span class="bn-fab"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span>Planuj</span></a>
   <a data-proxy="myTripsLink" href="/my-trips"><i class="oi oi-suitcase" aria-hidden="true"></i><span>Podróże</span><b class="bn-count" data-count-of="myTripsCount" hidden></b></a>
-  <a data-proxy="favLink" href="/favourites"><i class="oi oi-star" aria-hidden="true"></i><span>Ulubione</span><b class="bn-count" data-count-of="favCount" hidden></b></a>
-  <a data-go="ztm" data-sub="" data-transit href="/buses"><i class="oi oi-bus" aria-hidden="true"></i><span>Komunikacja</span></a>
+  <div class="dropup bn-more">
+    <button type="button" class="bn-more-btn" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-bars" aria-hidden="true"></i><span>Więcej</span></button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><a class="dropdown-item" data-go="ztm" data-sub="" data-transit href="/buses"><i class="oi oi-bus" aria-hidden="true"></i> Komunikacja</a></li>
+      <li><a class="dropdown-item" data-proxy="favLink" href="/favourites"><i class="oi oi-star" aria-hidden="true"></i> Ulubione <b class="bn-count" data-count-of="favCount" hidden></b></a></li>
+    </ul>
+  </div>
 </nav>
 <div class="edit-badge" id="editBadge" role="status" hidden><i class="fa-solid fa-pen" aria-hidden="true"></i> <b>Tryb edycji</b> <span id="editBadgeLabel"></span><button type="button" id="editBadgeEnd" title="Zakończ edycję" aria-label="Zakończ edycję">×</button></div>
 <div class="offline-bar" role="status" aria-live="polite">Jesteś offline — pokazujemy zapisane podróże, a zmiany wyślemy po powrocie połączenia.</div>

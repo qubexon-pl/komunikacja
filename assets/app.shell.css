@@ -1,0 +1,106 @@
+/* App shell and dashboard (storyboard screens 1 and 11): menu on the left on a computer, bottom bar with a central
+   "+" on a phone, and the "Pulpit" start page. Podavo palette: --navy, --red (interactive blue), --gold (amber). */
+
+/* ---------- Side menu (computer, ≥1200 px) ---------- */
+.sidenav{display:none}
+@media (min-width:1200px){
+  body{padding-left:232px}
+  .sidenav{display:flex; flex-direction:column; gap:4px; position:fixed; top:0; left:0; bottom:0; width:232px; z-index:1025;
+    padding:0 12px 16px; background:linear-gradient(180deg,#132F5C 0%,var(--navy) 100%); overflow-y:auto; border-right:1px solid rgba(255,255,255,.06)}
+  .sidenav .sn-brand{display:flex; align-items:center; height:56px; padding:0 8px; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,.08); border-radius:0}
+  .sidenav .sn-brand img{width:176px; height:auto}
+  .sidenav a:not(.sn-brand){position:relative; display:flex; align-items:center; gap:12px; min-height:44px; padding:0 14px; border-radius:12px;
+    color:rgba(255,255,255,.78); font-weight:600; font-size:.92rem; text-decoration:none}
+  .sidenav a .oi{width:20px; height:20px}
+  .sidenav a:not(.sn-brand):hover{background:rgba(255,255,255,.08); color:#fff}
+  .sidenav a.active{background:rgba(255,255,255,.14); color:#fff; box-shadow:inset 3px 0 0 var(--gold)}
+  .sidenav a:focus-visible{outline:2px solid var(--gold); outline-offset:2px}
+  .sn-count{margin-left:auto; min-width:22px; height:22px; padding:0 6px; border-radius:11px; background:var(--gold); color:var(--navy); font-size:.72rem; line-height:22px; text-align:center}
+  .sn-count[hidden]{display:none}
+  /* the menu takes over the brand and the page tabs of the top bar */
+  .topbar .brand,.topbar .view-tabs,.topbar .nav-sep,.topbar .nav-fav{display:none !important}
+  .topbar-inner{justify-content:flex-end}
+}
+
+/* ---------- Bottom bar (phone): Start · Kierunki · + · Podróże · Więcej ---------- */
+@media (max-width:760px){
+  .bottom-nav .bn-plan{overflow:visible}
+  .bottom-nav .bn-fab{display:grid; place-items:center; width:46px; height:46px; margin-top:-22px; border-radius:50%; background:var(--gold); color:var(--navy);
+    border:3px solid var(--bg-alt,#fff); box-shadow:0 8px 16px -8px rgba(23,59,112,.55); font-size:1.05rem}
+  .bottom-nav .bn-plan.active{background:transparent}
+  .bottom-nav .bn-plan.active > span:last-child{color:var(--red)}
+  .bn-more{position:relative; display:flex; min-width:0}
+  .bn-more-btn{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; min-height:48px; border:0; border-radius:12px;
+    background:transparent; color:var(--ink-soft); font-size:.7rem; font-weight:700; -webkit-tap-highlight-color:transparent}
+  .bn-more-btn i{font-size:1.1rem; line-height:22px}
+  .bn-more-btn.active,.bn-more-btn[aria-expanded="true"]{color:var(--red); background:color-mix(in srgb,var(--red) 8%,transparent)}
+  .bn-more .dropdown-menu{min-width:220px; padding:6px; border-radius:16px; border:1px solid var(--line); box-shadow:0 12px 30px -12px rgba(23,43,73,.45); margin-bottom:10px !important}
+  .bn-more .dropdown-item{display:flex; align-items:center; gap:10px; min-height:44px; border-radius:10px; font-weight:600}
+  .bn-more .dropdown-item .oi{width:20px; height:20px; color:var(--red)}
+  .bn-more .dropdown-item .bn-count{position:static; margin-left:auto}
+}
+
+/* ---------- Pulpit ---------- */
+body:not(.start-mode) .start-part{display:none !important}
+body.start-mode main.shell > :not(.start-part):not(#attribution){display:none !important}
+body.start-mode .hero .countdown{display:none !important}
+#startPage{display:flex; flex-direction:column; gap:20px; padding-bottom:24px}
+.st-search{position:relative; z-index:2; display:flex; align-items:center; gap:10px; max-width:760px; min-height:58px; margin-top:-30px; padding:0 8px 0 18px;
+  border-radius:16px; background:var(--bg-alt); border:1px solid var(--line); box-shadow:0 14px 30px -20px rgba(23,43,73,.55)}
+.st-search > i{color:var(--ink-soft)}
+.st-search input{flex:1; min-width:0; min-height:48px; border:0; background:transparent; color:var(--ink); font:inherit; font-size:1rem; font-weight:600}
+.st-search input:focus{outline:none}
+.st-search:focus-within{border-color:var(--red); box-shadow:0 0 0 3px color-mix(in srgb,var(--red) 18%,transparent)}
+.st-go-btn{display:grid; place-items:center; width:44px; height:44px; flex:none; border:0; border-radius:12px; background:var(--gold); color:var(--navy)}
+
+.st-tiles{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px}
+.st-tile{position:relative; display:flex; flex-direction:column; align-items:center; gap:10px; padding:18px 12px 16px; text-align:center; border-radius:18px;
+  background:var(--bg-alt); border:1px solid var(--line); color:var(--ink); text-decoration:none; transition:border-color .15s}
+.st-tile:hover,.st-tile:focus-visible{border-color:var(--red); color:var(--ink); outline:none}
+.st-ico{display:grid; place-items:center; width:48px; height:48px; border-radius:14px; background:color-mix(in srgb,var(--gold) 22%,transparent); color:#B07A12}
+.st-ico .oi{width:24px; height:24px}
+.st-txt{display:flex; flex-direction:column; gap:2px; min-width:0}
+.st-txt b{font-size:.95rem} .st-txt small{color:var(--ink-soft); font-size:.78rem; line-height:1.3}
+.st-count{position:absolute; top:10px; right:12px; min-width:22px; height:22px; padding:0 6px; border-radius:11px; background:var(--red); color:#fff; font-size:.72rem; line-height:22px}
+.st-go{display:none}
+
+.st-cards{display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:16px; align-items:start}
+.st-card{display:flex; flex-direction:column; gap:12px; padding:18px 20px; border-radius:18px; background:var(--bg-alt); border:1px solid var(--line); min-width:0}
+.st-card h3{margin:0; font-size:1rem; font-weight:800; color:var(--ink)}
+.st-trip{display:flex; flex-direction:column; gap:6px; min-width:0}
+.st-trip h4{margin:0; font-size:1.2rem; font-weight:800; color:var(--navy); overflow-wrap:anywhere}
+:root[data-theme="dark"] .st-trip h4{color:var(--ink)}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .st-trip h4{color:var(--ink)} }
+.st-trip-head{display:flex}
+.st-when{padding:3px 10px; border-radius:999px; background:color-mix(in srgb,var(--teal,#20A995) 16%,transparent); color:#137565; font-size:.75rem; font-weight:800}
+.st-when.now{background:var(--gold); color:var(--navy)}
+.st-dates{color:var(--ink-soft); font-size:.85rem}
+.st-route,.st-shared{font-size:.88rem; color:var(--ink); overflow-wrap:anywhere} .st-route i,.st-shared i{color:var(--red); margin-right:4px}
+.st-open{align-self:flex-start; display:inline-flex; align-items:center; gap:8px; min-height:44px; margin-top:4px; padding:0 16px; border-radius:12px;
+  border:1px solid var(--line); background:transparent; color:var(--red); font-weight:700; font-size:.88rem; text-decoration:none}
+.st-open i{font-size:.7rem}
+.st-open:hover,.st-open:focus-visible{border-color:var(--red); color:var(--red); outline:none}
+.st-trip.empty{align-items:flex-start} .st-trip.empty .state-ill{width:160px; height:auto} .st-trip.empty p{margin:0; color:var(--ink-soft)}
+.st-favs{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px}
+.st-favs button{display:flex; align-items:center; gap:10px; width:100%; min-height:44px; padding:0 12px; border:1px solid var(--line); border-radius:12px;
+  background:transparent; color:var(--ink); font-weight:600; font-size:.86rem; text-align:left}
+.st-favs button span{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.st-favs button i{color:var(--gold)}
+.st-favs button:hover{border-color:var(--red)}
+.st-empty{margin:0; color:var(--ink-soft); font-size:.86rem}
+
+@media (max-width:899px){
+  .st-cards{grid-template-columns:minmax(0,1fr)}
+}
+/* phone: actions as a list of rows, like screen 1 */
+@media (max-width:760px){
+  #startPage{gap:16px}
+  .st-search{margin-top:-24px; min-height:54px}
+  .st-tiles{grid-template-columns:minmax(0,1fr); gap:8px}
+  .st-tile{flex-direction:row; text-align:left; padding:12px 14px; gap:12px; border-radius:16px}
+  .st-ico{width:42px; height:42px; border-radius:12px}
+  .st-count{position:static; margin-left:auto}
+  .st-go{display:block; margin-left:auto; color:var(--ink-soft); font-size:.75rem}
+  .st-count + .st-go{margin-left:8px}
+  .st-card{padding:16px}
+}
