@@ -80,3 +80,13 @@ test("both planner step bars use the shared stepper", () => {
   assert.match(js, /function stepBar\(P, f\)\{[\s\S]*?PVUI\.stepper\(steps, cur, \{attr:'data-flight-step'/);
   assert.match(js, /function groundStepBar\(P\)\{[\s\S]*?PVUI\.stepper\(steps, cur, \{attr:'data-ground-step'\}/);
 });
+
+test("the planner's journey line keeps details out of the page and opens them in a sheet", () => {
+  const js = read("assets/app.js");
+  const fn = js.slice(js.indexOf("function journeyLine("), js.indexOf("function compareHtml("));
+  assert.doesNotMatch(fn, /jl-details|jl-panel/); // no inline detail column any more
+  assert.match(fn, /JL_DETAIL\.set\(k, \{title, sub, detail\}\)/);
+  assert.match(fn, /aria-haspopup="dialog"/);
+  assert.match(js, /function openJourneyDetail\(k\)\{[\s\S]*?PVUI\.sheet\.open\(/);
+  assert.match(js, /closest\('\[data-jl\]'\); if\(jl\)\{ openJourneyDetail\(jl\.dataset\.jl\)/);
+});

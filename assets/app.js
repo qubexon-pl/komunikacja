@@ -2890,14 +2890,24 @@ function eurPln(pln, eur){ const e=eur!=null?eur:(FX.eur&&pln!=null?pln/FX.eur:n
 // Porównanie dojazdów: kiedy wyjść, ile trwa droga na lotnisko i ile kosztuje razem z lotem.
 // Główne miejsca podróży na pionowej, kropkowanej linii. Szczegóły wszystkich punktów są od razu rozwinięte
 // (to planowanie, więc nie trzeba klikać); kliknięcie punktu zwija albo rozwija jego szczegóły.
+// Szczegóły punktów przebiegu podróży z ostatniego rysowania planu, do otwarcia w oknie (klucz: oferta|punkt).
+const JL_DETAIL=new Map();
+function openJourneyDetail(k){
+  const d=JL_DETAIL.get(k); if(!d || !window.PVUI) return;
+  const h=PVUI.sheet.open({title:d.title, html:(d.sub?`<p class="jl-sheet-sub">${esc(d.sub)}</p>`:'')+`<div class="jl-sheet">${d.detail}</div>`});
+  // „Szczegóły lotu” w oknie: okno zamyka się i otwiera się karta lotu, jak wcześniej z listy
+  h.el.addEventListener('click', e=>{ const fl=e.target.closest('[data-flight]'); if(fl){ h.close(); openFlight(fl.dataset.flight); } });
+}
 function journeyLine(P, f, o, {only=''}={}){
-  const key=offerKey(f), closed=P.jlClosed||(P.jlClosed=new Set()), clock=v=>v?v.slice(11,16):'';
+  if(JL_DETAIL.size>300) JL_DETAIL.clear();
+  const key=offerKey(f), clock=v=>v?v.slice(11,16):'';
   const when=ts=>ts?`${dayOfTs(ts)!==f.day?fmtDay(dayOfTs(ts))+' ':''}${fmtClock(ts)}`:'';
-  const panels=[];
+  // Na ekranie zostaje tylko to, co potrzebne od razu (środek transportu, skąd–dokąd, godziny, czas, koszt).
+  // Szczegóły punktu (trasa krok po kroku, linki, odprawa) otwierają się w oknie (PVUI.sheet) po kliknięciu.
   const item=(id, cls, mark, title, sub, detail)=>{
-    const on=!closed.has(key+'|'+id);
-    if(on&&detail) panels.push(`<section class="jl-panel"><header><b>${esc(title)}</b>${sub?`<small>${esc(sub)}</small>`:''}<button type="button" class="jl-close" data-jl="${esc(key+'|'+id)}" aria-label="Zamknij"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></header>${detail}</section>`);
-    return `<li class="${cls} ${on?'on':''}"><button type="button" class="jl-btn" data-jl="${esc(key+'|'+id)}" aria-expanded="${on}" ${detail?'':'disabled'}>${mark}<span class="jl-text"><b>${esc(title)}</b>${sub?`<small>${esc(sub)}</small>`:''}</span>${detail?`<i class="fa-solid fa-chevron-${on?'left':'right'} jl-caret" aria-hidden="true"></i>`:''}</button></li>`;
+    const k=key+'|'+id;
+    if(detail) JL_DETAIL.set(k, {title, sub, detail});
+    return `<li class="${cls}"><button type="button" class="jl-btn" data-jl="${esc(k)}" ${detail?'aria-haspopup="dialog"':'disabled'}>${mark}<span class="jl-text"><b>${esc(title)}</b>${sub?`<small>${esc(sub)}</small>`:''}</span>${detail?'<i class="fa-solid fa-chevron-right jl-caret" aria-hidden="true"></i>':''}</button></li>`;
   };
   const dot='<span class="jl-dot" aria-hidden="true"></span>';
   const ico=(m)=>`<span class="jl-ico" style="--k:${MODE_COLOR[m]||MODE_COLOR.other}"><i class="fa-solid fa-${MODE_ICON[m]||m}" aria-hidden="true"></i></span>`;
@@ -2928,7 +2938,7 @@ function journeyLine(P, f, o, {only=''}={}){
   }
   const save='';
   if(only==='go') return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Dojazd na lotnisko krok po kroku</h4></div><div class="jl-steps">${o?.steps?.length?stepsHtml(o.steps):''}</div></div>`;
-  return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Przebieg podróży</h4>${save}</div><small class="text-soft">Kliknij punkt podróży, aby zwinąć albo rozwinąć jego szczegóły.</small><div class="jl-wrap"><ol class="journey-line">${items.join('')}</ol><div class="jl-details">${panels.length?panels.join(''):'<div class="jl-empty"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Szczegóły wybranych punktów pojawią się tutaj.</div>'}</div></div></div>`;
+  return `<div class="journey-box"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> Przebieg podróży</h4>${save}</div><small class="text-soft">Kliknij punkt podróży, aby zobaczyć szczegóły.</small><ol class="journey-line">${items.join('')}</ol></div>`;
 }
 function compareHtml(P, f, options, picked){
   const list=options.filter(o=>o.minutes!=null||o.cost!=null); if(!list.length) return '';
@@ -6958,7 +6968,7 @@ document.getElementById('planResults').addEventListener('click', e=>{
   const pf=e.target.closest('[data-pick-flight]'); if(pf){ const P=stageOf(pf); if(pf.dataset.pickFlight==='out') P.selOut=pf.dataset.key; else P.selRet=pf.dataset.key; P.flightStep=1; runPlan(false); return; }
   const rd=e.target.closest('[data-radius]'); if(rd){ const sel=document.getElementById('plRadius'); sel.value=rd.dataset.radius; store('rzbus.plan.radius', rd.dataset.radius); document.getElementById('planForm').requestSubmit(); return; }
   const ap=e.target.closest('[data-acc-pick]'); if(ap){ const P=stageOf(ap); (P.accessPick||(P.accessPick=new Map())).set(ap.dataset.accPick, ap.dataset.accId); runPlan(false); return; }
-  const jl=e.target.closest('[data-jl]'); if(jl){ const P=stageOf(jl), set=P.jlClosed||(P.jlClosed=new Set()); if(set.has(jl.dataset.jl)) set.delete(jl.dataset.jl); else set.add(jl.dataset.jl); runPlan(false); return; }
+  const jl=e.target.closest('[data-jl]'); if(jl){ openJourneyDetail(jl.dataset.jl); return; }
   const fp=e.target.closest('[data-page]'); if(fp){ stageOf(fp).flightPage=+fp.dataset.page; runPlan(false); return; }
   const tr=e.target.closest('[data-train]'); if(tr){ openTrain(tr.dataset.train); return; }
   const bp=e.target.closest('[data-back-page]');
