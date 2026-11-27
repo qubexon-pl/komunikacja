@@ -20,6 +20,7 @@ if (typeof tls.setDefaultCACertificates === "function" && typeof tls.getCACertif
 const { createAirportTransfers } = require("./airport-transfers");
 const { createCityTransit } = require("./city-transit");
 const { listCities, findCity, listProviders } = require("./transport");
+const { createTransportDepartures } = require("./transport-adapters");
 const { createTransitous } = require("./transitous");
 const { publicCities } = require("./pl-cities");
 const { AGENCIES, createSnapshots, createSqlConfig, getSchedule, importedHash, readAirportFares, readAirportTransfers, readFlightFares, readFlightNetwork, readSchedule, readSetting, replaceAirportFares, replaceAirportTransfers, replaceFlightFares, appendFareHistory, replaceSchedule, saveFlightNetwork, saveSetting } = require("./database");
@@ -75,7 +76,7 @@ const ANDROID_APK_PATH = "/download/voyage.apk";
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, reverse: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30, "transport-info": 120 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, reverse: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30, "transport-info": 120, "transport-departures": 120 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -1179,6 +1180,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
   const transitClient = createTransitous({ fetchSource });
   const airportTransfers = transfers || createAirportTransfers({ transitous: transitClient, toPln: fareRates, geocode, snapshots, drive });
   const city = cityTransit || createCityTransit({ transitous: transitClient, store: snapshots });
+  const transportDepartures = createTransportDepartures({ snapshots });
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
@@ -1240,9 +1242,9 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "transit" && segments.length === 3 && ["plan", "vehicles", "cities", "stops", "departures", "lines"].includes(segments[2]))
           || (segments[1] === "hotels" && segments.length === 2)
           || (segments[1] === "rates" && segments.length === 2)
-          || (segments[1] === "transport" && ((segments.length === 3 && ["cities", "providers"].includes(segments[2])) || (segments.length === 4 && segments[2] === "cities")))
+          || (segments[1] === "transport" && ((segments.length === 3 && ["cities", "providers", "departures"].includes(segments[2])) || (segments.length === 4 && segments[2] === "cities")))
         ) ? (segments[1] === "feeds" ? "feeds"
-          : segments[1] === "transport" ? "transport-info"
+          : segments[1] === "transport" ? (segments[2] === "departures" ? "transport-departures" : "transport-info")
           : segments[1] === "airport-transfers" ? (segments[2] === "options" ? "transfer-options" : segments[2] ? "transfer-trips" : "transfers")
           : segments[1] === "geocode" && segments[2] === "reverse" ? "reverse"
           : segments[1] === "transit" ? ({ plan: "city-plan", cities: "city-list", stops: "city-stops", departures: "departures", lines: "city-lines" }[segments[2]] || "vehicles")
@@ -1327,6 +1329,19 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           } catch (error) {
             if (error.detail) console.warn("Booking.com:", error.message, error.detail);
             json(res, [400, 429].includes(error.status) ? error.status : 502, { error: error.message, hotels: [] });
+          }
+          return;
+        }
+        // Phase 4b: departures from Rzeszów's imported timetable and PKP PLK in the shared Departure model.
+        if (publicRoute === "transport-departures") {
+          const q = (name) => url.searchParams.get(name) || "";
+          try {
+            const result = await transportDepartures.departures({ provider: q("provider"), stop: q("stop"), time: q("time"), limit: q("limit") });
+            if (result.unavailable) json(res, 503, { error: "Rozkład jest chwilowo niedostępny.", departures: [] });
+            else json(res, 200, result);
+          } catch (error) {
+            json(res, [400, 404].includes(error.status) ? error.status : 502, { error: error.status ? error.message : "Odjazdy są chwilowo niedostępne.", departures: [] });
+            if (!error.status) console.warn("Transport departures:", error.message);
           }
           return;
         }
