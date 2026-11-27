@@ -166,6 +166,18 @@
         <button type="button" class="explore-toggle" id="exploreToggle" aria-expanded="true"><span>Ukryj mapę</span> <i class="fa-solid fa-chevron-up" aria-hidden="true"></i></button>
       </div>
     </div>
+    <div class="disc-modes" role="tablist" aria-label="Widok kierunków">
+      <button type="button" role="tab" class="disc-mode" data-disc-mode="list" aria-selected="true"><i class="fa-solid fa-list" aria-hidden="true"></i> Lista z cenami</button>
+      <button type="button" role="tab" class="disc-mode" data-disc-mode="map" aria-selected="false"><i class="oi oi-map" aria-hidden="true"></i> Mapa</button>
+    </div>
+    <div class="disc" id="disc" hidden>
+      <div class="disc-filters">
+        <label class="disc-f"><span>Kiedy</span><select id="discWhen" aria-label="Kiedy"></select></label>
+        <label class="disc-f"><span>Pobyt</span><select id="discNights" aria-label="Pobyt"><option value="0">Tylko wylot</option><option value="2">2 noce</option><option value="3">3 noce</option><option value="4">4 noce</option><option value="5">5 nocy</option><option value="7">7 nocy</option></select></label>
+        <label class="disc-f"><span>Lotniska w promieniu</span><select id="discRadius" aria-label="Lotniska w promieniu"><option value="150">150 km</option><option value="200">200 km</option><option value="300" selected>300 km</option><option value="400">400 km</option><option value="600">600 km</option></select></label>
+      </div>
+      <div id="discOut" aria-live="polite"></div>
+    </div>
     <div class="explore-from" id="exploreFrom" role="group" aria-label="Lotniska wylotu"></div>
     <div class="explore-map-wrap">
       <div id="exploreMap" aria-label="Mapa kierunków lotów"></div>
@@ -533,6 +545,7 @@
 <script src="/assets/app.tour.js"></script>
 <script src="/assets/app.ui.js"></script>
 <script src="/assets/app.transport.js"></script>
+<script src="/assets/app.discover.js"></script>
 <script src="/assets/app.js"></script>
 </body>
 </html>

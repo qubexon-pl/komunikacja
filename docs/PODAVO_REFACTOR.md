@@ -149,3 +149,18 @@ the radius (default 300 km), in a window of at most 92 days (default 30).
   `weather: null` and `weatherFrom`, the day the forecast will exist. Only the destination's coordinates are sent.
 
 Every answer carries `collectedAt` of the newest fare and `source`. The page that uses it is 5b.
+
+## 5b: discovery-first Kierunki page
+
+The Kierunki page now opens on **Lista z cenami**: the cheapest stored flight to each place from `/api/discover`, with
+the existing route map one tab away (**Mapa**). The choice of view and the filters stay in this browser
+(`podavo.disc.mode`, `podavo.disc.filters`).
+
+- Filters: when (next 30 days, next 3 months, or one of the next four months), stay (one way, or 2–7 nights with a
+  stored flight home) and the airport radius. The search box above filters the list by city, country or airport.
+- Card (`PVD.card`, assets/app.discover.js): place and nearby airports, flight out (and home) with day, time, airline
+  and airports, the forecast where one exists or the day it will, the price "od X zł" per person, and the drive to
+  the airport marked as an estimate. "Zaplanuj" fills the planner with the place and the dates (round trip when it
+  has a flight home) and asks the person to search for current prices.
+- Under the list: where the prices come from, when the newest was collected, and that weather is Open-Meteo.
+- Only the start point rounded to about 1 km is sent to the server.

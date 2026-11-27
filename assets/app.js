@@ -4634,6 +4634,7 @@ function renderExplore(){
   sec.classList.toggle('closed', !EXPLORE.open);
   const t=document.getElementById('exploreToggle'); t.setAttribute('aria-expanded',String(EXPLORE.open)); t.querySelector('span').textContent=EXPLORE.open?'Ukryj mapę':'Pokaż mapę'; t.querySelector('i').className=`fa-solid fa-chevron-${EXPLORE.open?'up':'down'}`;
   document.querySelectorAll('[data-explore-air]').forEach(b=>{ const on=EXPLORE.airlines.has(b.dataset.exploreAir); b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); });
+  if(discApply()) return;
   if(!FL.network.length || !FL.data){ document.getElementById('exploreInfo').textContent=FL.data===null?'Połączenia są chwilowo niedostępne.':'Wczytuję połączenia…'; return; }
   const origins=exploreOrigins(); renderExploreFrom(origins); exploreSuggestions();
   if(!EXPLORE.open) return;
@@ -4763,6 +4764,80 @@ document.getElementById('explore').addEventListener('click', e=>{
   if(e.target.closest('[data-explore-all]')){ const pl=exploreOrigins().filter(a=>a.country==='Polska').map(a=>a.code), all=pl.every(c=>EXPLORE.from.has(c)); EXPLORE.from=new Set(all?pl.slice(0,3):pl); renderExplore(); return; }
   if(e.target.closest('#exploreToggle')){ EXPLORE.open=!EXPLORE.open; store('rzbus.explore.open', EXPLORE.open); renderExplore(); }
 });
+
+/* ---------- Odkrywanie (5b): lista kierunków z cenami z /api/discover ---------- */
+// Domyślnie lista z cenami (najtańszy zapisany lot do każdego miejsca), mapa jednym kliknięciem. Wybór widoku i filtrów
+// zostaje w tej przeglądarce. Do serwera idzie tylko punkt startu zaokrąglony do ok. 1 km.
+const DISC={mode:store('podavo.disc.mode')==='map'?'map':'list', data:null, key:'', seq:0, f:store('podavo.disc.filters')||{}};
+function discWhenOptions(){
+  const sel=document.getElementById('discWhen'); if(!sel || sel.options.length) return;
+  const today=ymdOf(0), add=(d,n)=>new Date(Date.parse(d+'T12:00:00Z')+n*864e5).toISOString().slice(0,10);
+  const opts=[[`${today}|${add(today,30)}`, L2('Najbliższe 30 dni','Next 30 days')], [`${today}|${add(today,90)}`, L2('Najbliższe 3 miesiące','Next 3 months')]];
+  const [y,m]=today.split('-').map(Number);
+  for(let i=0;i<4;i++){
+    const yy=y+Math.floor((m-1+i)/12), mm=(m-1+i)%12+1, first=`${yy}-${String(mm).padStart(2,'0')}-01`, last=new Date(Date.UTC(yy,mm,0)).toISOString().slice(0,10);
+    const name=new Date(first+'T12:00:00Z').toLocaleDateString(isEn()?'en-GB':'pl-PL',{month:'long', year:'numeric', timeZone:'UTC'});
+    opts.push([`${first<today?today:first}|${last}`, name.charAt(0).toUpperCase()+name.slice(1)]);
+  }
+  sel.innerHTML=opts.map(([v,l])=>`<option value="${v}">${esc(l)}</option>`).join('');
+  const nights=document.getElementById('discNights'), radius=document.getElementById('discRadius');
+  const kept=[...sel.options].find(o=>o.text===DISC.f.whenText); if(kept) sel.value=kept.value; // „Najbliższe 30 dni” zostaje, choć jego daty idą naprzód
+  if(DISC.f.nights!=null && [...nights.options].some(o=>o.value===String(DISC.f.nights))) nights.value=String(DISC.f.nights);
+  if(DISC.f.radius && [...radius.options].some(o=>o.value===String(DISC.f.radius))) radius.value=String(DISC.f.radius);
+}
+// Pokazuje wybrany widok; true, gdy to lista (mapa się wtedy nie rysuje).
+function discApply(){
+  const sec=document.getElementById('explore'), list=DISC.mode==='list';
+  sec.classList.toggle('disc-on', list);
+  document.getElementById('disc').hidden=!list;
+  document.querySelectorAll('[data-disc-mode]').forEach(b=>{ const on=b.dataset.discMode===DISC.mode; b.classList.toggle('on',on); b.setAttribute('aria-selected',String(on)); });
+  if(list){ discWhenOptions(); loadDisc(); }
+  return list;
+}
+function discQuery(){
+  const [from,to]=(document.getElementById('discWhen').value||'|').split('|'), home=exploreHome();
+  return new URLSearchParams({origin:`${(+home[0]).toFixed(2)},${(+home[1]).toFixed(2)}`, from, to, nights:document.getElementById('discNights').value||'0', radius:document.getElementById('discRadius').value||'300', limit:'60'});
+}
+function renderDisc(){
+  const out=document.getElementById('discOut'); if(!out) return;
+  if(DISC.data?.error){ out.innerHTML=`<div class="empty-note">${esc(DISC.data.error)}</div>`; return; }
+  if(!DISC.data){ out.innerHTML=`<div class="empty-note">${esc(L2('Szukam najtańszych zapisanych lotów…','Looking for the cheapest stored flights…'))}</div>`; return; }
+  const q=(document.getElementById('exploreSearch')?.value||'').trim().toLocaleLowerCase('pl');
+  const shown=q?{...DISC.data, destinations:DISC.data.destinations.filter(d=>`${d.city} ${d.country} ${d.code} ${(d.alsoAirports||[]).join(' ')}`.toLocaleLowerCase('pl').includes(q))}:DISC.data;
+  out.innerHTML=PVD.list(shown,{t:L2});
+  const info=document.getElementById('exploreInfo'); if(info) info.textContent=L2(`${DISC.data.total} ${plural(DISC.data.total,'kierunek','kierunki','kierunków')} z cenami`, `${DISC.data.total} destinations with prices`);
+}
+async function loadDisc(force){
+  const q=discQuery(), key=q.toString();
+  if(!force && key===DISC.key && DISC.data){ renderDisc(); return; }
+  DISC.key=key; DISC.data=null; renderDisc();
+  const seq=++DISC.seq;
+  try{
+    const r=await fetch('/api/discover?'+q), body=await r.json().catch(()=>({}));
+    if(seq!==DISC.seq) return;
+    DISC.data=r.ok?body:{error:body.error||L2('Kierunki są chwilowo niedostępne.','Destinations are unavailable right now.')};
+  }catch(e){ if(seq===DISC.seq) DISC.data={error:L2('Brak połączenia z serwerem.','No connection to the server.')}; }
+  if(seq===DISC.seq) renderDisc();
+}
+function discPlan(code){
+  const d=DISC.data?.destinations?.find(x=>x.code===code); if(!d) return;
+  exploreChoose({city:d.city, country:d.country, code:d.code});
+  plDate.value=d.outbound.day;
+  if(d.ret){ document.querySelector('[data-round="1"]')?.click(); plBack.value=d.ret.day; }
+  else if(plRound.checked) document.querySelector('[data-round="0"]')?.click();
+  document.getElementById('planHint').textContent=L2(`Wybrano: ${d.city}, ${fmtDay(d.outbound.day)}${d.ret?' – '+fmtDay(d.ret.day):''}. Kliknij „Szukaj”, by sprawdzić aktualne ceny.`, `Chosen: ${d.city}, ${fmtDay(d.outbound.day)}${d.ret?' – '+fmtDay(d.ret.day):''}. Press “Search” to check current prices.`);
+}
+document.getElementById('explore').addEventListener('click', e=>{
+  const m=e.target.closest('[data-disc-mode]');
+  if(m){ DISC.mode=m.dataset.discMode; store('podavo.disc.mode', DISC.mode); renderExplore(); if(DISC.mode==='map') setTimeout(()=>EXPLORE.map?.invalidateSize(),60); return; }
+  const p=e.target.closest('[data-disc-plan]'); if(p) discPlan(p.dataset.discPlan);
+});
+document.getElementById('disc').addEventListener('change', ()=>{
+  const w=document.getElementById('discWhen');
+  DISC.f={when:w.value, whenText:w.selectedOptions[0]?.text, nights:document.getElementById('discNights').value, radius:document.getElementById('discRadius').value};
+  store('podavo.disc.filters', DISC.f); loadDisc();
+});
+document.getElementById('exploreSearch')?.addEventListener('input', ()=>{ if(DISC.mode==='list') renderDisc(); });
 
 /* ---------- Tanie linie lotnicze ---------- */
 const FL={data:null, network:[], byKey:new Map(), updating:new Set()};
