@@ -189,3 +189,20 @@
    steps, links and check-in notes open in PVUI.sheet. */
 .jl-sheet-sub{ margin:0 0 10px; color:var(--ink-soft); font-size:.875rem; }
 .jl-sheet .btn-ghost{ min-height:44px; }
+
+/* Details behind a button (Phase 3b part 2): cost breakdowns, price assumptions, baggage and the chosen way to the
+   airport step by step open in PVUI.sheet; the screen keeps the total and the choice. */
+.pv-info-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.pv-info-btn{ display:inline-flex; align-items:center; gap:6px; padding:5px 12px; font-size:.82rem; }
+.pv-info-btn i{ color:var(--red); }
+.fl-pricebox .pv-info-btn{ justify-content:center; }
+.acc-detail-row{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-top:12px;
+  padding:10px 14px; border:1px solid var(--line); border-radius:14px; background:var(--bg-alt); }
+.acc-detail-row .acc-links{ margin:0; }
+.acc-detail-what{ display:inline-flex; align-items:center; gap:8px; min-width:0; }
+.pv-info p,.pv-info-note{ margin:10px 0 0; color:var(--ink-soft); font-size:.875rem; line-height:1.45; }
+.pv-info .pv-info-note i{ color:var(--ink-soft); margin-right:4px; }
+.pv-info .cost-card{ margin:0; padding:0; border:0; background:none; box-shadow:none; }
+.pv-info .price-split{ margin:0; padding:0; border:0; font-size:.9rem; }
+.cost-short .cost-total{ margin-top:0; }
+@media (max-width:767px){ .pv-info-btn{ min-height:44px; } }
