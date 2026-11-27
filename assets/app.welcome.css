@@ -72,7 +72,7 @@ img{max-width:100%}
   .start__art{order:-1; flex:1 1 0; min-height:90px}
 }
 /* phones (the app's phone breakpoint) */
-@media (max-width:760px){
+@media (max-width:767px){
   .w-top{gap:8px; min-height:56px; padding-left:max(12px,env(safe-area-inset-left,0px)); padding-right:max(12px,env(safe-area-inset-right,0px))}
   .w-brand img{width:140px}
   .lang-switch button{min-width:32px; padding:0 6px}
@@ -104,7 +104,7 @@ img{max-width:100%}
   .start__lead{font-size:15px; line-height:1.45}
   .start-role{padding:12px 14px}
 }
-@media (max-width:760px) and (max-height:700px){
+@media (max-width:767px) and (max-height:700px){
   .start__trust{display:none}
   .start h1{font-size:28px}
   .start__lead{font-size:14px}

@@ -1,7 +1,7 @@
 /* ================================================================
-   Phone layout (≤ 760 px): one column, nothing wider than the screen.
+   Phone layout (< 768 px): one column, nothing wider than the screen.
    Loaded after app.css, so these rules settle the earlier narrow-screen patches in one place.
-   Breakpoints: 760 px (phones, bottom bar on), 400 px (small phones such as 360 px Android).
+   Breakpoints: 768 px (phones below it, bottom bar on; see tokens.css), 400 px (small phones such as 360 px Android).
    ================================================================ */
 /* "Install app" button (shown only when the browser can install the site, or on iPhone with instructions) */
 .install-btn{display:inline-flex; align-items:center; gap:6px; padding:7px 14px !important; border:1px solid rgba(255,255,255,.45) !important; border-radius:999px; white-space:nowrap}
@@ -11,7 +11,7 @@
 /* items that exist only in the phone account menu (on a computer they are in the Admin menu) */
 .phone-only{display:none}
 
-@media (max-width:760px){
+@media (max-width:767px){
   /* ---- base: the page never scrolls sideways, text wraps, inputs don't zoom on iOS ---- */
   html,body{overflow-x:clip; max-width:100%}
   body{-webkit-text-size-adjust:100%; text-size-adjust:100%}
@@ -273,7 +273,7 @@
 /* ---- typing: the field goes up to just under the top bar (see app.native.js) ----
    --kb-overlap is the part of the screen the keyboard covers when the app's web view is not resized; usually 0.
    .kb-room adds space under the page while typing, so the last fields on a page can scroll up too. */
-@media (max-width:760px){
+@media (max-width:767px){
   body.kb-room{padding-bottom:calc(var(--app-bottom,62px) + var(--kb-overlap,0px) + 70vh) !important}
 
   /* the "Compare connections: buses, trains…" picture under the search box only takes room on a phone */
@@ -282,8 +282,8 @@
 
 /* Pull down to refresh (app.native.js): a round arrow that turns as you pull and spins while the page reloads. */
 .pull-refresh{position:fixed; top:calc(var(--app-top,env(safe-area-inset-top,0px)) + 8px); left:50%; z-index:2000; width:40px; height:40px; border-radius:50%;
-  display:flex; align-items:center; justify-content:center; background:#fff; color:#173B70; box-shadow:0 4px 14px rgba(0,0,0,.25);
+  display:flex; align-items:center; justify-content:center; background:#fff; color:var(--onward-navy); box-shadow:0 4px 14px rgba(0,0,0,.25);
   transform:translate(-50%,-48px); opacity:0; pointer-events:none}
-.pull-refresh.ready{background:#173B70; color:#fff}
+.pull-refresh.ready{background:var(--onward-navy); color:#fff}
 .pull-refresh.spinning svg{animation:pull-spin .7s linear infinite}
 @keyframes pull-spin{to{transform:rotate(360deg)}}

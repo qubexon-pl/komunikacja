@@ -150,7 +150,7 @@
     const NO_KEYBOARD = /^(button|submit|reset|checkbox|radio|range|color|file|image|hidden|date|time|datetime-local|month|week)$/;
     const isTyping = (el) => !!el && el.nodeType === 1 && (el.tagName === 'TEXTAREA' || el.isContentEditable ||
       (el.tagName === 'INPUT' && !NO_KEYBOARD.test(el.type)));
-    const phone = () => window.matchMedia('(max-width:760px)').matches;
+    const phone = () => window.matchMedia('(max-width:767px)').matches;
     const touch = () => window.matchMedia('(pointer:coarse)').matches || navigator.maxTouchPoints > 0;
     let nativeKb = 0;                   // keyboard height from the app plugin, in CSS px
     let fullH = window.innerHeight, fullW = window.innerWidth; // page height without the keyboard

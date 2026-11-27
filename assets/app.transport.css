@@ -127,7 +127,7 @@
 .cp-map-close{display:none}
 
 /* ---------- Phone: list first, map full screen on demand with the summary as a bottom sheet ---------- */
-@media (max-width:760px){
+@media (max-width:767px){
   .city-panel .cp-body{grid-template-columns:minmax(0,1fr) !important}
   .cp-map-wrap{position:relative; top:auto}
   .city-panel:not(.map-full) .cp-map{height:min(55vh,380px) !important}
@@ -149,7 +149,7 @@
 }
 
 /* Narrow tablets: not enough width for two useful columns, so the map follows the results. */
-@media (min-width:761px) and (max-width:899px){
+@media (min-width:768px) and (max-width:899px){
   .city-panel .cp-body{grid-template-columns:minmax(0,1fr)}
   .cp-map-wrap{position:relative; top:auto}
   .cp-map{height:440px; min-height:0}
