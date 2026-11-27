@@ -29,3 +29,25 @@
   --pv-mode-ferry: #0288D1;
   --pv-mode-walk: #64748B;
 }
+
+/* Layout scale (docs/PODAVO_REFACTOR.md, Phase 2). CSS cannot read custom properties inside @media, so the
+   breakpoints are written as numbers in the style sheets and listed here as the one reference:
+     phone      < 768 px   bottom bar, one column        @media (max-width:767px)
+     tablet     768-1023   two columns where useful      @media (min-width:768px)
+     desktop    1024-1439  side navigation               @media (min-width:1024px)
+     wide       >= 1440    content capped, extra panel   @media (min-width:1440px)
+   Layouts are checked at 320, 360, 390, 430, 768, 1024, 1440 and 1920 px. */
+:root {
+  --pv-bp-tablet: 768px;
+  --pv-bp-desktop: 1024px;
+  --pv-bp-wide: 1440px;
+  --pv-content-max: 1180px;
+  /* type: body 14-16 px, secondary 12-14 px, page headings 22-26 px on phones */
+  --pv-text-xs: 0.75rem;
+  --pv-text-sm: 0.875rem;
+  --pv-text-md: 1rem;
+  --pv-heading-sm: 1.375rem;
+  --pv-heading-md: 1.625rem;
+  --pv-radius-sm: 12px;
+  --pv-radius-md: 16px;
+}

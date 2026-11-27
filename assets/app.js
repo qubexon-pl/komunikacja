@@ -3617,9 +3617,9 @@ function cityPanel(){
 }
 // Na stronach komunikacji miejskiej mapa jest domyślnie schowana (planer i wyniki są ważniejsze); otwiera ją przycisk
 // „Pokaż mapę”, wskazanie punktu na mapie albo wybór linii. W planie podróży mapa jest widoczna jak wcześniej.
-// Na telefonie (≤760 px) na stronie komunikacji mapa otwiera się na cały ekran (lista wraca przyciskiem „Lista”,
+// Na telefonie (<768 px) na stronie komunikacji mapa otwiera się na cały ekran (lista wraca przyciskiem „Lista”,
 // z zachowaniem miejsca przewinięcia); na komputerze i tablecie mapa stoi obok wyników.
-const phoneWidth=()=>window.matchMedia?.('(max-width: 760px)').matches;
+const phoneWidth=()=>window.matchMedia?.('(max-width:767px)').matches;
 function setCityMap(on){
   const el=CITY.el; if(!el) return;
   const inTx=!!el.closest('#cityTxPage'), full=on && inTx && phoneWidth();

@@ -6,7 +6,7 @@
 (function(){
   const KEY='onward.tour';
   const startNow=new URLSearchParams(location.search).has('tour');
-  const phone=()=>matchMedia('(max-width:760px)').matches;
+  const phone=()=>matchMedia('(max-width:767px)').matches;
   const guest=()=>document.body.classList.contains('guest');
   const go=(view, sub)=>{ if(typeof goPage==='function') goPage(view, sub||''); };
 
