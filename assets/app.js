@@ -5784,7 +5784,7 @@ function cityExploreBox(f, T){
   const tabs=cities.length>1?`<div class="lp-tabs" role="tablist">${cities.map((x,i)=>`<button type="button" role="tab" class="lp-tab ${i===at?'on':''}" aria-selected="${i===at}" data-lp-city="${i}">${esc(x.label)}${localItems(T,localKey(x)).length?` <small>${localItems(T,localKey(x)).length}</small>`:''}</button>`).join('')}</div>`:'';
   return `<section class="tp-city"><div class="tp-city-head"><div><h4><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> Plan zwiedzania: ${esc(c.label)}</h4><small>Wyszukaj miejsce, wybierz najlepsze połączenie i dodaj je do planu — potem kolejne.</small></div>
       <button type="button" class="${TRIPV.city?'btn-ghost':'btn-grad'}" data-tp-city aria-expanded="${!!TRIPV.city}"><i class="fa-solid fa-${TRIPV.city?'chevron-up':'magnifying-glass-location'}" aria-hidden="true"></i> ${TRIPV.city?'Ukryj wyszukiwanie':'Szukaj miejsc i połączeń'}</button></div>
-    ${tabs}${aiBox(f,c)}${list.length?`${edit&&list.length>1?`<div class="lp-tools"><button type="button" class="btn-ghost" data-lp-sort="${esc(localKey(c))}"><i class="fa-solid fa-clock" aria-hidden="true"></i> Sortuj wg godziny</button></div>`:''}<ol class="lp-list">${list.map((x,i)=>localItemHtml(x,edit,i,list.length)).join('')}</ol>`:'<div class="empty-note lp-empty">Plan jest pusty. Kliknij „Szukaj miejsc i połączeń”, znajdź trasę i dodaj ją przyciskiem „Dodaj do planu”.</div>'}
+    ${tabs}${nearBox(f,c)}${aiBox(f,c)}${list.length?`${edit&&list.length>1?`<div class="lp-tools"><button type="button" class="btn-ghost" data-lp-sort="${esc(localKey(c))}"><i class="fa-solid fa-clock" aria-hidden="true"></i> Sortuj wg godziny</button></div>`:''}<ol class="lp-list">${list.map((x,i)=>localItemHtml(x,edit,i,list.length)).join('')}</ol>`:'<div class="empty-note lp-empty">Plan jest pusty. Kliknij „Szukaj miejsc i połączeń”, znajdź trasę i dodaj ją przyciskiem „Dodaj do planu”.</div>'}
     ${TRIPV.city?'<div class="city-slot"></div>':''}</section>`;
 }
 /* ---------- Plan od AI: Claude proponuje miejsca do zwiedzania w mieście podróży, na podstawie preferencji podróżnego,
@@ -5834,6 +5834,40 @@ function aiPlanHtml(p){
   return `${p.summary?`<p class="ai-sum">${esc(p.summary)}</p>`:''}${days}${p.tips?.length?`<ul class="ai-tips">${p.tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`:''}
     <small class="ai-foot">Zaproponowane przez AI${p.createdAt?` ${esc(new Date(p.createdAt).toLocaleDateString('pl-PL',{day:'numeric', month:'long'}))}`:''}. Godziny otwarcia i ceny sprawdź przed wyjściem.</small>`;
 }
+/* ---------- W okolicy (7b): miejsca z OpenStreetMap wokół noclegu (albo centrum miasta), z dojazdem jednym kliknięciem ---------- */
+const NEAR={data:new Map(), busy:new Set(), err:new Map(), cat:'', limit:12, open:store('podavo.near.open')!==false};
+const nearPoint=c=>c.home?.lat!=null?{lat:c.home.lat, lon:c.home.lon, label:c.home.label||L2('Nocleg','Stay')}:{lat:c.centre.lat, lon:c.centre.lon, label:c.label};
+const nearKey=c=>{ const p=nearPoint(c); return `${(+p.lat).toFixed(3)},${(+p.lon).toFixed(3)}|${isEn()?'en':'pl'}`; };
+async function loadNear(c){
+  const key=nearKey(c), p=nearPoint(c); if(NEAR.busy.has(key)) return;
+  NEAR.busy.add(key); NEAR.err.delete(key);
+  try{
+    const r=await fetch('/api/places/nearby?'+new URLSearchParams({lat:(+p.lat).toFixed(4), lon:(+p.lon).toFixed(4), radius:'2000', lang:isEn()?'en':'pl'}));
+    const body=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(body.error||'');
+    NEAR.data.set(key, body);
+  }catch(e){ NEAR.err.set(key, e.message||L2('Miejsca w okolicy są chwilowo niedostępne.','Places nearby are unavailable right now.')); }
+  finally{ NEAR.busy.delete(key); if(TRIPV.sheet==='city') renderTripPage(); }
+}
+function nearBox(f, c){
+  if(!c?.centre) return '';
+  const key=nearKey(c), d=NEAR.data.get(key), err=NEAR.err.get(key), from=nearPoint(c);
+  if(NEAR.open && !d && !err && !NEAR.busy.has(key)) setTimeout(()=>loadNear(c),0);
+  const body=!NEAR.open?'':err?`<div class="empty-note">${esc(err)} <button type="button" class="btn-ghost" data-near-retry>${L2('Spróbuj ponownie','Try again')}</button></div>`
+    :!d?`<div class="empty-note">${L2('Szukam miejsc w okolicy…','Looking for places nearby…')}</div>`:PVD.nearList(d,{t:L2, cat:NEAR.cat, limit:NEAR.limit});
+  return `<section class="near-box" aria-label="${L2('W okolicy','Nearby')}"><div class="near-head"><h5><i class="fa-solid fa-compass" aria-hidden="true"></i> ${L2('W okolicy','Nearby')} <small>${L2('w promieniu 2 km','within 2 km')} · ${esc(from.label)}</small></h5>
+    <button type="button" class="btn-ghost" data-near-toggle aria-expanded="${NEAR.open}">${NEAR.open?L2('Zwiń','Hide'):L2('Pokaż','Show')}</button></div>${body}</section>`;
+}
+function nearRoute(f, c, id){
+  const p=NEAR.data.get(nearKey(c))?.places?.find(x=>x.id===id); if(!p) return;
+  const from=nearPoint(c);
+  if(!TRIPV.city){ TRIPV.city=true; renderTripPage(); }
+  const form=CITY.el?.querySelector('.cp-form'); if(!form) return;
+  setEnd('from', [from.lat,from.lon], from.label, true);
+  setEnd('to', [p.lat,p.lon], p.name);
+  CITY.el.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
 function aiBox(f, c){
   if(!f.tid || f.shared || !FAV.user){ return ''; }
   if(AIP.enabled===null){ aiInit(); return ''; }
@@ -6400,6 +6434,12 @@ document.getElementById('tripPage').addEventListener('click', e=>{
   const ls=e.target.closest('[data-lp-show]'); if(ls){ showLocalTrip(f, ls.dataset.lpShow); return; }
   if(e.target.closest('[data-tp-city]')){ TRIPV.city=!TRIPV.city; renderTripPage(); if(TRIPV.city) setTimeout(()=>document.querySelector('#tripPage .city-panel')?.scrollIntoView({behavior:'smooth', block:'start'}),80); return; }
   const ts=e.target.closest('[data-tp-step]'); if(ts){ openTripSheet('step:'+ts.dataset.tpStep); return; }
+  const nc=e.target.closest('[data-near-cat]'); if(nc){ NEAR.cat=nc.dataset.nearCat; NEAR.limit=12; renderTripPage(); return; }
+  if(e.target.closest('[data-near-more]')){ NEAR.limit+=12; renderTripPage(); return; }
+  if(e.target.closest('[data-near-toggle]')){ NEAR.open=!NEAR.open; store('podavo.near.open', NEAR.open); renderTripPage(); return; }
+  if(e.target.closest('[data-near-retry]')){ const c=aiCity(f); if(c){ NEAR.err.delete(nearKey(c)); renderTripPage(); } return; }
+  const nr=e.target.closest('[data-near-route]'); if(nr){ const c=aiCity(f); if(c) nearRoute(f,c,nr.dataset.nearRoute); return; }
+  const na=e.target.closest('[data-near-about]'); if(na){ const c=aiCity(f), p=c&&NEAR.data.get(nearKey(c))?.places?.find(x=>x.id===na.dataset.nearAbout); if(p) openAbout({name:String(p.wikipedia).replace(/^[a-z]{2,3}:/,''), lat:p.lat, lon:p.lon}); return; }
   if(e.target.closest('[data-tp-about]')){ const c=f.trip?tripCities(f.trip,f)[0]:null; if(c?.centre) openAbout({name:c.label, lat:c.centre.lat, lon:c.centre.lon}); return; }
   const sh=e.target.closest('[data-tp-sheet]'); if(sh){ openTripSheet(sh.dataset.tpSheet); return; }
   if(e.target.closest('[data-tp-sheet-close]') || e.target.matches('[data-tp-sheet-layer]')){ closeTripSheet(); return; }

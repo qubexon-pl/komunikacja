@@ -100,3 +100,25 @@ test("6b: the About sheet shows only what the sources gave, with their licences"
   assert.match(app, /fetch\('\/api\/places\/about\?'/);
   assert.match(app, /data-tp-about/);
 });
+
+test("7b: places nearby list kinds, distance and OSM hours as given, with the ODbL line", () => {
+  const PVD = loadPVD();
+  const answer = { attribution: "© OpenStreetMap contributors", license: "ODbL", places: [
+    { id: "n1", name: "Muzeum Okręgowe", cat: "museum", lat: 50.03, lon: 22.0, km: 0.35, openingHours: "Tu-Su 10:00-17:00", wikipedia: "pl:Muzeum Okręgowe w Rzeszowie" },
+    { id: "w3", name: "Zamek Lubomirskich", cat: "sight", lat: 50.03, lon: 22.0, km: 1.24 },
+  ] };
+  const h = PVD.nearList(answer, { t: PL });
+  assert.match(h, /350 m/);
+  assert.match(h, /1,2 km/);
+  assert.match(h, /Tu-Su 10:00-17:00/);
+  assert.match(h, /data-near-about="n1"/);
+  assert.doesNotMatch(h, /data-near-about="w3"/); // no Wikipedia link in OSM: no About button
+  assert.match(h, /data-near-route="w3"/);
+  assert.match(h, /ODbL/);
+  assert.doesNotMatch(h, /data-near-cat="food"/); // only kinds that are there
+  const only = PVD.nearList(answer, { t: PL, cat: "sight" });
+  assert.doesNotMatch(only, /Muzeum Okręgowe<\/b>/);
+  assert.match(PVD.nearList({ places: [] }, { t: PL }), /nie zna tu/);
+  assert.match(app, /fetch\('\/api\/places\/nearby\?'/);
+  assert.match(app, /\$\{nearBox\(f,c\)\}/);
+});

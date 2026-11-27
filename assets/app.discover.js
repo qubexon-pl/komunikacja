@@ -152,5 +152,24 @@
     </article>`;
   }
 
-  root.PVD={esc, sky, card, list, parseQuery, queryChips, aboutHtml};
+  /* 7b: "W okolicy": named places around the stay (or the city centre) from /api/places/nearby (OpenStreetMap).
+     Opening hours are OSM's own text, shown as given; nothing is said about "open now" without parsing it. */
+  const NEAR_CATS=[['','Wszystko','All','compass'],['sight','Zabytki','Sights','landmark'],['museum','Muzea','Museums','building-columns'],['view','Widoki','Views','binoculars'],['park','Parki','Parks','tree'],['food','Jedzenie','Food','utensils'],['cafe','Kawiarnie','Cafés','mug-hot'],['nightlife','Wieczorem','Evening','martini-glass']];
+  const NEAR_ICON=Object.fromEntries(NEAR_CATS.slice(1).map(([k,,,i])=>[k,i]));
+  function nearList(answer, o={}){
+    const t=o.t||PL, cat=o.cat||'', limit=o.limit||12, all=answer?.places||[], list=all.filter(p=>!cat||p.cat===cat);
+    const have=new Set(all.map(p=>p.cat));
+    const chips=`<div class="near-cats" role="group" aria-label="${esc(t('Rodzaj miejsc','Kind of place'))}">${NEAR_CATS.filter(([k])=>!k||have.has(k)).map(([k,pl,en,ic])=>`<button type="button" class="near-cat ${k===cat?'on':''}" data-near-cat="${k}" aria-pressed="${k===cat}"><i class="fa-solid fa-${ic}" aria-hidden="true"></i> ${esc(t(pl,en))}</button>`).join('')}</div>`;
+    if(!all.length) return `<div class="empty-note">${esc(t('OpenStreetMap nie zna tu nazwanych miejsc do zwiedzania.','OpenStreetMap lists no named places to visit here.'))}</div>`;
+    const dist=km=>km<1?`${Math.round(km*1000/10)*10} m`:`${km.toFixed(1).replace('.',t(',','.'))} km`;
+    const rows=list.slice(0,limit).map(p=>`<li class="near-row">
+        <span class="near-ic"><i class="fa-solid fa-${NEAR_ICON[p.cat]||'location-dot'}" aria-hidden="true"></i></span>
+        <span class="near-tx"><b>${esc(p.name)}</b><small>${esc(dist(p.km))}${p.cuisine?` · ${esc(p.cuisine)}`:''}${p.wheelchair==='yes'?` · <i class="fa-solid fa-wheelchair" aria-hidden="true"></i><span class="visually-hidden">${esc(t('dostępne dla wózków','wheelchair accessible'))}</span>`:''}</small>${p.openingHours?`<small class="near-hours" title="${esc(t('Godziny otwarcia z OpenStreetMap','Opening hours from OpenStreetMap'))}"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${esc(p.openingHours)}</small>`:''}</span>
+        <span class="near-act">${p.wikipedia?`<button type="button" class="btn-ghost" data-near-about="${esc(p.id)}">${esc(t('O miejscu','About'))}</button>`:''}<button type="button" class="btn-ghost" data-near-route="${esc(p.id)}"><i class="fa-solid fa-route" aria-hidden="true"></i> ${esc(t('Dojazd','Get there'))}</button></span>
+      </li>`).join('');
+    const more=list.length>limit?`<button type="button" class="btn-ghost near-more" data-near-more>${esc(t(`Pokaż więcej (${list.length-limit})`,`Show more (${list.length-limit})`))}</button>`:'';
+    return `${chips}<ol class="near-list">${rows}</ol>${more}<small class="cs-src near-src">${esc(answer.attribution||'© OpenStreetMap contributors')} (${esc(answer.license||'ODbL')})</small>`;
+  }
+
+  root.PVD={esc, sky, card, list, parseQuery, queryChips, aboutHtml, nearList, NEAR_CATS};
 })(typeof window!=='undefined'?window:globalThis);

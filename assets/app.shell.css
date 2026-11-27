@@ -293,3 +293,23 @@
 .pv-about-src{display:block; margin-top:10px}
 .disc-about{min-height:44px; padding:8px 14px; border-radius:999px; font-weight:700}
 @media (max-width:767px){ .disc-about{margin-left:auto} .disc-about + .disc-plan{margin-left:0} }
+
+/* 7b: "W okolicy" (PVD.nearList) inside the trip's city plan */
+.near-box{margin:12px 0; padding:12px 14px; border:1px solid var(--card-border); border-radius:16px; background:var(--bg-alt)}
+.near-head{display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap}
+.near-head h5{margin:0; font-size:1rem; font-weight:800}
+.near-head h5 small{font-weight:500; color:var(--ink-soft); font-size:.78rem; margin-left:4px}
+.near-cats{display:flex; gap:6px; overflow-x:auto; padding:10px 0 4px; scrollbar-width:none}
+.near-cat{flex:0 0 auto; min-height:40px; padding:6px 12px; border:1.5px solid var(--card-border); border-radius:999px; background:transparent; color:var(--ink); font-weight:700; font-size:.82rem}
+.near-cat.on{border-color:var(--navy); background:var(--navy); color:#fff}
+.near-list{list-style:none; margin:6px 0 0; padding:0}
+.near-row{display:grid; grid-template-columns:36px 1fr auto; gap:10px; align-items:center; padding:10px 0; border-top:1px solid var(--card-border)}
+.near-ic{width:36px; height:36px; border-radius:50%; display:grid; place-items:center; background:var(--soft); color:#2878D0}
+.near-tx{display:flex; flex-direction:column; min-width:0}
+.near-tx b{overflow-wrap:anywhere}
+.near-tx small{color:var(--ink-soft); font-size:.78rem}
+.near-hours{overflow-wrap:anywhere}
+.near-act{display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end}
+.near-act .btn-ghost,.near-more{min-height:44px; padding:6px 12px; font-size:.82rem}
+.near-src{display:block; margin-top:8px}
+@media (max-width:767px){ .near-row{grid-template-columns:36px 1fr} .near-act{grid-column:2; justify-content:flex-start} }
