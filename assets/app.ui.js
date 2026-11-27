@@ -131,5 +131,30 @@
     return handle;
   }
 
-  root.PVUI={sheet:{open, html:sheetHtml}, layer:{enter, leave, isOpen}, nextFocus, sheetHtml, FOCUSABLE};
+  /* ---------- compact stepper (Phase 3a): one row of numbered steps on every screen size ----------
+     steps: [{label, info?, enabled?}] in order; cur: 1-based current step; attr: the data attribute the buttons
+     carry (e.g. 'data-flight-step'), read by the screen's own click handler. Steps after the current one are
+     disabled unless enabled:true. Phones show the labels only for the current step, plus one line under the row
+     ("Krok 2 z 4 · Dojazd na lotnisko · Autobus 0A"); wider screens show every label and its short info. */
+  function stepper(steps, cur, {attr='data-step', extra='', label}={}){
+    const n=steps.length, c=Math.min(Math.max(1,cur||1),n||1), now=steps[c-1]||{};
+    const of=(i)=>T(`Krok ${i} z ${n}`,`Step ${i} of ${n}`);
+    const items=steps.map((s,i)=>{
+      const k=i+1, state=k===c?'on':k<c?'done':'todo', off=k>c && !s.enabled;
+      const info=s.info && k<=c ? s.info : '';
+      // the label stays a text node of its own, so the English layer (i18n.js) translates it like any other text
+      return `<li class="pv-step ${state}"><button type="button" ${attr}="${k}"${off?' disabled':''} aria-current="${k===c?'step':'false'}">`
+        + `<span class="pv-sr">${esc(of(k))}${k<c?esc(T(', gotowe',', done')):''}: </span>`
+        + `<span class="pv-step-n" aria-hidden="true">${k<c?'<i class="fa-solid fa-check"></i>':k}</span>`
+        + `<span class="pv-step-text"><span class="pv-step-label">${esc(s.label)}</span>${info?`<small>${esc(info)}</small>`:''}</span>`
+        + `</button></li>`;
+    }).join('');
+    return `<nav class="pv-stepper" aria-label="${esc(label||T('Kroki planowania','Planning steps'))}">`
+      + `<ol class="pv-steps" style="--pv-steps:${n}">${items}</ol>`
+      + `<p class="pv-step-now" aria-hidden="true"><span>${esc(of(c))}</span> · <b>${esc(now.label||'')}</b>${now.info?` · ${esc(now.info)}`:''}</p>`
+      + (extra?`<div class="pv-step-extra">${extra}</div>`:'')
+      + `</nav>`;
+  }
+
+  root.PVUI={sheet:{open, html:sheetHtml}, layer:{enter, leave, isOpen}, stepper, nextFocus, sheetHtml, FOCUSABLE};
 })(typeof window!=='undefined'?window:this);
