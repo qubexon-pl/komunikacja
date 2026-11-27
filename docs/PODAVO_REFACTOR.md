@@ -57,3 +57,10 @@ Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1
   - Focus returns to the button that opened it.
   - The phone or browser Back button closes the sheet without leaving the page. `app.ui.js` loads before `app.js`, so the page router never sees that Back press.
 - Screens that render their own sheet use `PVUI.layer.enter(id, close)` / `PVUI.layer.leave(id)` and mark the dialog with `data-pv-trap`. The trip page's sheets (costs, stay, photos, stages, people) now do this: they open as a right-hand panel on desktop and a bottom sheet on phones. The map and city plan sheets keep the full window.
+
+## 3a: compact stepper
+
+- `PVUI.stepper(steps, cur, {attr, extra})` in `assets/app.ui.js` draws one row of numbered steps, all the same width, joined by a line. Done steps show a tick in Podavo teal, and the current step is blue. Steps not reached yet are disabled unless the screen enables them.
+- The flight planner (Loty → Dojazd na lotnisko → Na miejscu / Z lotniska do centrum → Plan podróży) and the ground planner (Połączenie → Zapisz podróż) both use it. This is already the brief's order: main transport, transport to the departure point, transport at the destination, summary.
+- On screens narrower than 900 px the row shows only the dots, and one line under it says where you are ("Krok 2 z 4 · Dojazd na lotnisko · Autobus 0A"). Wider screens show each step's name and a short summary of what was chosen.
+- Choices stay in the planner state (`P.flightStep`, `P.accessPick`, `P.xferPick`), so going back to an earlier step keeps them. This was already the case and is unchanged.

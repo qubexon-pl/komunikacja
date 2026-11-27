@@ -54,3 +54,29 @@ test("the trip page sheets use the shared Back, scroll and focus behaviour", () 
   assert.match(js, /PVUI\.layer\.enter\('trip'/);
   assert.match(js, /PVUI\.layer\.leave\('trip'\)/);
 });
+
+test("the stepper marks done, current and later steps, and disables steps not reached yet", () => {
+  const steps = [{ label: "Loty", info: "RZE 06:25" }, { label: "Dojazd na lotnisko", info: "Autobus 0A" }, { label: "Na miejscu" }, { label: "Plan podróży" }];
+  const html = loadPVUI().stepper(steps, 2, { attr: "data-flight-step" });
+  assert.match(html, /<nav class="pv-stepper" aria-label="Kroki planowania">/);
+  assert.match(html, /--pv-steps:4/);
+  assert.match(html, /class="pv-step done"><button type="button" data-flight-step="1" aria-current="false">/);
+  assert.match(html, /class="pv-step on"><button type="button" data-flight-step="2" aria-current="step">/);
+  assert.match(html, /data-flight-step="3" disabled/);
+  assert.match(html, /<span class="pv-sr">Krok 1 z 4, gotowe: <\/span>/);
+  assert.match(html, /<p class="pv-step-now" aria-hidden="true"><span>Krok 2 z 4<\/span> · <b>Dojazd na lotnisko<\/b> · Autobus 0A<\/p>/);
+  assert.doesNotMatch(html, /Na miejscu<\/span><small>/); // no info for steps not reached
+});
+
+test("a later step can be enabled, labels are escaped and the current step is clamped", () => {
+  const html = loadPVUI("en").stepper([{ label: "Connection" }, { label: "Save <trip>", enabled: true }], 9, { attr: "data-ground-step" });
+  assert.match(html, /data-ground-step="2" aria-current="step"/);
+  assert.match(html, /Save &lt;trip&gt;/);
+  assert.match(html, /Step 2 of 2/);
+});
+
+test("both planner step bars use the shared stepper", () => {
+  const js = read("assets/app.js");
+  assert.match(js, /function stepBar\(P, f\)\{[\s\S]*?PVUI\.stepper\(steps, cur, \{attr:'data-flight-step'/);
+  assert.match(js, /function groundStepBar\(P\)\{[\s\S]*?PVUI\.stepper\(steps, cur, \{attr:'data-ground-step'\}/);
+});

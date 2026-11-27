@@ -2363,7 +2363,8 @@ const groundWhen=g=>`${fmtDay(g.day)}${g.leave!=null?' '+fmtClock(g.leave):''}${
 function groundStepBar(P){
   const J=S.plan, st=J?.stages||[P], cur=J?.groundStep||1, picked=st.filter(x=>x.groundPick).length;
   const info=[st.length>1?`wybrano ${picked} z ${st.length} etapów`:P.groundPick?`${P.groundPick.title} · ${groundWhen(P.groundPick)}`:'', st[0].saved?'zapisano':''];
-  return `<div class="fl-stepbar"><ol class="fl-steps">${[[1,'Połączenie'],[2,'Zapisz podróż']].map(([n,name])=>`<li class="${n===cur?'on':n<cur?'done':''}"><button type="button" data-ground-step="${n}" ${n>cur&&picked<st.length?'disabled':''} aria-current="${n===cur?'step':'false'}"><span class="fl-step-n">${n<cur?'<i class="fa-solid fa-check" aria-hidden="true"></i>':n}</span><span class="fl-step-text">${name}${info[n-1]&&(n<=cur||n===1)?`<small>${esc(info[n-1])}</small>`:''}</span></button></li>`).join('<li class="fl-step-sep" aria-hidden="true"></li>')}</ol></div>`;
+  const steps=[['Połączenie'],['Zapisz podróż']].map(([name],i)=>({label:name, info:info[i], enabled:i===1&&picked>=st.length}));
+  return `<div class="fl-stepbar">${PVUI.stepper(steps, cur, {attr:'data-ground-step'})}</div>`;
 }
 // Pasek pod wynikami: co wybrano i „Dalej”.
 function groundNext(P){
@@ -3195,7 +3196,9 @@ function flightHints(P, C){
 // Szczegóły (przesiadki, peron, czas lotu, ceny składowe) pokazują się dopiero po „Zobacz szczegóły”.
 function stepBar(P, f){
   const cur=P.flightStep||1, fetching=ASK_NOTES[P.fetch];
-  return `<div class="fl-stepbar"><ol class="fl-steps">${wizardSteps(P).map(([n,name])=>{ const info=n<=cur||n===cur+1&&n!==4?stepInfo(P,f,n):''; return `<li class="${n===cur?'on':n<cur?'done':''}"><button type="button" data-flight-step="${n}" ${n>cur?'disabled':''} aria-current="${n===cur?'step':'false'}"><span class="fl-step-n">${n<cur?'<i class="fa-solid fa-check" aria-hidden="true"></i>':n}</span><span class="fl-step-text">${name}${info&&n<=cur?`<small>${esc(info)}</small>`:''}</span></button></li>`; }).join('<li class="fl-step-sep" aria-hidden="true"></li>')}</ol>${fetching?`<span class="fl-fetching"><span class="spin sm" aria-hidden="true"></span> ${esc(fetching)}</span>`:''}</div>`;
+  // Wspólny kompaktowy pasek kroków (app.ui.js): wybory z kroków zostają w P, więc powrót do kroku ich nie gubi.
+  const steps=wizardSteps(P).map(([n,name])=>({label:name, info:n<=cur?stepInfo(P,f,n):''}));
+  return `<div class="fl-stepbar">${PVUI.stepper(steps, cur, {attr:'data-flight-step', extra:fetching?`<span class="fl-fetching"><span class="spin sm" aria-hidden="true"></span> ${esc(fetching)}</span>`:''})}</div>`;
 }
 // Gdy wylot jest z innego lotniska niż powrót, trzeba o tym wiedzieć przed wyborem dojazdu.
 function airportMismatch(out, ret){

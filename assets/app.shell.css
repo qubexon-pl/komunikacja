@@ -142,3 +142,45 @@
 @media (prefers-reduced-motion:reduce){
   .pv-sheet-layer,.pv-sheet{ transition:none; }
 }
+
+/* ================================================================
+   Compact stepper (Phase 3a, PVUI.stepper): one row, every step the same width, a line joining the dots.
+   Phones show the dots and the current step's name; the line under the row says where you are.
+   ================================================================ */
+.pv-sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.pv-stepper{ margin:0 0 12px; }
+.pv-steps{ display:grid; grid-template-columns:repeat(var(--pv-steps,4),minmax(0,1fr)); gap:0; margin:0; padding:0; list-style:none; }
+.pv-step{ position:relative; min-width:0; }
+/* the line from this step to the next one fills the space after the label */
+.pv-step:not(:last-child) button::after{
+  content:""; flex:1 1 auto; min-width:12px; height:2px; margin-right:-8px; border-radius:1px; background:var(--line);
+}
+.pv-step.done:not(:last-child) button::after{ background:color-mix(in srgb,var(--onward-teal) 70%,var(--line)); }
+.pv-step button{
+  position:relative; z-index:1; display:flex; align-items:center; gap:8px; width:100%; min-height:44px; padding:6px 8px 6px 6px;
+  border:0; border-radius:12px; background:transparent; color:var(--ink-soft); font:inherit; text-align:left;
+}
+.pv-step button:not(:disabled):hover{ background:var(--soft); }
+.pv-step button:disabled{ cursor:default; }
+.pv-step button:focus-visible{ outline:2px solid var(--red); outline-offset:2px; }
+.pv-step-n{
+  flex:none; display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:50%;
+  background:var(--bg-alt); border:2px solid var(--line); color:var(--ink-soft); font-size:.8rem; font-weight:800;
+}
+.pv-step.on .pv-step-n{ background:var(--red); border-color:var(--red); color:#fff; box-shadow:0 0 0 4px color-mix(in srgb,var(--red) 16%,transparent); }
+.pv-step.done .pv-step-n{ background:var(--onward-teal); border-color:var(--onward-teal); color:#fff; }
+.pv-step-text{ display:flex; flex-direction:column; flex:0 1 auto; min-width:0; line-height:1.2; }
+.pv-step-label{ font-size:.875rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pv-step.on .pv-step-label,.pv-step.done .pv-step-label{ color:var(--ink); }
+.pv-step.todo .pv-step-label{ opacity:.75; }
+.pv-step-text small{ font-size:.75rem; font-weight:500; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pv-step-now{ display:none; margin:6px 2px 0; font-size:.8125rem; color:var(--ink-soft); line-height:1.35; }
+.pv-step-now b{ color:var(--ink); }
+.pv-step-extra{ margin-top:6px; }
+
+/* phone and narrow tablet: dots only, plus the current step's name; details in the line under the row */
+@media (max-width:899px){
+  .pv-step button{ justify-content:flex-start; }
+  .pv-step-text{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .pv-step-now{ display:block; }
+}
