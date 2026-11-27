@@ -124,3 +124,28 @@ Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1
 - `/api/transport/departures` also answers `provider=transitous` (the 48 cities), converting Transitous departures with `transitousDeparture`: live only when the operator sent a prediction.
 - The city stop board (Komunikacja → a city → Rozkład jazdy) now reads `/api/transport/departures` and draws `PVT.departureBoard`, with the source and fetch time under it. The look is unchanged.
 - 4d moves the Rzeszów stop board and the train board onto the same board.
+
+## 4d: deferred
+
+The Rzeszów stop board and the train board keep their own layouts (arrivals tab, map, GTFS-RT decoded in the browser).
+They already use the same "wg rozkładu / na czas / +N min / odwołany" wording as the shared board; a full move onto it
+was postponed by the owner in favour of discovery.
+
+## 5a: discovery from real fares and weather
+
+`GET /api/discover?origin=lat,lon&from=YYYY-MM-DD&to=YYYY-MM-DD&nights=0..30&radius=km|any&limit=` (rate limit
+"discover", 30/min) answers "where can I fly from here": the cheapest stored fare to each place, from airports within
+the radius (default 300 km), in a window of at most 92 days (default 30).
+
+- Fares: only what the airlines or the fare API gave and the flight store keeps (`flights.discover()` in
+  src/flights.js). A per-departure "list" price that is only the day's lowest is left out. With `nights`, a place is
+  listed only when a stored flight home exists exactly that many days later, possibly from another airport of the same
+  city.
+- Places: airports of one country within 70 km join one entry (Stansted and Luton are London), shown at the cheapest
+  one with `alsoAirports`.
+- Ranking: flight price plus the drive to the airport (`groundPln`, a fuel-cost estimate, labelled as such in
+  `groundNote`), as the planner already ranks.
+- Weather (src/discover.js): Open-Meteo for the first 8 places whose trip falls within its 16-day forecast; otherwise
+  `weather: null` and `weatherFrom`, the day the forecast will exist. Only the destination's coordinates are sent.
+
+Every answer carries `collectedAt` of the newest fare and `source`. The page that uses it is 5b.

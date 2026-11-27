@@ -34,6 +34,7 @@ const { createWizzTimetable } = require("./wizz-timetable");
 const { createRyanairApi } = require("./ryanair-api");
 const { createHotels } = require("./hotels");
 const { createTripWeather } = require("./trip-weather");
+const { createDiscover } = require("./discover");
 const { createAiPlanner, createPlanStore, createAnthropicClient } = require("./ai-planner");
 const { createPksFares } = require("./pks-fares");
 const { createRates } = require("./rates");
@@ -76,7 +77,7 @@ const ANDROID_APK_PATH = "/download/voyage.apk";
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, reverse: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30, "transport-info": 120, "transport-departures": 120 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, reverse: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30, "transport-info": 120, "transport-departures": 120, discover: 30 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -1181,6 +1182,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
   const airportTransfers = transfers || createAirportTransfers({ transitous: transitClient, toPln: fareRates, geocode, snapshots, drive });
   const city = cityTransit || createCityTransit({ transitous: transitClient, store: snapshots });
   const transportDepartures = createTransportDepartures({ snapshots, city });
+  const discovery = createDiscover({ flights, weather: tripWeather });
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
@@ -1242,6 +1244,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "transit" && segments.length === 3 && ["plan", "vehicles", "cities", "stops", "departures", "lines"].includes(segments[2]))
           || (segments[1] === "hotels" && segments.length === 2)
           || (segments[1] === "rates" && segments.length === 2)
+          || (segments[1] === "discover" && segments.length === 2)
           || (segments[1] === "transport" && ((segments.length === 3 && ["cities", "providers", "departures"].includes(segments[2])) || (segments.length === 4 && segments[2] === "cities")))
         ) ? (segments[1] === "feeds" ? "feeds"
           : segments[1] === "transport" ? (segments[2] === "departures" ? "transport-departures" : "transport-info")
@@ -1333,6 +1336,20 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           return;
         }
         // Phase 4b: departures from Rzeszów's imported timetable and PKP PLK in the shared Departure model.
+        if (publicRoute === "discover") {
+          try {
+            const p = (name) => url.searchParams.get(name) || "";
+            const origin = parsePoint(p("origin"));
+            if (!origin) throw Object.assign(new Error("Podaj współrzędne początku."), { status: 400 });
+            if ((p("from") && !ISO_DAY.test(p("from"))) || (p("to") && !ISO_DAY.test(p("to")))) throw Object.assign(new Error("Nieprawidłowa data."), { status: 400 });
+            const nights = Number(p("nights") || 0);
+            if (!Number.isInteger(nights) || nights < 0 || nights > 30) throw Object.assign(new Error("Liczba nocy: 0–30."), { status: 400 });
+            json(res, 200, await discovery.discover({ origin, radius: p("radius") === "any" ? 600 : Number(p("radius")) || 300, from: p("from"), to: p("to"), nights, limit: Number(p("limit")) || 40 }));
+          } catch (error) {
+            json(res, error.status || 502, { error: error.message, destinations: [] });
+          }
+          return;
+        }
         if (publicRoute === "transport-departures") {
           const q = (name) => url.searchParams.get(name) || "";
           try {
