@@ -5911,6 +5911,35 @@ const linkBtn=(href,icon,label)=>href?`<a class="btn-ghost" href="${esc(href)}" 
 const mapBtn=(key,label='Na mapie')=>`<button type="button" class="btn-ghost" data-tp-map="${esc(key)}"><i class="fa-solid fa-map" aria-hidden="true"></i> ${label}</button>`;
 /* ---------- Hotel: Booking.com (sandbox Demand API), link do wyszukiwania albo własny hotel ---------- */
 const HOT=new Map();
+// Link „Szukaj na Booking.com” z wybranym rodzajem noclegu i liczbą pokoi. Wybór pamięta ta przeglądarka; zmiana
+// podmienia tylko adres linków (bez ponownego rysowania ekranu). Pokoi nie może być więcej niż dorosłych (Booking.com).
+const BOOKING_TYPES=[['','Wszystkie noclegi'],['204','Hotele'],['201','Apartamenty'],['208','B&B i pensjonaty'],['203','Hostele'],['220','Domy wakacyjne']];
+const BOOK_OPT={rooms:1, type:''};
+try{ const o=JSON.parse(localStorage.getItem('podavo.bookingOpts')||'{}'); if(o.rooms>=1&&o.rooms<=8) BOOK_OPT.rooms=Math.round(o.rooms); if(BOOKING_TYPES.some(t=>t[0]===o.type)) BOOK_OPT.type=o.type; }catch(e){}
+function bookingWithOpts(url){
+  try{
+    const u=new URL(url); if(!/(^|\.)booking\.com$/.test(u.hostname) || !u.pathname.startsWith('/searchresults')) return url;
+    const adults=Math.max(1, +u.searchParams.get('group_adults')||1);
+    u.searchParams.set('no_rooms', String(Math.min(BOOK_OPT.rooms, adults)));
+    if(BOOK_OPT.type) u.searchParams.set('nflt', `ht_id=${BOOK_OPT.type}`); else u.searchParams.delete('nflt');
+    return u.toString();
+  }catch(e){ return url; }
+}
+function bookingSearchLink(link){
+  if(!link) return '';
+  const adults=(()=>{ try{ return Math.max(1, +new URL(link).searchParams.get('group_adults')||1); }catch(e){ return 1; } })();
+  const type=`<label class="book-opt"><span>Rodzaj</span><select data-book-type>${BOOKING_TYPES.map(([v,l])=>`<option value="${v}"${v===BOOK_OPT.type?' selected':''}>${esc(l)}</option>`).join('')}</select></label>`;
+  const rooms=`<label class="book-opt"><span>Pokoje</span><input type="number" min="1" max="${adults}" value="${Math.min(BOOK_OPT.rooms, adults)}" data-book-rooms></label>`;
+  return `<span class="book-opts">${type}${rooms}<a class="btn-ghost" href="${esc(bookingWithOpts(link))}" data-book-base="${esc(link)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Szukaj na Booking.com</a></span>`;
+}
+document.addEventListener('change', e=>{
+  const t=e.target.closest('[data-book-type],[data-book-rooms]'); if(!t) return;
+  if(t.matches('[data-book-type]')) BOOK_OPT.type=BOOKING_TYPES.some(x=>x[0]===t.value)?t.value:'';
+  else { const v=Math.min(+t.max||8, 8, Math.max(1, Math.round(+t.value||1))); t.value=v; BOOK_OPT.rooms=v; }
+  try{ localStorage.setItem('podavo.bookingOpts', JSON.stringify(BOOK_OPT)); }catch(e2){}
+  document.querySelectorAll('a[data-book-base]').forEach(a=>{ a.href=bookingWithOpts(a.dataset.bookBase); });
+  document.querySelectorAll('[data-book-type]').forEach(x=>{ if(x!==t) x.value=BOOK_OPT.type; });
+});
 function hotelQuery(T){
   const c=T.centre?.lat!=null?T.centre:T.dest?.lat!=null?T.dest:T.airport;
   // Pociąg, autobus lub samochód: zameldowanie w dniu dotarcia na miejsce, wymeldowanie w dniu powrotu.
@@ -5941,9 +5970,9 @@ function hotelSection(f, T){
   else if(st.configured===false) body=`<div class="empty-note">Wyszukiwarka hoteli w aplikacji czeka na klucz Booking.com (BOOKING_API_KEY i BOOKING_AFFILIATE_ID na serwerze). Do tego czasu szukaj na Booking.com i dodaj wybrany hotel poniżej.</div>`;
   else if(!st.hotels?.length) body='<div class="empty-note">Booking.com nie znalazł wolnych pokoi w okolicy w tych dniach.</div>';
   else body=`${st.sandbox?'<small class="text-soft">Dane z piaskownicy Booking.com (sandbox) — testowe.</small>':''}<div class="hotel-list">${st.hotels.map(x=>hotelCard(x, `<button type="button" class="btn-grad" data-tp-hotel-add="${esc(x.id)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj do podróży</button>${x.url?linkBtn(x.url,'arrow-up-right-from-square','Booking.com'):''}`)).join('')}</div>`;
-  const link=st?.bookingUrl||`https://www.booking.com/searchresults.html?${new URLSearchParams({ss:q.city, checkin:q.checkin, checkout:q.checkout, group_adults:'1', no_rooms:'1', group_children:'0'})}`;
+  const link=st?.bookingUrl||`https://www.booking.com/searchresults.html?${new URLSearchParams({ss:q.city, checkin:q.checkin, checkout:q.checkout, group_adults:String(Math.min(8,Math.max(1,q.adults||1))), no_rooms:'1', group_children:'0'})}`;
   // Wyszukiwanie, Booking.com i „dodaj ręcznie” w jednym wierszu; wyniki i formularz pod nim.
-  return `${body}<div class="hotel-bar">${search}${linkBtn(link,'arrow-up-right-from-square','Szukaj na Booking.com')}
+  return `${body}<div class="hotel-bar">${search}${bookingSearchLink(link)}
     <details class="hotel-manual"${TRIPV.manual?' open':''}><summary>Mam już hotel — dodaj go ręcznie</summary>
       <form class="hotel-form" data-tp-hotel-form><input name="hname" placeholder="Nazwa hotelu" required maxlength="120"><input name="address" placeholder="Adres (pokażemy go na mapie)" maxlength="160"><input name="price" type="number" min="0" step="1" placeholder="Cena za pobyt (zł)"><input name="url" type="url" placeholder="Link do rezerwacji (opcjonalnie)" maxlength="300"><button class="btn-grad" type="submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj hotel</button></form></details></div>`;
 }
@@ -5979,7 +6008,10 @@ function planStaySlots(kind, H, ctx={}){
   if(kind==='flight'){
     const f=ctx.f, d=ctx.d; if(!f) return [];
     const p=at(d?.target)||at(H.dest?.points?.[0])||(d?.airport?at(d.airport):null);
-    return slot('dest', H.to||d?.city||'', p, (f.arrival||'').slice(0,10)||f.day, f.ret?.day||'');
+    // Cel przy samym lotnisku („Rzym Fiumicino”): serwer zamienia go na centrum miasta (target.centre), więc nocleg
+    // szukamy w mieście („Rome”), nie przy lotnisku.
+    const city=d?.target?.centre?(d.target.label||d.city):(H.to||d?.city||'');
+    return slot('dest', city, p, (f.arrival||'').slice(0,10)||f.day, f.ret?.day||'');
   }
   if(kind==='ground'){
     const st=ctx.stages||[H], last=st[st.length-1], g=last.groundPick; if(!g) return [];
@@ -6024,7 +6056,7 @@ function staySlotHtml(H, s, people, many){
   else if(live?.configured===false){ body='<div class="empty-note">Wyszukiwarka noclegów w aplikacji czeka na klucz Booking.com. Szukaj na Booking.com przyciskiem obok i dodaj wybrany hotel ręcznie.</div>'; search=''; }
   else if(live && !live.hotels?.length){ body='<div class="empty-note">Booking.com nie znalazł wolnych pokoi w okolicy w tych dniach.</div>'; search=''; }
   else if(live){ search=''; body=`${live.sandbox?'<small class="text-soft">Dane z piaskownicy Booking.com (sandbox) — testowe.</small>':''}<div class="hotel-list">${live.hotels.slice(0,many?4:6).map(x=>hotelCard(x, `<button type="button" class="btn-grad" data-stay-add="${esc(s.key)}" data-stay-id="${esc(x.id)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> Wybierz</button>${x.url?linkBtn(x.url,'arrow-up-right-from-square','Booking.com'):''}`)).join('')}</div>`; }
-  return `<div class="stay-slot" data-stay-slot="${esc(s.key)}">${head}${body}<div class="hotel-bar">${search}${linkBtn(link,'arrow-up-right-from-square','Szukaj na Booking.com')}
+  return `<div class="stay-slot" data-stay-slot="${esc(s.key)}">${head}${body}<div class="hotel-bar">${search}${bookingSearchLink(link)}
     <details class="hotel-manual"><summary>Mam już nocleg — dodaj ręcznie</summary>
       <form class="hotel-form" data-stay-form="${esc(s.key)}"><input name="hname" placeholder="Nazwa hotelu" required maxlength="120"><input name="address" placeholder="Adres (pokażemy go na mapie)" maxlength="160"><input name="price" type="number" min="0" step="1" placeholder="Cena za pobyt (zł)"><input name="url" type="url" placeholder="Link do rezerwacji (opcjonalnie)" maxlength="300"><button class="btn-grad" type="submit"><i class="fa-solid fa-plus" aria-hidden="true"></i> Dodaj nocleg</button></form></details></div></div>`;
 }
