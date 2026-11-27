@@ -6727,6 +6727,31 @@ document.getElementById('planForm').addEventListener('submit', async e=>{
   }finally{ if(req===planReq){ go.disabled=false; go.classList.remove('busy'); refreshStopList(); } }
 });
 const [plFrom,plTo,plTime,plWhen,plDate,plRound,plBack]=['plFrom','plTo','plTime','plWhen','plDate','plRound','plBack'].map(id=>document.getElementById(id));
+// Godzina na telefonach i tabletach: dwie listy (godzina, minuty) zamiast systemowego zegara. Systemowe okno
+// Androida przy większym rozmiarze tekstu ucina przycisk „Ustaw”. Pole #plTime zostaje jedynym źródłem wartości:
+// listy je ustawiają (z input/change), a każde wpisanie plTime.value z kodu odświeża listy.
+(function timeSelects(){
+  if(!window.matchMedia?.('(pointer:coarse)').matches || !plTime) return;
+  const box=plTime.closest('.pl-inp'); if(!box) return;
+  const two=n=>String(n).padStart(2,'0');
+  const hm=document.createElement('span'); hm.className='pl-hm';
+  hm.innerHTML=`<select id="plHour" aria-label="Godzina"><option value="">Teraz</option>${Array.from({length:24},(_,h)=>`<option value="${two(h)}">${two(h)}</option>`).join('')}</select>`
+    +`<span aria-hidden="true">:</span><select id="plMin" aria-label="Minuty">${Array.from({length:12},(_,i)=>`<option value="${two(i*5)}">${two(i*5)}</option>`).join('')}</select>`;
+  box.classList.add('pl-hm-on'); box.appendChild(hm);
+  const [hSel,mSel]=hm.querySelectorAll('select');
+  const sync=()=>{
+    const [h='',m='00']=(plTime.value||'').split(':');
+    if(m && ![...mSel.options].some(o=>o.value===m)) mSel.add(new Option(m,m));
+    hSel.value=plTime.value?h:''; mSel.value=plTime.value?m:'00'; mSel.disabled=!plTime.value;
+  };
+  const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
+  Object.defineProperty(plTime,'value',{configurable:true, get(){ return d.get.call(this); }, set(v){ d.set.call(this,v); sync(); }});
+  hm.addEventListener('change', ()=>{
+    plTime.value=hSel.value?`${hSel.value}:${mSel.value||'00'}`:'';
+    plTime.dispatchEvent(new Event('input',{bubbles:true})); plTime.dispatchEvent(new Event('change',{bubbles:true}));
+  });
+  sync();
+})();
 const MAX_VIAS=5; let viaSeq=0;
 document.getElementById('plAddStop')?.addEventListener('click', ()=>{ if(S.agency==='podroz') enterMultiForm({addStep:true}); else addVia(); });
 document.getElementById('plStops').addEventListener('click', e=>{ const b=e.target.closest('[data-remove-via]'); if(b){ delete S.placeChoice[b.closest('.pl-stop').dataset.field]; b.closest('.pl-stop').remove(); renumberVias(); } });

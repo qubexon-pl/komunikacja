@@ -88,3 +88,7 @@ Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1
 
 - Next to "Szukaj na Booking.com" (planner and trip page) you choose the type of place (all, hotels, apartments, B&Bs, hostels, holiday homes) and the number of rooms. The link gets `nflt=ht_id=…` and `no_rooms`, never more rooms than adults. The choice is remembered in this browser and changes the link without redrawing the screen.
 - When the destination is the airport itself (for example "Rzym Fiumicino"), the server already swaps it for the city centre. The stay now uses that city too ("Rome"), so Booking.com searches the city and not the airport.
+
+## Phone fix: time picker
+
+- On touch screens the time is chosen from two lists (hour, minutes in 5-minute steps; "Teraz" means now). Android's own clock dialog cut off its "Ustaw" button when the phone uses a larger text size. `#plTime` stays the only source of the value, so nothing else in the planner changed.

@@ -214,3 +214,10 @@
 .book-opt input{ width:60px; }
 .book-opts .btn-ghost{ display:inline-flex; align-items:center; gap:6px; padding:6px 12px; }
 @media (max-width:767px){ .book-opt select,.book-opt input,.book-opts .btn-ghost{ min-height:44px; } .book-opts{ width:100%; } .book-opt{ flex-direction:column; align-items:stretch; gap:2px; } .book-opt:first-child{ flex:1 1 0; min-width:0; } .book-opt:first-child select{ width:100%; min-width:0; } .book-opts .btn-ghost{ flex:1 1 100%; justify-content:center; } }
+
+/* Touch screens: hour and minute lists instead of the system clock dialog (see timeSelects in app.js) */
+.pl-hm-on > input[type="time"]{ display:none; }
+.pl-hm{ display:flex; align-items:center; gap:4px; width:100%; min-width:0; }
+.pl-hm select{ flex:1 1 0; min-width:0; min-height:44px; padding:4px 6px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); font:inherit; font-weight:700; }
+.pl-hm select:disabled{ opacity:.5; }
+.pl-hm > span{ font-weight:700; color:var(--ink-soft); }

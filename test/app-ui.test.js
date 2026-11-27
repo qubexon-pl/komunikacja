@@ -143,3 +143,13 @@ test("a stay at a destination next to the airport is searched in the city, not a
   const js = read("assets/app.js");
   assert.match(js, /const city=d\?\.target\?\.centre\?\(d\.target\.label\|\|d\.city\):\(H\.to\|\|d\?\.city\|\|''\);/);
 });
+
+test("touch screens pick the time from hour and minute lists, kept in sync with the time field", () => {
+  const js = read("assets/app.js"), css = read("assets/app.shell.css");
+  const fn = js.slice(js.indexOf("(function timeSelects(){"), js.indexOf("const MAX_VIAS="));
+  assert.match(fn, /matchMedia\?\.\('\(pointer:coarse\)'\)/);
+  assert.match(fn, /<option value="">Teraz<\/option>/); // empty hour = now, as before
+  assert.match(fn, /Object\.defineProperty\(plTime,'value'/); // code that sets plTime.value updates the lists
+  assert.match(fn, /dispatchEvent\(new Event\('change'/);
+  assert.match(css, /\.pl-hm-on > input\[type="time"\]\{ display:none; \}/);
+});
