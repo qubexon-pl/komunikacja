@@ -64,3 +64,10 @@ Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1
 - The flight planner (Loty → Dojazd na lotnisko → Na miejscu / Z lotniska do centrum → Plan podróży) and the ground planner (Połączenie → Zapisz podróż) both use it. This is already the brief's order: main transport, transport to the departure point, transport at the destination, summary.
 - On screens narrower than 900 px the row shows only the dots, and one line under it says where you are ("Krok 2 z 4 · Dojazd na lotnisko · Autobus 0A"). Wider screens show each step's name and a short summary of what was chosen.
 - Choices stay in the planner state (`P.flightStep`, `P.accessPick`, `P.xferPick`), so going back to an earlier step keeps them. This was already the case and is unchanged.
+
+## 3b (part 1): journey details in a window
+
+- The planner's "Przebieg podróży" list now shows only the essentials for each point: the mode, where, the times, the duration and the cost.
+- The details that used to sit open in a second column next to the list now open in a `PVUI.sheet` when you click a point: the step-by-step route, map links, check-in notes and "Szczegóły lotu". On phones that is a bottom sheet, and on desktop a panel on the right.
+- The second column ("Szczegóły wybranych punktów pojawią się tutaj") is gone, so the planner is one column on every screen.
+- Still to come in 3b: the access comparison table, the cost card (fuel assumptions, per-person maths), provider and ticket links, and baggage notes move behind the same windows.

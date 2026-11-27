@@ -184,3 +184,8 @@
   .pv-step-text{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
   .pv-step-now{ display:block; }
 }
+
+/* Journey details in a sheet (Phase 3b): the planner's journey line shows the essentials; a point's route
+   steps, links and check-in notes open in PVUI.sheet. */
+.jl-sheet-sub{ margin:0 0 10px; color:var(--ink-soft); font-size:.875rem; }
+.jl-sheet .btn-ghost{ min-height:44px; }
