@@ -1843,6 +1843,7 @@ async function main() {
       getPreferences: (userId) => auth.getPreferences(userId),
       savePreferences: (userId, preferences) => auth.savePreferences(userId, preferences),
       forecast: (() => { const weather = createTripWeather(); return (q) => weather.forecast(q); })(),
+      places: (() => { const osm = createNearby(); return (q) => osm.nearby(q); })(),
     }),
     database: {
       health: async () => pool.request().query("SELECT 1 AS ok"),
