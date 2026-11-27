@@ -110,3 +110,31 @@ test("app.js renders step-by-step lists and city results through the shared tran
   assert.match(app, /PVT\.mapSummary\(/);
   for (const hook of ["data-cp-show", "data-cp-detail", "data-cp-map-close", "data-cp-here"]) assert.ok(app.includes(hook), hook);
 });
+
+test("departure board: delays only for live departures, platforms for trains, cancelled struck out, line filter", () => {
+  const PVT = loadPVT(), now = Date.parse("2026-12-01T08:00:00Z");
+  const dep = (o) => ({ line: "4", headsign: "Bronowice", mode: "tram", scheduled: "2026-12-01T09:10", expected: "2026-12-01T09:10", at: now + 10 * 60000, delayMin: 0, realtime: "scheduled", platform: "", cancelled: false, ...o });
+  const board = PVT.departureBoard([
+    dep({}),
+    dep({ line: "8", realtime: "live", delayMin: 3, expected: "2026-12-01T09:13" }),
+    dep({ line: "R 33100", mode: "rail", platform: "2", track: "4", realtime: "live", delayMin: 0 }),
+    dep({ line: "52", cancelled: true }),
+  ], { now, t: EN });
+  const rows = board.split("<li").slice(1);
+  assert.doesNotMatch(rows[0], /ctx-st/); // scheduled: no delay, no "on time"
+  assert.match(rows[1], /<b>09:13<\/b> <s>09:10<\/s>/);
+  assert.match(rows[1], /\+3 min/);
+  assert.match(rows[2], /platform 2 · track 4/);
+  assert.match(rows[2], /on time/);
+  assert.match(rows[3], /<s>09:10<\/s>/);
+  assert.match(rows[3], /cancelled/);
+  assert.equal(PVT.departureBoard([dep({}), dep({ line: "8" })], { now, line: "8" }).split("<li").length - 1, 1);
+  assert.match(PVT.departureBoard([], { t: EN, empty: "Nothing" }), /empty-note">Nothing/);
+  assert.match(PVT.departureBoard([dep({ headsign: "<b>x</b>" })], { now }), /&lt;b&gt;x&lt;\/b&gt;/);
+});
+
+test("the city stop board reads the shared departures endpoint and draws the shared board", () => {
+  assert.match(app, /fetch\('\/api\/transport\/departures\?'\+new URLSearchParams\(\{\.\.\.q, limit:'50'\}\)\)/);
+  assert.match(app, /const q=\{provider:'transitous', stop:stop\.id\}/);
+  assert.match(app, /PVT\.departureBoard\(list, \{t:L2, now, line:CTX\.line/);
+});
