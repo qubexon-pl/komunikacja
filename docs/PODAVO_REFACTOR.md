@@ -228,3 +228,18 @@ database for 14 days (`osm:` snapshots), which is the catalogue 7c recommends fr
 "© OpenStreetMap contributors" and the ODbL licence.
 
 Saved trips keep their exploration plans in the trip JSON (`trip.local`), as they do today; no new table was needed.
+
+## 7b: "W okolicy" in the trip's city plan
+
+The city plan of a saved trip ("Plan zwiedzania") now starts with **W okolicy**: named places within 2 km of the
+stay (or of the city centre when no stay is saved), from `/api/places/nearby` (`PVD.nearList`,
+assets/app.discover.js).
+
+- Kind chips (all, sights, museums, views, parks, food, cafés, evening), showing only kinds that are there; 12
+  places at a time with "Pokaż więcej".
+- Each place: distance, OSM's opening hours as written (no "open now" guess), cuisine, wheelchair access when OSM says
+  yes, "O miejscu" when OSM links a Wikipedia article (6b sheet), and "Dojazd", which fills the city planner from the
+  stay to that place. A found connection is added to the plan with the existing "Dodaj do planu", so the plan keeps
+  one format.
+- The section can be folded (remembered in this browser). The ODbL line is under the list.
+- Service worker onward-v41.
