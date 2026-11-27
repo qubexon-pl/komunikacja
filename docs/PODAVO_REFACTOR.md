@@ -109,3 +109,11 @@ Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1
   - `GET /api/transport/cities/:id`: one city (404 if unknown).
   - `GET /api/transport/providers`: the provider list.
 - Nothing on screen changes yet. 4b puts Rzeszów and PLK behind adapters that return these models; 4c builds the shared transport screens on them.
+
+## 4b: Rzeszów and PKP PLK as adapters
+
+- `src/transport-adapters.js` answers departures in the shared Departure model from what the background jobs already keep in the database: the imported Rzeszów timetables (`schedule:ztm`, `schedule:pks`) and PKP PLK's timetable and operations (`plk:schedule:<day>`, `plk:operations`). A visitor never makes the server call ZTM, PKS or PKP. Each snapshot is parsed once and kept until its ETag changes.
+- `GET /api/transport/departures?provider=rzeszow-gtfs&stop=ztm:<id>` or `?provider=pkp-plk&stop=<station id>`, with optional `time` (local, `YYYY-MM-DDTHH:MM`) and `limit` (1–50). 503 when the timetable is not ready, 400 for a bad stop or time, 404 for an unknown Rzeszów stop.
+- Rzeszów: the weekly calendar and its exceptions decide which trips run; trips after midnight (GTFS times over 24:00) are included; nobody boards at a trip's last stop. GTFS-RT delays are still decoded in the browser, so the server marks every Rzeszów departure `scheduled`.
+- PKP PLK: a departure is `live` only when PKP's operations feed has that train. The delay is the station's own report or, while the train runs, the last delay reported before it (the rule the train board uses). Cancelled trains are marked.
+- The screens still use their current data paths; 4c and 4d move them onto these adapters.
