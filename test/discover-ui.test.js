@@ -60,3 +60,25 @@ test("the Kierunki panel offers the list and the map, and the list asks /api/dis
   assert.match(app, /toFixed\(2\)\},\$\{\(\+home\[1\]\)\.toFixed\(2\)/);
   assert.match(read("assets/app.sw.js"), /'\/assets\/app\.discover\.js'/);
 });
+
+test("5c: a typed wish becomes checked filters, in Polish and English", () => {
+  const PVD = loadPVD(), C = ["Hiszpania", "Włochy", "Grecja", "Wielka Brytania"], o = { today: "2026-11-27", countries: C };
+  const plain = (q) => JSON.parse(JSON.stringify(q));
+  assert.deepEqual(plain(PVD.parseQuery("Hiszpania w lutym na weekend do 400 zł", o)), { maxPrice: 400, nights: 2, month: "2027-02", country: "Hiszpania", text: "" });
+  assert.deepEqual(plain(PVD.parseQuery("we Włoszech w marcu na tydzień", o)), { nights: 7, month: "2027-03", country: "Włochy", text: "" });
+  assert.deepEqual(plain(PVD.parseQuery("Rome in March for a week under 300", o)), { maxPrice: 300, nights: 7, month: "2027-03", text: "rome" });
+  assert.equal(PVD.parseQuery("w grudniu", o).month, "2026-12"); // this year's month while it lasts
+  assert.equal(PVD.parseQuery("w maju 5 dni", o).nights, 4);
+  assert.equal(PVD.parseQuery("6 nocy", o).nights, 5); // clamped to the nearest stay the filter offers (shorter on a tie)
+  assert.equal(PVD.parseQuery("Majorka", o).month, undefined); // "maj" only as a whole word
+  assert.equal(PVD.parseQuery("do 5 zł", o).maxPrice, undefined); // out of range: ignored, not guessed
+  assert.equal(PVD.parseQuery("w jedną stronę", o).nights, 0);
+  const chips = PVD.queryChips(PVD.parseQuery("Grecja maj do 300 zł", o), PL);
+  assert.match(chips, /do 300 zł/);
+  assert.match(chips, /Grecja/);
+});
+
+test("5c: the wish is read in the browser; nothing is sent but the filters", () => {
+  assert.match(app, /PVD\.parseQuery\(text,\{today:ymdOf\(0\), countries\}\)/);
+  assert.doesNotMatch(read("assets/app.discover.js"), /fetch\(/);
+});

@@ -4774,7 +4774,7 @@ function discWhenOptions(){
   const today=ymdOf(0), add=(d,n)=>new Date(Date.parse(d+'T12:00:00Z')+n*864e5).toISOString().slice(0,10);
   const opts=[[`${today}|${add(today,30)}`, L2('Najbliższe 30 dni','Next 30 days')], [`${today}|${add(today,90)}`, L2('Najbliższe 3 miesiące','Next 3 months')]];
   const [y,m]=today.split('-').map(Number);
-  for(let i=0;i<4;i++){
+  for(let i=0;i<12;i++){
     const yy=y+Math.floor((m-1+i)/12), mm=(m-1+i)%12+1, first=`${yy}-${String(mm).padStart(2,'0')}-01`, last=new Date(Date.UTC(yy,mm,0)).toISOString().slice(0,10);
     const name=new Date(first+'T12:00:00Z').toLocaleDateString(isEn()?'en-GB':'pl-PL',{month:'long', year:'numeric', timeZone:'UTC'});
     opts.push([`${first<today?today:first}|${last}`, name.charAt(0).toUpperCase()+name.slice(1)]);
@@ -4791,6 +4791,8 @@ function discApply(){
   sec.classList.toggle('disc-on', list);
   document.getElementById('disc').hidden=!list;
   document.querySelectorAll('[data-disc-mode]').forEach(b=>{ const on=b.dataset.discMode===DISC.mode; b.classList.toggle('on',on); b.setAttribute('aria-selected',String(on)); });
+  const inp=document.getElementById('exploreSearch');
+  if(inp){ inp.dataset.ph??=inp.placeholder; inp.placeholder=list?L2('np. Hiszpania w lutym na weekend do 400 zł','e.g. Spain in February for a weekend under 400 zł'):inp.dataset.ph; }
   if(list){ discWhenOptions(); loadDisc(); }
   return list;
 }
@@ -4802,9 +4804,10 @@ function renderDisc(){
   const out=document.getElementById('discOut'); if(!out) return;
   if(DISC.data?.error){ out.innerHTML=`<div class="empty-note">${esc(DISC.data.error)}</div>`; return; }
   if(!DISC.data){ out.innerHTML=`<div class="empty-note">${esc(L2('Szukam najtańszych zapisanych lotów…','Looking for the cheapest stored flights…'))}</div>`; return; }
-  const q=(document.getElementById('exploreSearch')?.value||'').trim().toLocaleLowerCase('pl');
-  const shown=q?{...DISC.data, destinations:DISC.data.destinations.filter(d=>`${d.city} ${d.country} ${d.code} ${(d.alsoAirports||[]).join(' ')}`.toLocaleLowerCase('pl').includes(q))}:DISC.data;
-  out.innerHTML=PVD.list(shown,{t:L2});
+  const q=DISC.q||{}, words=(q.text||'').split(' ').filter(Boolean);
+  const keep=d=>(q.maxPrice==null||d.flightPln<=q.maxPrice) && (!q.country||d.country===q.country)
+    && words.every(w=>`${d.city} ${d.country} ${d.code} ${(d.alsoAirports||[]).join(' ')}`.toLocaleLowerCase('pl').includes(w));
+  out.innerHTML=PVD.queryChips(q,L2)+PVD.list({...DISC.data, destinations:DISC.data.destinations.filter(keep)},{t:L2});
   const info=document.getElementById('exploreInfo'); if(info) info.textContent=L2(`${DISC.data.total} ${plural(DISC.data.total,'kierunek','kierunki','kierunków')} z cenami`, `${DISC.data.total} destinations with prices`);
 }
 async function loadDisc(force){
@@ -4817,7 +4820,7 @@ async function loadDisc(force){
     if(seq!==DISC.seq) return;
     DISC.data=r.ok?body:{error:body.error||L2('Kierunki są chwilowo niedostępne.','Destinations are unavailable right now.')};
   }catch(e){ if(seq===DISC.seq) DISC.data={error:L2('Brak połączenia z serwerem.','No connection to the server.')}; }
-  if(seq===DISC.seq) renderDisc();
+  if(seq===DISC.seq){ if(document.getElementById('exploreSearch')?.value && DISC.data?.destinations) DISC.q=PVD.parseQuery(document.getElementById('exploreSearch').value,{today:ymdOf(0), countries:[...new Set(DISC.data.destinations.map(d=>d.country))]}); renderDisc(); }
 }
 function discPlan(code){
   const d=DISC.data?.destinations?.find(x=>x.code===code); if(!d) return;
@@ -4837,7 +4840,19 @@ document.getElementById('disc').addEventListener('change', ()=>{
   DISC.f={when:w.value, whenText:w.selectedOptions[0]?.text, nights:document.getElementById('discNights').value, radius:document.getElementById('discRadius').value};
   store('podavo.disc.filters', DISC.f); loadDisc();
 });
-document.getElementById('exploreSearch')?.addEventListener('input', ()=>{ if(DISC.mode==='list') renderDisc(); });
+// 5c: w trybie listy pole wyszukiwania rozumie życzenie („Hiszpania w lutym na weekend do 400 zł”) i ustawia filtry.
+let discTyping=null;
+function discFromText(){
+  const text=document.getElementById('exploreSearch')?.value||'';
+  const countries=[...new Set((DISC.data?.destinations||[]).map(d=>d.country))];
+  DISC.q=PVD.parseQuery(text,{today:ymdOf(0), countries});
+  let changed=false;
+  if(DISC.q.month){ const w=document.getElementById('discWhen'), o=[...w.options].find(o=>o.value.slice(0,7)===DISC.q.month && o.value.slice(11,18)===DISC.q.month); if(o && w.value!==o.value){ w.value=o.value; changed=true; } }
+  if(DISC.q.nights!=null){ const n=document.getElementById('discNights'); if(n.value!==String(DISC.q.nights)){ n.value=String(DISC.q.nights); changed=true; } }
+  if(changed) document.getElementById('disc').dispatchEvent(new Event('change')); else renderDisc();
+}
+document.getElementById('exploreSearch')?.addEventListener('input', ()=>{ if(DISC.mode!=='list') return; clearTimeout(discTyping); discTyping=setTimeout(discFromText,350); });
+document.getElementById('exploreSearchForm')?.addEventListener('submit', e=>{ if(DISC.mode!=='list') return; e.preventDefault(); e.stopImmediatePropagation(); clearTimeout(discTyping); discFromText(); }, true);
 
 /* ---------- Tanie linie lotnicze ---------- */
 const FL={data:null, network:[], byKey:new Map(), updating:new Set()};
