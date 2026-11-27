@@ -89,6 +89,11 @@
   /* the date ("Data wyjazdu" or "Termin podróży") and "Odjazd / Na miejscu o" with the time share one row */
   .planner > .pl-time{grid-column:auto !important}
   .planner > .pl-time .pl-inp input{padding-left:0; padding-right:0}
+  /* round trip: "Termin podróży" needs both dates and the number of days, so it takes the whole row on phones
+     (sharing it with the time cut off the return day and "· 4 dni"); the time then gets its own row too */
+  .planner > .pl-range:not([hidden]),.planner > .pl-range:not([hidden]) ~ .pl-time{grid-column:1 / -1 !important}
+  .pl-range-btn{min-width:0; white-space:normal}
+  .pl-range-btn small{white-space:nowrap}
   .pl-pair{grid-template-columns:minmax(0,1fr) !important; gap:8px}
   .pl-field{min-width:0; padding:10px 14px !important; border-radius:14px}
   .pl-pair .pl-field:first-child,.pl-pair .pl-field:last-child{padding-right:56px !important; padding-left:14px !important}
