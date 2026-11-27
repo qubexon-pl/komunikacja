@@ -180,3 +180,21 @@ week under 300". `PVD.parseQuery` (assets/app.discover.js) reads it in the brows
 Month and stay set the selects (and so the `/api/discover` query); price and country filter the answer. Whatever is
 left filters by place name. The chips above the list show what was understood, so nothing is applied silently.
 The months list reaches 12 months ahead. Service worker onward-v39.
+
+## 6a: destination knowledge from open sources
+
+`GET /api/places/about?name=&lat=&lon=&lang=pl|en` (rate limit "places", 30/min) says what open sources know about a
+destination (src/knowledge.js):
+
+- Wikipedia in the chosen language: the article named like the place among pages within 10 km of the point, or, when
+  the point is at an airport, the article of that name if it lies within 60 km and is not a disambiguation page. From
+  it: title, short description, summary (at most 1200 characters), picture and link.
+- Wikidata, through the article's item: population with its year (newest value), elevation in metres, official
+  website, country and time zone (as labels in the chosen language). A fact the source does not have is left out.
+- Every answer lists its sources with licences (Wikipedia CC BY-SA 4.0, Wikidata CC0) for the attribution line.
+- Only the place's name and coordinates are sent out. Answers that found an article are kept in the database for 30
+  days (`know:` snapshots via src/stored.js), so the catalogue fills up as places are looked at and refreshes itself
+  when an entry is older than that. A miss is not stored.
+
+The card that shows it on a destination and on a saved trip is 6b; points of interest from OpenStreetMap follow with
+Local Exploring.
