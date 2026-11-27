@@ -138,9 +138,24 @@ function plkDepartures({ days, ops = [], station, at, limit = 20 }) {
   return { stationName, departures: out.sort((a, b) => a.at - b.at).slice(0, limit) };
 }
 
+/* ---------- Transitous (the other 48 cities) ---------- */
+
+// One departure of src/city-transit.js#departures: "live" only when the operator sent a prediction (x.live).
+function transitousDeparture(x, stop) {
+  const live = !!x.live, delay = live ? Math.round(x.delayMin || 0) : 0;
+  return {
+    provider: "transitous", stopId: stop.id, stopName: stop.name || "",
+    line: x.line || "", headsign: x.headsign || "", mode: GTFS_KIND[x.kind] || x.kind || "bus",
+    scheduled: local(x.at - delay * 60000), expected: local(x.at), at: x.at,
+    delayMin: delay, realtime: live ? "live" : "scheduled",
+    platform: x.platform || "", cancelled: !!x.cancelled, color: x.color || null, textColor: x.textColor || null,
+  };
+}
+const GTFS_KIND = { subway: "metro", train: "rail" };
+
 /* ---------- the shared service ---------- */
 
-function createTransportDepartures({ snapshots, now = Date.now }) {
+function createTransportDepartures({ snapshots, city = null, now = Date.now }) {
   const cache = new Map(); // snapshot key → { etag, value }
   async function load(key, build = (x) => x) {
     const info = await snapshots?.info(key).catch(() => null);
@@ -176,9 +191,15 @@ function createTransportDepartures({ snapshots, now = Date.now }) {
       const { stationName, departures: list } = plkDepartures({ days: [{ date: addDays(today, -1), data: yesterday }, { date: today, data: current }], ops: ops || [], station: stop, at, limit: n });
       return { provider, stop: { id: String(stop), name: stationName }, departures: list, zone: ZONE, fetchedAt: fetchedAt(OPERATIONS_KEY) || fetchedAt(scheduleKey(today)), source: "PKP PLK" };
     }
+    if (provider === "transitous") {
+      if (!city) return { unavailable: true, departures: [] };
+      const d = await city.departures({ stop, time });
+      const list = (d.departures || []).map((x) => transitousDeparture(x, d.stop)).filter((x) => x.at >= at - 60000).slice(0, n);
+      return { provider, stop: d.stop, departures: list, zone: d.zone || ZONE, fetchedAt: d.fetchedAt || null, source: d.source || "Transitous" };
+    }
     throw bad("Nieznany przewoźnik.");
   }
   return { departures };
 }
 
-module.exports = { createTransportDepartures, rzeszowDepartures, indexSchedule, servicesOn, plkDepartures, plkDelays, unpack };
+module.exports = { createTransportDepartures, transitousDeparture, rzeszowDepartures, indexSchedule, servicesOn, plkDepartures, plkDelays, unpack };

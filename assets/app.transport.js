@@ -159,5 +159,24 @@
     return `<small class="cs-src pvt-fresh">${esc(source||'Transitous')}${at?` · ${esc(t(`stan na ${at}`,`as of ${at}`))}`:''}${zone?` · ${esc(t('godziny lokalne','local times'))} (${esc(zone)})`:''}</small>`;
   }
 
-  root.PVT={esc, MODES, clockGap, duration, transfersText, chip, legStatus, statusBadge, tripStatus, stepsToEvents, journeyTimeline, modeSequence, routeCard, mapSummary, freshness};
+  /* DepartureBoard (Phase 4c): one list of departures for every provider, from the shared Departure model of
+     /api/transport/departures (src/transport.js): {line, headsign, mode, scheduled, expected, at, delayMin,
+     realtime:'live'|'scheduled', platform, track, cancelled, color, textColor}. A delay or "on time" is shown only
+     for a live departure; a scheduled one shows its timetable time and nothing else. */
+  function departureRow(x, o={}){
+    const t=o.t||PL, now=o.now??Date.now(), mins=Math.round((x.at-now)/60000);
+    const clock=String(x.expected||'').slice(11,16), planned=String(x.scheduled||'').slice(11,16), live=x.realtime==='live';
+    const when=x.cancelled?`<s>${esc(planned||clock)}</s>`:live&&x.delayMin&&planned&&planned!==clock?`<b>${esc(clock)}</b> <s>${esc(planned)}</s>`:`<b>${esc(clock)}</b>`;
+    const state=x.cancelled?`<span class="ctx-st cancel">${esc(t('odwołany','cancelled'))}</span>`
+      :live?`<span class="ctx-st live">${x.delayMin>0?`+${x.delayMin} min`:x.delayMin<0?`${x.delayMin} min`:esc(t('na czas','on time'))}</span>`:'';
+    const where=x.mode==='rail'?(x.platform?` <small>${esc(t('peron','platform'))} ${esc(x.platform)}${x.track?` · ${esc(t('tor','track'))} ${esc(x.track)}`:''}</small>`:'')
+      :x.platform?` <small>${esc(t('stan.','stand'))} ${esc(x.platform)}</small>`:'';
+    return `<li class="${x.cancelled?'cancelled':''}"><span class="ctx-when">${when}<small>${mins<=0?esc(t('teraz','now')):mins<60?`${mins} min`:''}</small></span>${chip({kind:x.mode, line:x.line, color:x.color, textColor:x.textColor})}<span class="ctx-head-sign">${esc(x.headsign)}${where}</span>${state}</li>`;
+  }
+  function departureBoard(list, o={}){
+    const t=o.t||PL, rows=(list||[]).filter(x=>!o.line||x.line===o.line).map(x=>departureRow(x,o)).join('');
+    return rows?`<ol class="ctx-deps">${rows}</ol>`:`<div class="empty-note">${esc(o.empty||t('Brak odjazdów w najbliższym czasie.','No departures soon.'))}</div>`;
+  }
+
+  root.PVT={esc, MODES, clockGap, duration, transfersText, chip, legStatus, statusBadge, tripStatus, stepsToEvents, journeyTimeline, modeSequence, routeCard, mapSummary, freshness, departureRow, departureBoard};
 })(typeof window!=='undefined'?window:globalThis);

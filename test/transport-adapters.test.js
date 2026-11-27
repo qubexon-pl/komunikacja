@@ -114,3 +114,17 @@ test("GET /api/transport/departures answers 503 when the timetable is not ready"
   assert.equal((await fetch(`${base}?provider=pkp-plk&stop=100`)).status, 503);
   assert.equal((await fetch(`${base}?provider=pkp-plk&stop=abc`)).status, 400);
 });
+
+test("Transitous departures become the shared model: delays only when live", async () => {
+  const { transitousDeparture } = require("../src/transport-adapters");
+  const atMs = at("2026-12-01T09:13");
+  const live = transitousDeparture({ line: "8", kind: "tram", at: atMs, live: true, delayMin: 3, headsign: "Bronowice", platform: "" }, { id: "s1", name: "Rondo" });
+  assert.deepEqual([live.scheduled, live.expected, live.delayMin, live.realtime, live.mode], ["2026-12-01T09:10", "2026-12-01T09:13", 3, "live", "tram"]);
+  const sched = transitousDeparture({ line: "8", kind: "bus", at: atMs, live: false, delayMin: 4 }, { id: "s1", name: "Rondo" });
+  assert.deepEqual([sched.scheduled, sched.expected, sched.delayMin, sched.realtime], ["2026-12-01T09:13", "2026-12-01T09:13", 0, "scheduled"]);
+  const svc = createTransportDepartures({ snapshots: fakeSnapshots({}), now: () => at("2026-12-01T09:00"), city: { departures: async () => ({ stop: { id: "s1", name: "Rondo" }, departures: [{ line: "8", kind: "tram", at: atMs, live: true, delayMin: 3 }], zone: "Europe/Warsaw", fetchedAt: 5, source: "Transitous" }) } });
+  const r = await svc.departures({ provider: "transitous", stop: "s1" });
+  assert.equal(r.stop.name, "Rondo");
+  assert.equal(r.departures[0].realtime, "live");
+  assert.equal(r.fetchedAt, 5);
+});

@@ -117,3 +117,10 @@ Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1
 - Rzeszów: the weekly calendar and its exceptions decide which trips run; trips after midnight (GTFS times over 24:00) are included; nobody boards at a trip's last stop. GTFS-RT delays are still decoded in the browser, so the server marks every Rzeszów departure `scheduled`.
 - PKP PLK: a departure is `live` only when PKP's operations feed has that train. The delay is the station's own report or, while the train runs, the last delay reported before it (the rule the train board uses). Cancelled trains are marked.
 - The screens still use their current data paths; 4c and 4d move them onto these adapters.
+
+## 4c: shared departure board
+
+- `PVT.departureBoard(list, {now, line, t, empty})` and `PVT.departureRow` in `assets/app.transport.js` draw any list in the shared Departure model. A delay or "na czas" appears only for a `live` departure; a scheduled one shows its timetable time only. Trains show platform and track; buses and trams show the stand. Cancelled departures are struck out.
+- `/api/transport/departures` also answers `provider=transitous` (the 48 cities), converting Transitous departures with `transitousDeparture`: live only when the operator sent a prediction.
+- The city stop board (Komunikacja → a city → Rozkład jazdy) now reads `/api/transport/departures` and draws `PVT.departureBoard`, with the source and fetch time under it. The look is unchanged.
+- 4d moves the Rzeszów stop board and the train board onto the same board.

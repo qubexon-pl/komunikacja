@@ -1180,7 +1180,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
   const transitClient = createTransitous({ fetchSource });
   const airportTransfers = transfers || createAirportTransfers({ transitous: transitClient, toPln: fareRates, geocode, snapshots, drive });
   const city = cityTransit || createCityTransit({ transitous: transitClient, store: snapshots });
-  const transportDepartures = createTransportDepartures({ snapshots });
+  const transportDepartures = createTransportDepartures({ snapshots, city });
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {

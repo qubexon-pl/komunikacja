@@ -3949,19 +3949,17 @@ function renderCtxBoard(){
   const now=Date.now(), from=CTX.day||CTX.at?Date.parse(`${CTX.day||localNow('Europe/Warsaw').slice(0,10)}T${CTX.at||'00:00'}:00`):0;
   const sel=document.getElementById('ctxLine'), lines=[...new Set(d.departures.map(x=>x.line).filter(Boolean))].sort(natSort);
   if(sel){ const keep=CTX.line; sel.innerHTML=`<option value="">${L2('Wszystkie linie','All lines')}</option>`+lines.map(l=>`<option${l===keep?' selected':''}>${esc(l)}</option>`).join(''); }
-  const list=d.departures.filter(x=>(from?x.at>=Math.min(from,now)-60000:x.at>=now-60000) && (!CTX.line||x.line===CTX.line));
-  const rows=list.map(x=>{ const mins=Math.round((x.at-now)/60000);
-    const when=x.cancelled?`<s>${esc(x.planned||x.clock)}</s>`:x.live&&x.delayMin&&x.planned?`<b>${esc(x.clock)}</b> <s>${esc(x.planned)}</s>`:`<b>${esc(x.clock)}</b>`;
-    const state=x.cancelled?`<span class="ctx-st cancel">${L2('odwołany','cancelled')}</span>`:x.live?`<span class="ctx-st live">${x.delayMin>0?L2(`+${x.delayMin} min`,`+${x.delayMin} min`):x.delayMin<0?L2(`${x.delayMin} min`,`${x.delayMin} min`):L2('na czas','on time')}</span>`:'';
-    return `<li class="${x.cancelled?'cancelled':''}"><span class="ctx-when">${when}<small>${mins<=0?L2('teraz','now'):mins<60?`${mins} min`:''}</small></span>${lineChip(x)}<span class="ctx-head-sign">${esc(x.headsign)}${x.platform?` <small>${L2('stan.','stand')} ${esc(x.platform)}</small>`:''}</span>${state}</li>`; }).join('');
+  // Wspólna tablica odjazdów (PVT.departureBoard) z modelu /api/transport/departures — ta sama dla każdego przewoźnika.
+  const list=d.departures.filter(x=>from?x.at>=Math.min(from,now)-60000:x.at>=now-60000);
   box.innerHTML=`<div class="ctx-board-head"><b>${esc(d.stop.name||CTX.stop.name)}</b><button type="button" class="btn-ghost" data-ctx-refresh><i class="fa-solid fa-rotate" aria-hidden="true"></i> ${L2('Odśwież','Refresh')}</button></div>`
-    +(rows?`<ol class="ctx-deps">${rows}</ol>`:`<div class="empty-note">${L2('Brak odjazdów w najbliższym czasie w otwartych rozkładach.','No departures soon in the open timetables.')}</div>`);
+    +PVT.departureBoard(list, {t:L2, now, line:CTX.line, empty:L2('Brak odjazdów w najbliższym czasie w otwartych rozkładach.','No departures soon in the open timetables.')})
+    +PVT.freshness(d.fetchedAt, d.zone, d.source, L2);
 }
 async function loadCtxBoard(quiet){
   const stop=CTX.stop; if(!stop) return;
   const n=++CTX.reqD; if(!quiet){ CTX.data=null; CTX.err=''; renderCtxBoard(); }
-  const q={stop:stop.id}; if(CTX.day||CTX.at){ const day=CTX.day||localNow('Europe/Warsaw').slice(0,10); q.time=`${day}T${CTX.at||(day===localNow('Europe/Warsaw').slice(0,10)?localNow('Europe/Warsaw').slice(11,16):'00:00')}`; }
-  const d=await fetch('/api/transit/departures?'+new URLSearchParams(q)).then(r=>r.json()).catch(()=>null);
+  const q={provider:'transitous', stop:stop.id}; if(CTX.day||CTX.at){ const day=CTX.day||localNow('Europe/Warsaw').slice(0,10); q.time=`${day}T${CTX.at||(day===localNow('Europe/Warsaw').slice(0,10)?localNow('Europe/Warsaw').slice(11,16):'00:00')}`; }
+  const d=await fetch('/api/transport/departures?'+new URLSearchParams({...q, limit:'50'})).then(r=>r.json()).catch(()=>null);
   if(n!==CTX.reqD || CTX.stop!==stop) return;
   if(!d || d.error){ if(!quiet||!CTX.data){ CTX.err=d?.error||L2('Odjazdy są chwilowo niedostępne.','Departures are unavailable right now.'); renderCtxBoard(); } return; }
   CTX.data=d; CTX.err=''; renderCtxBoard();
