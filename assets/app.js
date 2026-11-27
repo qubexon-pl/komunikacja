@@ -1752,7 +1752,7 @@ function multiSaveView(){
       ${planStayBox('multi',M)}
       ${tripTitleField(M)}
       <div class="cs-save-btns"><button type="button" class="btn-ghost" data-multi-save="planned"><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
-      <button type="button" class="btn-grad" data-multi-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${savedNote(M)}</div>`;
+      <button type="button" class="${saveCls(M)}" data-multi-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${SAVE_NOTE}${savedNote(M)}</div>`;
 }
 function saveMultiTrip(status, title){
   const M=S.multi, legs=M?.legs||[], n=(M?.places.length||1)-1; if(!M || legs.length!==n || legs.some(x=>!x)) return;
@@ -2388,6 +2388,10 @@ function tripTitleField(P){
   return `<label class="trip-title-field"><span><i class="fa-solid fa-pen" aria-hidden="true"></i> Nazwa podróży <small>(opcjonalnie)</small></span><input type="text" maxlength="80" data-trip-title value="${esc(value)}" placeholder="np. Wakacje w ${esc(P.to||'')}"></label>`;
 }
 // Po zapisie: link do zapisanej podróży i „Zakończ”, które czyści planer i wraca na stronę „Planuj”.
+// Zapis to nie rezerwacja (Phase 3c): pod przyciskami zapisu jedno zdanie, że bilety i nocleg kupuje się u przewoźnika
+// i na Booking.com, a nocleg nie jest potrzebny do zapisania. Po zapisie główny przycisk to „Zakończ”, a „Zapisz” staje się zwykły.
+const SAVE_NOTE='<p class="cs-save-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Zapisanie nie rezerwuje biletów ani noclegu: kupujesz je u przewoźnika i na Booking.com. Nocleg możesz dodać teraz, później albo wcale.</p>';
+const saveCls=P=>savedNote(P)?'btn-ghost':'btn-grad';
 function savedNote(P){
   const saved=P.saved && FAV.items.find(x=>x.type==='trip' && x.tid===P.saved);
   return saved?`<div class="cs-saved" role="status">${P.savedOk===saved.tid?stateIll(assetPaths.tripSaved,200,117):''}<i class="fa-solid fa-circle-check" aria-hidden="true"></i> ${saved.status==='booked'?'Zapisano w „Moje podróże”.':'Zapisano w ulubionych jako plan.'} <a href="/trip?id=${esc(saved.tid)}" data-trip-open="${esc(saved.tid)}">Zobacz podróż <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a><button type="button" class="btn-grad cs-finish" data-plan-finish><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i> Zakończ</button></div>`:'';
@@ -2401,7 +2405,7 @@ function groundSaveAll(J){
       ${planStayBox('ground',P0,{stages:st})}
       ${tripTitleField(P0)}
       <div class="cs-save-btns"><button type="button" class="btn-ghost" data-ground-save="planned"><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
-      <button type="button" class="btn-grad" data-ground-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${savedNote(P0)}</div>`)+
+      <button type="button" class="${saveCls(P0)}" data-ground-save="booked"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button></div>${SAVE_NOTE}${savedNote(P0)}</div>`)+
     `<div class="fl-nav"><button type="button" class="btn-ghost" data-ground-step="1"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Wstecz</button><span></span></div>`;
 }
 function saveGroundTrip(J, status, title){
@@ -3419,7 +3423,9 @@ function planSummaryCard(f, P){
   if(xo==='skip') points.push(point('car-side','Odbiór','ktoś odbiera z lotniska','z lotniska'));
   else if(xo) points.push(point(XMODE[xo.kind]?.[0]||'bus','Do centrum',xo.name||xo.line,xo.minutes!=null?`ok. ${fmtDuration(xo.minutes)}`:'—'));
   if(f.ret) points.push(point('plane-departure','Powrót',f.ret.fromLabel,`${fmtDay(f.ret.day)} ${clock(f.ret.departure)}`), point('plane-arrival','Lądowanie',f.ret.toLabel,arrivalOf(f.ret)||'—'));
-  const book=[f, f.ret].filter(x=>x?.bookingUrl).map((x,i)=>`<a class="btn-ghost fl-book" href="${esc(x.bookingUrl)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Sprawdź na ${x.airline==='RYANAIR'?'ryanair.com':x.airline==='WIZZ'?'wizzair.com':`Google Flights (${esc(airlineOf(x).name)})`}${f.ret?(i?' (powrót)':' (wylot)'):''}</a>`).join('');
+  // Linki do zakupu: jasno, że to strona zewnętrzna (przewoźnik albo Google Flights), a zakup jest tam, nie w aplikacji.
+  const book=[f, f.ret].filter(x=>x?.bookingUrl).map((x,i)=>`<a class="btn-ghost fl-book" href="${esc(x.bookingUrl)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> ${x.airline==='RYANAIR'?'Kup bilet na ryanair.com':x.airline==='WIZZ'?'Kup bilet na wizzair.com':`Sprawdź w Google Flights (${esc(airlineOf(x).name)})`}${f.ret?(i?' (powrót)':' (wylot)'):''}</a>`).join('')
+    +([f, f.ret].some(x=>x?.bookingUrl)?'<small class="fl-book-note">Otwiera stronę przewoźnika. Tam kupujesz bilet i sprawdzasz aktualną cenę.</small>':'');
   const details=open?`<div class="trip-open plan-details">
       <div class="fl-incl"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> W cenie: mała torba pod siedzenie</div>
       ${o?journeyLine(P,f,o):searching('Liczę dojazd na lotnisko…')}
@@ -3431,7 +3437,7 @@ function planSummaryCard(f, P){
       ${airportMismatch(f,f.ret)}
       ${details}
     </div>
-    <div class="fl-pricebox">${priceHeadline(P,f)}<button class="btn-grad" type="button" data-open-flight="plan" aria-expanded="${open}">${open?'Zwiń szczegóły':'Zobacz szczegóły'}</button>${book}${alertButton(f)}${o?`<div class="plan-save-row">${planEditMenu()}</div>`:''}</div>
+    <div class="fl-pricebox">${priceHeadline(P,f)}<button class="btn-ghost ps-more" type="button" data-open-flight="plan" aria-expanded="${open}">${open?'Zwiń szczegóły':'Zobacz szczegóły'}</button>${book}${alertButton(f)}${o?`<div class="plan-save-row">${planEditMenu()}</div>`:''}</div>
   </div>`;
 }
 function flightNote(P){
@@ -3627,8 +3633,8 @@ function tripSaveBar(P, f, d){
     ${tripTitleField(P)}
     <div class="cs-save-btns">
       <button type="button" class="btn-ghost" data-trip-save="planned" ${ready?'':'disabled'}><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Zapisz w ulubionych</button>
-      <button type="button" class="btn-grad" data-trip-save="booked" ${ready?'':'disabled'}><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button>
-    </div>${done}
+      <button type="button" class="${done?'btn-ghost':'btn-grad'}" data-trip-save="booked" ${ready?'':'disabled'}><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button>
+    </div>${SAVE_NOTE}${done}
   </div>`;
 }
 
@@ -6050,7 +6056,7 @@ function staySlotHtml(H, s, people, many){
   const nights=`<label class="stay-nights">Nocy <input type="number" min="1" max="${MAX_NIGHTS}" value="${s.nights}" data-stay-nights="${esc(s.key)}" aria-label="Liczba nocy w ${esc(s.city)}"></label>`;
   const head=`<div class="stay-head"><b><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${esc(s.city||'Na miejscu')}</b><small>${fmtDay(s.checkin)} – ${fmtDay(stayCheckout(s))}</small>${h?'':nights}</div>`;
   if(h) return `<div class="stay-slot" data-stay-slot="${esc(s.key)}">${head}<div class="hotel-chosen">${hotelCard(h, `${h.url?linkBtn(h.url,'arrow-up-right-from-square',h.manual?'Rezerwacja':'Zarezerwuj na Booking.com'):''}<button type="button" class="btn-ghost" data-stay-remove="${esc(s.key)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Zmień nocleg</button>`)}</div></div>`;
-  let body='', search=`<button type="button" class="btn-grad" data-stay-search="${esc(s.key)}"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj noclegu</button>`;
+  let body='', search=`<button type="button" class="btn-ghost stay-search" data-stay-search="${esc(s.key)}"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Szukaj noclegu</button>`;
   if(live?.loading){ body=searching('Szukam noclegów na Booking.com…'); search=''; }
   else if(live?.error) body=`<div class="empty-note">${esc(live.error)}</div>`;
   else if(live?.configured===false){ body='<div class="empty-note">Wyszukiwarka noclegów w aplikacji czeka na klucz Booking.com. Szukaj na Booking.com przyciskiem obok i dodaj wybrany hotel ręcznie.</div>'; search=''; }

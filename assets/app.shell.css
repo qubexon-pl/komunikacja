@@ -221,3 +221,9 @@
 .pl-hm select{ flex:1 1 0; min-width:0; min-height:44px; padding:4px 6px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); font:inherit; font-weight:700; }
 .pl-hm select:disabled{ opacity:.5; }
 .pl-hm > span{ font-weight:700; color:var(--ink-soft); }
+
+/* Phase 3c: one primary action per step; saving is not booking; external purchase links say so */
+.fl-pricebox .ps-more{ width:100%; margin-top:8px; }
+.cs-save-note,.fl-book-note{ display:block; margin:8px 0 0; color:var(--ink-soft); font-size:.8rem; line-height:1.4; }
+.cs-save-note i{ color:var(--red); margin-right:4px; }
+.fl-book-note{ text-align:center; }
