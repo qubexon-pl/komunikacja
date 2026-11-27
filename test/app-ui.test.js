@@ -153,3 +153,20 @@ test("touch screens pick the time from hour and minute lists, kept in sync with 
   assert.match(fn, /dispatchEvent\(new Event\('change'/);
   assert.match(css, /\.pl-hm-on > input\[type="time"\]\{ display:none; \}/);
 });
+
+test("step 4 has one primary action, saving says it is not a booking, and purchase links name the site", () => {
+  const js = read("assets/app.js");
+  const card = js.slice(js.indexOf("function planSummaryCard("), js.indexOf("function flightNote("));
+  assert.match(card, /<button class="btn-ghost ps-more" type="button" data-open-flight="plan"/);
+  assert.doesNotMatch(card, /class="btn-grad"/);
+  assert.match(card, /Kup bilet na ryanair\.com/);
+  assert.match(card, /Otwiera stronę przewoźnika/);
+  // every save bar (flight, ground, several places) carries the note, and "Zakończ" takes over as primary after saving
+  assert.equal((js.match(/\$\{SAVE_NOTE\}/g) || []).length, 3);
+  assert.match(js, /const saveCls=P=>savedNote\(P\)\?'btn-ghost':'btn-grad';/);
+  assert.match(js, /class="\$\{done\?'btn-ghost':'btn-grad'\}" data-trip-save="booked"/);
+  // a hotel is never required to save: the save buttons depend on the chosen transfer only
+  const bar = js.slice(js.indexOf("function tripSaveBar("), js.indexOf("/* ---------- Mapa komunikacji miasta"));
+  assert.match(bar, /const ready=!!chosen;/);
+  assert.doesNotMatch(bar, /ready=[^;]*hotel/i);
+});

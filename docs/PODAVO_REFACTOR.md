@@ -92,3 +92,9 @@ Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1
 ## Phone fix: time picker
 
 - On touch screens the time is chosen from two lists (hour, minutes in 5-minute steps; "Teraz" means now). Android's own clock dialog cut off its "Ustaw" button when the phone uses a larger text size. `#plTime` stays the only source of the value, so nothing else in the planner changed.
+
+## 3c: one primary action, saving is not booking
+
+- Step 4 has one filled (primary) button: "Zapisz moją podróż". "Zobacz szczegóły", "Szukaj noclegu" and the purchase links are secondary. After saving, "Zakończ" becomes the primary button and the save buttons turn secondary.
+- Every save bar (flight, train/bus/car, several places) says under the buttons that saving does not book tickets or a stay, and that the stay can be added now, later or not at all. Saving never needed a hotel; a test now guards that.
+- Purchase links say where you buy: "Kup bilet na ryanair.com / wizzair.com" or "Sprawdź w Google Flights", with a line that the link opens the airline's site.
