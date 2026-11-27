@@ -227,3 +227,17 @@
 .cs-save-note,.fl-book-note{ display:block; margin:8px 0 0; color:var(--ink-soft); font-size:.8rem; line-height:1.4; }
 .cs-save-note i{ color:var(--red); margin-right:4px; }
 .fl-book-note{ text-align:center; }
+
+/* Phone bottom bar: the items were equal fifths with 4 px side padding, so "Komunikacja" (the longest label) and
+   its bus icon ran into the screen edge. Columns now size to their labels and share the spare room, with a
+   12 px gutter on both sides. */
+@media (max-width:767px){
+  .bottom-nav{ grid-template-columns:repeat(5,auto) !important; justify-content:space-between; column-gap:2px;
+    padding-left:max(12px,env(safe-area-inset-left,0px)) !important; padding-right:max(12px,env(safe-area-inset-right,0px)) !important; }
+  .bottom-nav a{ padding:0 6px; }
+}
+@media (max-width:359px){
+  .bottom-nav{ padding-left:max(8px,env(safe-area-inset-left,0px)) !important; padding-right:max(8px,env(safe-area-inset-right,0px)) !important; }
+  .bottom-nav a{ padding:0 3px; }
+  .bottom-nav a span{ font-size:.64rem; }
+}
