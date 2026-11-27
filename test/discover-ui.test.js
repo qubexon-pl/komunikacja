@@ -82,3 +82,21 @@ test("5c: the wish is read in the browser; nothing is sent but the filters", () 
   assert.match(app, /PVD\.parseQuery\(text,\{today:ymdOf\(0\), countries\}\)/);
   assert.doesNotMatch(read("assets/app.discover.js"), /fetch\(/);
 });
+
+test("6b: the About sheet shows only what the sources gave, with their licences", () => {
+  const PVD = loadPVD();
+  const info = { found: true, title: "Rzym", description: "stolica Włoch", extract: "Rzym – stolica.", url: "https://pl.wikipedia.org/wiki/Rzym",
+    facts: { population: { value: 2748109, year: "2022" }, country: "Włochy" },
+    sources: [{ name: "Wikipedia", url: "https://pl.wikipedia.org/wiki/Rzym", license: "CC BY-SA 4.0" }, { name: "Wikidata", url: "https://www.wikidata.org/wiki/Q220", license: "CC0" }] };
+  const h = PVD.aboutHtml(info, { t: PL });
+  assert.match(h, /Mieszkańcy/);
+  assert.match(h, /\(2022\)/);
+  assert.match(h, /CC BY-SA 4\.0/);
+  assert.match(h, /Czytaj dalej w Wikipedii/);
+  assert.doesNotMatch(h, /Wysokość|Strefa czasowa|Strona miasta/); // not given, not shown
+  assert.match(PVD.aboutHtml({ found: false }, { t: PL }), /Nie znaleźliśmy opisu/);
+  assert.doesNotMatch(PVD.aboutHtml({ ...info, extract: "<script>x</script>" }, { t: PL }), /<script>/);
+  assert.match(PVD.card(dest(), { t: PL }), /data-disc-about="LTN"/);
+  assert.match(app, /fetch\('\/api\/places\/about\?'/);
+  assert.match(app, /data-tp-about/);
+});

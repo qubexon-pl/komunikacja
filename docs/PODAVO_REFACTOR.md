@@ -198,3 +198,15 @@ destination (src/knowledge.js):
 
 The card that shows it on a destination and on a saved trip is 6b; points of interest from OpenStreetMap follow with
 Local Exploring.
+
+## 6b: "O miejscu" card
+
+`PVD.aboutHtml` (assets/app.discover.js) shows the answer of `/api/places/about` in a sheet: the picture, title, short
+description and summary from Wikipedia, the facts Wikidata has (country, population with its year, elevation, time
+zone, official website), a link to the article and the sources with their licences. Facts a source does not give are
+not listed. It opens from:
+
+- "O miejscu" on every card of the Destinations list (the place's name and the airport's coordinates);
+- the new "O miejscu" tool on a saved trip's page (its first city and the city centre).
+
+Answers are kept in memory for the session as well as in the database. Service worker onward-v40.

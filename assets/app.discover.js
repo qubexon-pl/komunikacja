@@ -48,6 +48,7 @@
       <div class="disc-side">
         <div class="disc-price"><small>${esc(t('od','from'))}</small> <b>${esc(d.flightPln)} zł</b><small>${esc(price)} · ${esc(t('1 os.','1 person'))}</small></div>
         ${d.groundPln?`<small class="disc-ground">+ ${esc(t(`ok. ${d.groundPln} zł dojazd na lotnisko (szacunek)`,`about ${d.groundPln} zł to the airport (estimate)`))}</small>`:''}
+        <button type="button" class="btn-ghost disc-about" data-disc-about="${esc(d.code)}">${esc(t('O miejscu','About'))}</button>
         <button type="button" class="btn-grad disc-plan" data-disc-plan="${esc(d.code)}">${esc(t('Zaplanuj','Plan'))} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
       </div>
     </li>`;
@@ -127,5 +128,29 @@
     return c.length?`<div class="disc-chips" aria-live="polite"><span>${esc(t('Szukam:','Looking for:'))}</span>${c.map(x=>`<span class="disc-chip">${esc(x)}</span>`).join('')}</div>`:'';
   }
 
-  root.PVD={esc, sky, card, list, parseQuery, queryChips};
+  /* 6b: "O miejscu", from /api/places/about (src/knowledge.js). Shows only what Wikipedia and Wikidata gave, with the
+     attribution their licences ask for; a missing fact is simply not listed. */
+  function aboutHtml(info, o={}){
+    const t=o.t||PL;
+    if(!info?.found) return `<div class="empty-note">${esc(t('Nie znaleźliśmy opisu tego miejsca w Wikipedii.','We found no Wikipedia article about this place.'))}</div>`;
+    const f=info.facts||{}, num=n=>Number(n).toLocaleString(t('pl','en')==='en'?'en-GB':'pl-PL');
+    const rows=[
+      f.country&&[t('Kraj','Country'), esc(f.country)],
+      f.population&&[t('Mieszkańcy','Population'), `${esc(num(f.population.value))}${f.population.year?` <small>(${esc(f.population.year)})</small>`:''}`],
+      f.elevationM!=null&&[t('Wysokość','Elevation'), `${esc(num(f.elevationM))} m n.p.m.`.replace(' n.p.m.', t(' n.p.m.',' above sea level'))],
+      f.timeZone&&[t('Strefa czasowa','Time zone'), esc(f.timeZone)],
+      f.website&&[t('Strona miasta','Official website'), `<a href="${esc(f.website)}" target="_blank" rel="noopener">${esc(f.website.replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,''))}</a>`],
+    ].filter(Boolean);
+    const src=(info.sources||[]).map(s=>`<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.name)}</a> (${esc(s.license)})`).join(', ');
+    return `<article class="pv-about">
+      ${info.image?`<img class="pv-about-img" src="${esc(info.image)}" alt="${esc(info.title)}" loading="lazy" decoding="async">`:''}
+      <h4>${esc(info.title)}</h4>${info.description?`<div class="pv-about-desc">${esc(info.description)}</div>`:''}
+      ${info.extract?`<p>${esc(info.extract)}</p>`:''}
+      ${rows.length?`<dl class="pv-about-facts">${rows.map(([k,v])=>`<div><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join('')}</dl>`:''}
+      <a class="btn-ghost pv-about-more" href="${esc(info.url)}" target="_blank" rel="noopener">${esc(t('Czytaj dalej w Wikipedii','Read more on Wikipedia'))} <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a>
+      ${src?`<small class="cs-src pv-about-src">${esc(t('Źródła:','Sources:'))} ${src}</small>`:''}
+    </article>`;
+  }
+
+  root.PVD={esc, sky, card, list, parseQuery, queryChips, aboutHtml};
 })(typeof window!=='undefined'?window:globalThis);
