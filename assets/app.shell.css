@@ -279,3 +279,17 @@
 /* 5c: what the typed wish was understood as */
 .disc-chips{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 12px; font-size:.8rem; color:rgba(255,255,255,.8)}
 .disc-chip{padding:4px 12px; border-radius:999px; background:rgba(255,255,255,.14); color:#fff; font-weight:700}
+
+/* 6b: "O miejscu" sheet (PVD.aboutHtml) */
+.pv-about h4{margin:10px 0 2px; font-weight:800}
+.pv-about-img{display:block; width:100%; max-height:240px; object-fit:cover; border-radius:14px; background:var(--soft)}
+.pv-about-desc{color:var(--ink-soft); font-size:.88rem; margin-bottom:8px}
+.pv-about p{line-height:1.55}
+.pv-about-facts{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; margin:12px 0}
+.pv-about-facts div{padding:8px 12px; border-radius:12px; background:var(--soft)}
+.pv-about-facts dt{font-size:.72rem; font-weight:700; color:var(--ink-soft)}
+.pv-about-facts dd{margin:0; font-weight:700; overflow-wrap:anywhere}
+.pv-about-more{display:inline-flex; align-items:center; gap:8px; min-height:44px}
+.pv-about-src{display:block; margin-top:10px}
+.disc-about{min-height:44px; padding:8px 14px; border-radius:999px; font-weight:700}
+@media (max-width:767px){ .disc-about{margin-left:auto} .disc-about + .disc-plan{margin-left:0} }

@@ -4854,6 +4854,29 @@ function discFromText(){
 document.getElementById('exploreSearch')?.addEventListener('input', ()=>{ if(DISC.mode!=='list') return; clearTimeout(discTyping); discTyping=setTimeout(discFromText,350); });
 document.getElementById('exploreSearchForm')?.addEventListener('submit', e=>{ if(DISC.mode!=='list') return; e.preventDefault(); e.stopImmediatePropagation(); clearTimeout(discTyping); discFromText(); }, true);
 
+/* ---------- O miejscu (6b): opis z Wikipedii i fakty z Wikidata, w oknie ---------- */
+const ABOUT=new Map();
+async function openAbout({name, lat, lon}){
+  if(!window.PVUI || !name || lat==null || lon==null) return;
+  const clean=String(name).split(',')[0].replace(/\s*\([A-Z]{3}\)$/,'').trim();
+  const h=PVUI.sheet.open({title:L2(`O miejscu: ${clean}`,`About ${clean}`), html:`<div class="empty-note">${esc(L2('Wczytuję opis…','Loading…'))}</div>`});
+  const lang=isEn()?'en':'pl', key=`${clean}|${(+lat).toFixed(2)}|${(+lon).toFixed(2)}|${lang}`;
+  try{
+    let info=ABOUT.get(key);
+    if(!info){
+      const r=await fetch('/api/places/about?'+new URLSearchParams({name:clean, lat:(+lat).toFixed(4), lon:(+lon).toFixed(4), lang}));
+      info=await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(info.error||'');
+      ABOUT.set(key, info);
+    }
+    h.setContent(PVD.aboutHtml(info,{t:L2}));
+  }catch(e){ h.setContent(`<div class="empty-note">${esc(e.message||L2('Opis jest chwilowo niedostępny.','The description is unavailable right now.'))}</div>`); }
+}
+document.getElementById('explore').addEventListener('click', e=>{
+  const a=e.target.closest('[data-disc-about]'); if(!a) return;
+  const d=DISC.data?.destinations?.find(x=>x.code===a.dataset.discAbout); if(d) openAbout({name:d.city, lat:d.lat, lon:d.lon});
+});
+
 /* ---------- Tanie linie lotnicze ---------- */
 const FL={data:null, network:[], byKey:new Map(), updating:new Set()};
 const AIRLINES={RYANAIR:{name:'Ryanair', color:'#073590'}, WIZZ:{name:'Wizz Air', color:'#C6007E'}};
@@ -5650,6 +5673,7 @@ function tripTools(f, T, costs, cityBox){
   if(f.tid && !f.shared) out.push(tool('photos', L2('Dodaj i przeglądaj','Add and browse'), ' data-tp-photo-count'));
   out.push(tool('hotel', h?esc(h.name)+(stays>1?` +${stays-1}`:''):L2('Dodaj hotel','Add a stay')));
   out.push(tool('map', L2('Trasa i uczestnicy','Route and people')));
+  const about=tripCities(T,f)[0]; if(about?.centre) out.push(`<button type="button" class="tp-tool" data-tp-about aria-haspopup="dialog"><span class="tp-tool-ic"><i class="fa-solid fa-landmark" aria-hidden="true"></i></span><span class="tp-tool-tx"><b>${L2('O miejscu','About the place')}</b><small>${esc(String(about.label).split(',')[0])}</small></span></button>`);
   if(cityBox) out.push(tool('city', planned?`${planned} ${planned===1?'punkt':planned<5?'punkty':'punktów'}`:esc(cities.map(c=>c.label).slice(0,2).join(', '))||L2('Miejsca i dojazdy','Places and rides')));
   return `<nav class="tp-tools" aria-label="${L2('Szczegóły podróży','Trip details')}">${out.join('')}</nav>`;
 }
@@ -6376,6 +6400,7 @@ document.getElementById('tripPage').addEventListener('click', e=>{
   const ls=e.target.closest('[data-lp-show]'); if(ls){ showLocalTrip(f, ls.dataset.lpShow); return; }
   if(e.target.closest('[data-tp-city]')){ TRIPV.city=!TRIPV.city; renderTripPage(); if(TRIPV.city) setTimeout(()=>document.querySelector('#tripPage .city-panel')?.scrollIntoView({behavior:'smooth', block:'start'}),80); return; }
   const ts=e.target.closest('[data-tp-step]'); if(ts){ openTripSheet('step:'+ts.dataset.tpStep); return; }
+  if(e.target.closest('[data-tp-about]')){ const c=f.trip?tripCities(f.trip,f)[0]:null; if(c?.centre) openAbout({name:c.label, lat:c.centre.lat, lon:c.centre.lon}); return; }
   const sh=e.target.closest('[data-tp-sheet]'); if(sh){ openTripSheet(sh.dataset.tpSheet); return; }
   if(e.target.closest('[data-tp-sheet-close]') || e.target.matches('[data-tp-sheet-layer]')){ closeTripSheet(); return; }
   if(e.target.closest('[data-tp-sheet-back]')){ openTripSheet(TRIPV.back||''); return; }
