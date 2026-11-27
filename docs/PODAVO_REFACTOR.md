@@ -164,3 +164,19 @@ the existing route map one tab away (**Mapa**). The choice of view and the filte
   has a flight home) and asks the person to search for current prices.
 - Under the list: where the prices come from, when the newest was collected, and that weather is Open-Meteo.
 - Only the start point rounded to about 1 km is sent to the server.
+
+## 5c: typed search to checked filters
+
+In the list view the search box takes a wish such as "Hiszpania w lutym na weekend do 400 zł" or "Rome in March for a
+week under 300". `PVD.parseQuery` (assets/app.discover.js) reads it in the browser, without a server or an LLM:
+
+- month (Polish forms such as "w lutym", "w marcu", "w maju"; English names), the next such month from today;
+- stay ("weekend" = 2 nights, "tydzień/week" = 7, "N nocy", "N dni" = N−1 nights, "w jedną stronę"), clamped to the
+  stays the filter offers;
+- price ceiling ("do/max/poniżej/under 400", "400 zł"), accepted between 20 and 20 000 zł, otherwise ignored;
+- country, matched against the countries in the current answer (with the common Polish endings: "we Włoszech",
+  "do Grecji").
+
+Month and stay set the selects (and so the `/api/discover` query); price and country filter the answer. Whatever is
+left filters by place name. The chips above the list show what was understood, so nothing is applied silently.
+The months list reaches 12 months ahead. Service worker onward-v39.

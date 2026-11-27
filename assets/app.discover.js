@@ -71,5 +71,61 @@
       <small class="cs-src disc-src">${esc(t('Ceny z zapisanych wyszukiwań linii lotniczych; przed zakupem mogą się zmienić.','Prices from stored airline searches; they may change before you buy.'))}${at?` · ${esc(t(`najnowsza z ${at}`,`newest from ${at}`))}`:''} · ${esc(t('Pogoda: Open-Meteo','Weather: Open-Meteo'))}</small>`;
   }
 
-  root.PVD={esc, sky, card, list};
+  /* 5c: a typed wish ("Hiszpania w lutym na weekend do 400 zł", "Rome in March for a week under 300") turned into
+     the same filters the selects offer, checked and clamped here, in the browser. Nothing is sent anywhere: no LLM,
+     no server. Words it does not understand stay as a name filter, and the chips show what was understood. */
+  // per month: stems that may be followed by any ending (Polish: "lutym", "marcu"; English full names), then whole words
+  const MONTHS=[
+    [['stycz','january'],['jan']],[['lut','february'],['feb']],[['marz','marc','march'],['mar']],[['kwie','april'],['apr']],
+    [['may'],['maj','maja','maju']],[['czerw','june'],['jun']],[['lipc','lipie','july'],['jul']],[['sierp','august'],['aug']],
+    [['wrze','september'],['sep']],[['paźdz','pazdz','october'],['oct']],[['listop','november'],['nov']],[['grud','december'],['dec']],
+  ];
+  // Polish country names change their ending ("do Hiszpanii", "we Włoszech"); these stems cover the irregular ones.
+  const COUNTRY_ALIAS={'włosz':'Włochy','wlosz':'Włochy','italy':'Włochy','spain':'Hiszpania','niemcz':'Niemcy','germany':'Niemcy','greece':'Grecja','france':'Francja','francji':'Francja','portugal':'Portugalia','uk':'Wielka Brytania','anglii':'Wielka Brytania','england':'Wielka Brytania','britain':'Wielka Brytania','norway':'Norwegia','croatia':'Chorwacja','cyprus':'Cypr','cyprze':'Cypr','malta':'Malta','malcie':'Malta','turkey':'Turcja','turcji':'Turcja','egypt':'Egipt','egipcie':'Egipt','sweden':'Szwecja','denmark':'Dania','danii':'Dania','netherlands':'Holandia','holland':'Holandia','belgium':'Belgia','austria':'Austria','austrii':'Austria','ireland':'Irlandia','irlandii':'Irlandia','georgia':'Gruzja','gruzji':'Gruzja'};
+  const fold=s=>String(s||'').toLocaleLowerCase('pl');
+  function parseQuery(text, o={}){
+    const today=o.today||new Date().toISOString().slice(0,10), countries=o.countries||[];
+    let rest=` ${fold(text).replace(/[,.;!?]/g,' ')} `;
+    const out={}, take=(re,fn)=>{ rest=rest.replace(re,(...m)=>{ fn(m); return ' '; }); };
+    // price: "do 400 zł", "max 400", "poniżej 400", "under 400", "< 400", "400 zł"
+    take(/\s(?:do|max|maks\.?|poniżej|ponizej|under|below|up to|<)\s*(\d{2,5})\s*(?:zł|zl|pln)?(?=\s)/, m=>{ out.maxPrice=+m[1]; });
+    if(out.maxPrice==null) take(/\s(\d{2,5})\s*(?:zł|zl|pln)(?=\s)/, m=>{ out.maxPrice=+m[1]; });
+    // stay
+    take(/\s(\d{1,2})\s*(?:noc|noce|nocy|nights?)(?=\s)/, m=>{ out.nights=+m[1]; });
+    take(/\s(\d{1,2})\s*(?:dni|dzień|dzien|days?)(?=\s)/, m=>{ if(out.nights==null) out.nights=Math.max(0,+m[1]-1); });
+    take(/\s(?:na\s+)?(?:weekend|łikend)(?=\s)/, ()=>{ if(out.nights==null) out.nights=2; });
+    take(/\s(?:na\s+|for\s+a\s+|a\s+)?(?:tydzień|tydzien|week)(?=\s)/, ()=>{ if(out.nights==null) out.nights=7; });
+    take(/\s(?:w\s+jedną\s+stronę|w\s+jedna\s+strone|one[\s-]way)(?=\s)/, ()=>{ out.nights=0; });
+    // month
+    const words=rest.split(/\s+/).filter(Boolean), keep=[];
+    for(const w of words){
+      const i=out.month==null&&/^[a-ząćęłńóśźż]{3,}$/.test(w)?MONTHS.findIndex(([stems,exact])=>exact.includes(w)||stems.some(st=>w.startsWith(st) && (st!=='may'||w==='may'))):-1;
+      if(i<0){ keep.push(w); continue; }
+      const [y,mo]=today.split('-').map(Number);
+      out.month=`${i+1<mo?y+1:y}-${String(i+1).padStart(2,'0')}`;
+    }
+    rest=` ${keep.join(' ')} `;
+    // country: by name or its stem, against the countries in the answer
+    for(const w of rest.split(/\s+/).filter(x=>x.length>=4)){
+      const alias=Object.entries(COUNTRY_ALIAS).find(([k])=>w.startsWith(k))?.[1];
+      const c=alias&&countries.includes(alias)?alias:countries.find(c=>{ const f=fold(c); return f===w || (w.length>=5 && f.slice(0,5)===w.slice(0,5)); });
+      if(c){ out.country=c; rest=rest.replace(` ${w} `,' '); break; }
+    }
+    // validate and clamp
+    if(out.maxPrice!=null && !(out.maxPrice>=20 && out.maxPrice<=20000)) delete out.maxPrice;
+    if(out.nights!=null) out.nights=[0,2,3,4,5,7].reduce((a,b)=>Math.abs(b-out.nights)<Math.abs(a-out.nights)?b:a, 0);
+    out.text=rest.replace(/\s(?:do|na|w|we|z|ze|i|in|to|for|a|the|lot|loty|flights?|tanio|cheap|tanie)(?=\s)/g,' ').replace(/\s+/g,' ').trim();
+    return out;
+  }
+  function queryChips(q, t=PL){
+    const c=[];
+    if(q.month){ try{ c.push(new Date(q.month+'-15T12:00:00Z').toLocaleDateString(t('pl','en')==='en'?'en-GB':'pl-PL',{month:'long', year:'numeric', timeZone:'UTC'})); }catch{ c.push(q.month); } }
+    if(q.nights!=null) c.push(q.nights?t(`${q.nights} ${q.nights<5?'noce':'nocy'}`,`${q.nights} nights`):t('w jedną stronę','one way'));
+    if(q.maxPrice!=null) c.push(t(`do ${q.maxPrice} zł`,`up to ${q.maxPrice} zł`));
+    if(q.country) c.push(q.country);
+    if(q.text) c.push(`„${q.text}”`);
+    return c.length?`<div class="disc-chips" aria-live="polite"><span>${esc(t('Szukam:','Looking for:'))}</span>${c.map(x=>`<span class="disc-chip">${esc(x)}</span>`).join('')}</div>`:'';
+  }
+
+  root.PVD={esc, sky, card, list, parseQuery, queryChips};
 })(typeof window!=='undefined'?window:globalThis);

@@ -276,3 +276,6 @@
   .disc-side{flex-direction:row; align-items:center; text-align:left; min-width:0; flex-wrap:wrap}
   .disc-plan{margin-left:auto}
 }
+/* 5c: what the typed wish was understood as */
+.disc-chips{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 12px; font-size:.8rem; color:rgba(255,255,255,.8)}
+.disc-chip{padding:4px 12px; border-radius:999px; background:rgba(255,255,255,.14); color:#fff; font-weight:700}
