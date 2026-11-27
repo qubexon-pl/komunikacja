@@ -35,3 +35,13 @@ The work ships as small PRs, one part of a phase at a time. Nothing is rewritten
 - `tokens.css` lists the breakpoint scale and adds type and radius steps for the next PRs.
 
 Checked by screenshots of nine pages at 320, 390, 768, 1024 and 1440 px in light and dark, before and after: the only differences are the clock, the loading spinner and the timing of the tour prompt, which also differ between two runs of the unchanged code.
+
+## 2b: responsive shell
+
+- **Desktop (from 1024 px):** a persistent left sidebar with Planuj, Kierunki, Podróże, Ulubione and Komunikacja. It is the same `<nav class="bottom-nav">` the phone uses, styled as a sidebar in `assets/app.shell.css`, so both bars share one list of pages and one active state (`syncNav`). The top bar keeps the logo, help, language, alerts, admin and account; its page tabs move into the sidebar.
+- **Collapsible:** "Zwiń menu" at the bottom of the sidebar shrinks it to icons (76 px). The choice is kept in the browser (`podavo.sideCollapsed`). Collapsed labels stay for screen readers and show as tooltips.
+- **Content width:** the page and the header text are capped at `--pv-content-max` (1360 px), so cards no longer stretch across wide screens.
+- **Tablet (768–1023 px):** unchanged, with the page tabs in the top bar.
+- **Phone (below 768 px):** unchanged look. The top bar buttons (language, alerts, account) get an invisible 44 × 44 px touch area. `--app-bottom` now counts the bottom bar only on phones, so desktop dialogs are not squeezed by the sidebar.
+
+Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1440 and 1920 px (none), with screenshots in light and dark.

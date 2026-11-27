@@ -1552,6 +1552,19 @@ function goPage(view, sub='', kind='all'){
 }
 // Dolny pasek: „Podróże” i „Ulubione” działają jak te same przyciski w górnym pasku.
 document.querySelectorAll('[data-proxy]').forEach(a=>a.addEventListener('click', e=>{ e.preventDefault(); document.getElementById(a.dataset.proxy)?.click(); }));
+// Na komputerze (od 1024 px) ten sam pasek jest lewym panelem; można go zwinąć do samych ikon (app.shell.css).
+// Wybór zostaje w przeglądarce; nazwy stron są wtedy podpowiedzią (title) i zostają dla czytników ekranu.
+(function sideNav(){
+  const KEY='podavo.sideCollapsed', btn=document.getElementById('sideToggle'); if(!btn) return;
+  document.querySelectorAll('.bottom-nav a').forEach(a=>{ const t=a.querySelector('span')?.textContent.trim(); if(t) a.title=t; });
+  const apply=collapsed=>{
+    document.body.classList.toggle('side-collapsed', collapsed);
+    const label=collapsed?L2('Rozwiń menu','Expand menu'):L2('Zwiń menu','Collapse menu');
+    btn.setAttribute('aria-expanded', String(!collapsed)); btn.title=label; btn.querySelector('span').textContent=label;
+  };
+  apply(store(KEY)===true);
+  btn.addEventListener('click', ()=>{ const collapsed=!document.body.classList.contains('side-collapsed'); store(KEY, collapsed); apply(collapsed); window.dispatchEvent(new Event('resize')); });
+})();
 document.querySelectorAll('[data-go]').forEach(a=>a.addEventListener('click', e=>{
   if(e.ctrlKey||e.metaKey||e.shiftKey) return;
   e.preventDefault();
