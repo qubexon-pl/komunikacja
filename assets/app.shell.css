@@ -1,0 +1,83 @@
+/* ================================================================
+   Responsive application shell (docs/PODAVO_REFACTOR.md, Phase 2b).
+   Loaded after app.css, app.mobile.css and app.transport.css.
+
+   phone    < 768 px    top bar (logo, language, bell, account) + fixed bottom bar
+   tablet   768-1023    top bar with the page tabs, as before
+   desktop  >= 1024     top bar + persistent left sidebar (the bottom bar's links), collapsible
+   wide     >= 1440     same, content capped so cards do not stretch across the screen
+
+   The sidebar is the same <nav class="bottom-nav"> the phone uses, so both bars share one list of
+   pages and one active state (syncNav in app.js).
+   ================================================================ */
+:root{
+  --pv-side-w: 232px;
+  --pv-side-w-collapsed: 76px;
+  --pv-topbar-h: 56px;
+}
+
+.side-toggle{display:none}
+
+@media (min-width:1024px){
+  :root{ --pv-side-current: var(--pv-side-w); }
+  body.side-collapsed{ --pv-side-current: var(--pv-side-w-collapsed); }
+
+  /* the page moves right of the sidebar; the top bar keeps the full width above it */
+  body{ padding-left:var(--pv-side-current); }
+  body > .topbar{ margin-left:calc(-1 * var(--pv-side-current)); }
+
+  /* the page tabs and Podróże / Ulubione live in the sidebar now */
+  .topbar .view-tabs,.topbar .nav-sep,.topbar .nav-fav{ display:none !important; }
+  .topbar-inner{ max-width:none; padding:0 24px 0 20px; }
+
+  .bottom-nav{
+    position:fixed; z-index:1015; left:0; top:var(--pv-topbar-h); bottom:0; width:var(--pv-side-current);
+    display:flex; flex-direction:column; gap:4px; padding:16px 12px calc(12px + env(safe-area-inset-bottom,0px));
+    background:var(--bg-alt); border-right:1px solid var(--line); overflow-y:auto; overflow-x:hidden;
+  }
+  .bottom-nav a,.side-toggle{
+    position:relative; display:flex; align-items:center; gap:12px; min-height:44px; padding:0 14px; border-radius:12px;
+    color:var(--ink-soft); font-size:.9rem; font-weight:700; text-decoration:none; white-space:nowrap;
+  }
+  .bottom-nav a .oi{ width:20px; height:20px; flex:none; }
+  .bottom-nav a:hover{ color:var(--ink); background:var(--soft); }
+  .bottom-nav a.active{ color:var(--red); background:color-mix(in srgb,var(--red) 9%,transparent); }
+  .bottom-nav a:focus-visible,.side-toggle:focus-visible{ outline:2px solid var(--red); outline-offset:2px; }
+  .bottom-nav a span{ overflow:hidden; text-overflow:ellipsis; }
+  .bn-count{
+    margin-left:auto; min-width:20px; height:20px; padding:0 6px; border-radius:10px;
+    background:var(--gold); color:var(--onward-navy); font-size:.7rem; line-height:20px; text-align:center;
+  }
+
+  .side-toggle{
+    margin-top:auto; width:100%; border:0; background:transparent; font-family:inherit; cursor:pointer;
+  }
+  .side-toggle:hover{ color:var(--ink); background:var(--soft); }
+  .side-toggle i{ width:20px; flex:none; text-align:center; transition:transform .2s; }
+  body.side-collapsed .side-toggle i{ transform:rotate(180deg); }
+
+  /* collapsed: icons only, the label stays for screen readers and shows as a tooltip (title) */
+  body.side-collapsed .bottom-nav{ padding-left:12px; padding-right:12px; }
+  body.side-collapsed .bottom-nav a,body.side-collapsed .side-toggle{ justify-content:center; padding:0; }
+  body.side-collapsed .bottom-nav a span,body.side-collapsed .side-toggle span{
+    position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap;
+  }
+  body.side-collapsed .bn-count{ position:absolute; top:4px; right:6px; margin:0; min-width:16px; height:16px; line-height:16px; padding:0 4px; font-size:.62rem; }
+
+  /* content width: cards do not stretch across the whole screen */
+  main.shell{ max-width:var(--pv-content-max); }
+  .hero-inner{ max-width:var(--pv-content-max); margin-left:auto; margin-right:auto; }
+}
+
+@media (min-width:1024px) and (prefers-reduced-motion:reduce){
+  .side-toggle i{ transition:none; }
+}
+
+/* ---- phone: compact header. The top bar buttons keep their look; an invisible margin around each one makes
+   the touch target at least 44 x 44 px without making the bar taller. ---- */
+@media (max-width:767px){
+  .topbar .nav-link-btn,.topbar .lang-switch button{ position:relative; }
+  .topbar .nav-link-btn::before,.topbar .lang-switch button::before{
+    content:""; position:absolute; left:50%; top:50%; width:max(100%,44px); height:max(100%,44px); transform:translate(-50%,-50%);
+  }
+}

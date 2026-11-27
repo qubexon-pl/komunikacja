@@ -160,7 +160,8 @@
     /* top bar and bottom menu heights, for dialogs and sheets that sit between them */
     function bars(){
       const top = document.querySelector('.topbar'), nav = document.querySelector('.bottom-nav');
-      const navH = nav && getComputedStyle(nav).display !== 'none' ? nav.offsetHeight : 0;
+      // on a computer the same <nav> is the left sidebar (app.shell.css), which takes no height from the page
+      const navH = nav && phone() && getComputedStyle(nav).display !== 'none' ? nav.offsetHeight : 0;
       if(top) root.style.setProperty('--app-top', top.offsetHeight + 'px');
       root.style.setProperty('--app-bottom', navH + 'px');
     }

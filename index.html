@@ -25,6 +25,7 @@
 <link rel="stylesheet" href="/assets/app.css">
 <link rel="stylesheet" href="/assets/app.mobile.css">
 <link rel="stylesheet" href="/assets/app.transport.css">
+<link rel="stylesheet" href="/assets/app.shell.css">
 </head>
 <body>
 
@@ -517,13 +518,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.4.0/dist/protobuf.min.js"></script>
-<!-- Dolny pasek na telefonach (w aplikacji i w przeglądarce) -->
-<nav class="bottom-nav" aria-label="Nawigacja">
+<!-- Nawigacja: dolny pasek na telefonach, lewy panel na komputerze (od 1024 px; app.shell.css) -->
+<nav class="bottom-nav" id="sideNav" aria-label="Nawigacja">
   <a data-go="podroz" data-sub="" href="/plan"><i class="oi oi-plane" aria-hidden="true"></i><span>Planuj</span></a>
   <a data-go="podroz" data-sub="kierunki" href="/destinations"><i class="oi oi-pin" aria-hidden="true"></i><span>Kierunki</span></a>
   <a data-proxy="myTripsLink" href="/my-trips"><i class="oi oi-suitcase" aria-hidden="true"></i><span>Podróże</span><b class="bn-count" data-count-of="myTripsCount" hidden></b></a>
   <a data-proxy="favLink" href="/favourites"><i class="oi oi-star" aria-hidden="true"></i><span>Ulubione</span><b class="bn-count" data-count-of="favCount" hidden></b></a>
   <a data-go="ztm" data-sub="" data-transit href="/buses"><i class="oi oi-bus" aria-hidden="true"></i><span>Komunikacja</span></a>
+  <button class="side-toggle" id="sideToggle" type="button" aria-expanded="true" aria-controls="sideNav"><i class="fa-solid fa-angles-left" aria-hidden="true"></i><span>Zwiń menu</span></button>
 </nav>
 <div class="edit-badge" id="editBadge" role="status" hidden><i class="fa-solid fa-pen" aria-hidden="true"></i> <b>Tryb edycji</b> <span id="editBadgeLabel"></span><button type="button" id="editBadgeEnd" title="Zakończ edycję" aria-label="Zakończ edycję">×</button></div>
 <div class="offline-bar" role="status" aria-live="polite">Jesteś offline — pokazujemy zapisane podróże, a zmiany wyślemy po powrocie połączenia.</div>
