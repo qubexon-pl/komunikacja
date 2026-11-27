@@ -21,8 +21,8 @@ The work ships as small PRs, one part of a phase at a time. Nothing is rewritten
 | 3. Planner | 3a compact stepper · 3b JourneySegment / JourneyTimeline, details in modals · 3c one primary action, save without accommodation, labelled booking links |
 | 4. Transport | 4a provider adapters and normalised models, cities and capabilities endpoints · 4b Rzeszów GTFS/live and PLK as adapters · 4c shared screens · 4d Rzeszów and trains moved onto them |
 | 5. Discovery | 5a discover endpoint from real fares and weather · 5b discovery-first page with Map/List · 5c natural-language search to validated filters |
-| 6. Knowledge service | 6a catalogue tables · 6b Wikidata, Wikipedia, OSM adapters · 6c refresh jobs and freshness |
-| 7. Local Exploring | 7a plan tables and CRUD · 7b plan editor and manual selection · 7c AI recommendations from catalogue records |
+| 6. Knowledge service | 6a Wikipedia and Wikidata adapter, kept in the snapshot catalogue with a 30-day refresh · 6b "O miejscu" sheet (OSM moved to 7a) |
+| 7. Local Exploring | 7a places nearby from OpenStreetMap · 7b "W okolicy" list and adding places to the trip plan · 7c AI recommendations from catalogue records |
 | 8. Route fit | 8a optimise endpoint · 8b conflict detection |
 | 9. Trip workspace | 9a dashboard · 9b phase-aware actions · 9c push notifications |
 | 10. Hardening | offline plans, accessibility, performance, tests per acceptance criterion |
@@ -210,3 +210,21 @@ not listed. It opens from:
 - the new "O miejscu" tool on a saved trip's page (its first city and the city centre).
 
 Answers are kept in memory for the session as well as in the database. Service worker onward-v40.
+
+## 7a: places nearby from OpenStreetMap
+
+`GET /api/places/nearby?lat=&lon=&radius=300..5000&cats=museum,sight,view,park,food,cafe,nightlife&lang=` (rate limit
+"nearby", 20/min; src/nearby.js) lists named places around a point from OpenStreetMap through the Overpass API,
+nearest first, at most 120:
+
+- kinds: museum (museums, galleries), sight (attractions and historic places such as castles, palaces, churches,
+  monuments, ruins; not wayside crosses or milestones), view, park (parks, gardens, zoos), food, cafe, nightlife;
+- per place: OSM id, name (in the chosen language when OSM has it), kind, position, distance, and, only when OSM has
+  them, opening hours, website (http/https only), Wikipedia link, wheelchair access and cuisine;
+- the same place mapped as a point and a building is listed once.
+
+Only the point rounded to about 100 m and the radius are sent to Overpass. Answers with places are kept in the
+database for 14 days (`osm:` snapshots), which is the catalogue 7c recommends from. Every answer carries
+"© OpenStreetMap contributors" and the ODbL licence.
+
+Saved trips keep their exploration plans in the trip JSON (`trip.local`), as they do today; no new table was needed.
