@@ -19,6 +19,7 @@ if (typeof tls.setDefaultCACertificates === "function" && typeof tls.getCACertif
 }
 const { createAirportTransfers } = require("./airport-transfers");
 const { createCityTransit } = require("./city-transit");
+const { listCities, findCity, listProviders } = require("./transport");
 const { createTransitous } = require("./transitous");
 const { publicCities } = require("./pl-cities");
 const { AGENCIES, createSnapshots, createSqlConfig, getSchedule, importedHash, readAirportFares, readAirportTransfers, readFlightFares, readFlightNetwork, readSchedule, readSetting, replaceAirportFares, replaceAirportTransfers, replaceFlightFares, appendFareHistory, replaceSchedule, saveFlightNetwork, saveSetting } = require("./database");
@@ -74,7 +75,7 @@ const ANDROID_APK_PATH = "/download/voyage.apk";
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, reverse: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, reverse: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30, "transport-info": 120 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -1239,7 +1240,9 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "transit" && segments.length === 3 && ["plan", "vehicles", "cities", "stops", "departures", "lines"].includes(segments[2]))
           || (segments[1] === "hotels" && segments.length === 2)
           || (segments[1] === "rates" && segments.length === 2)
+          || (segments[1] === "transport" && ((segments.length === 3 && ["cities", "providers"].includes(segments[2])) || (segments.length === 4 && segments[2] === "cities")))
         ) ? (segments[1] === "feeds" ? "feeds"
+          : segments[1] === "transport" ? "transport-info"
           : segments[1] === "airport-transfers" ? (segments[2] === "options" ? "transfer-options" : segments[2] ? "transfer-trips" : "transfers")
           : segments[1] === "geocode" && segments[2] === "reverse" ? "reverse"
           : segments[1] === "transit" ? ({ plan: "city-plan", cities: "city-list", stops: "city-stops", departures: "departures", lines: "city-lines" }[segments[2]] || "vehicles")
@@ -1325,6 +1328,15 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
             if (error.detail) console.warn("Booking.com:", error.message, error.detail);
             json(res, [400, 429].includes(error.status) ? error.status : 502, { error: error.message, hotels: [] });
           }
+          return;
+        }
+        // Phase 4a: what each city and provider offers (docs/PODAVO_REFACTOR.md). Static descriptions, no provider is asked.
+        if (publicRoute === "transport-info") {
+          if (segments[2] === "providers") { json(res, 200, { providers: listProviders() }); return; }
+          if (segments.length === 3) { json(res, 200, { cities: listCities() }); return; }
+          const city = findCity(segments[3] || "");
+          if (!city) { json(res, 404, { error: "Nie znamy tego miasta." }); return; }
+          json(res, 200, { city });
           return;
         }
         if (publicRoute === "city-list") {
