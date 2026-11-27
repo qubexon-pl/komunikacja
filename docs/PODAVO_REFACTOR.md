@@ -45,3 +45,15 @@ Checked by screenshots of nine pages at 320, 390, 768, 1024 and 1440 px in light
 - **Phone (below 768 px):** unchanged look. The top bar buttons (language, alerts, account) get an invisible 44 × 44 px touch area. `--app-bottom` now counts the bottom bar only on phones, so desktop dialogs are not squeezed by the sidebar.
 
 Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1440 and 1920 px (none), with screenshots in light and dark.
+
+## 2c: shared sheets
+
+- `assets/app.ui.js` (`window.PVUI`) is the one way to show contextual details. `PVUI.sheet.open({title, html, size, footer, onClose})` returns a handle with `close`, `setContent` and `setTitle`. Sizes: `md` (default), `lg`, `wide`.
+- Layout (in `app.shell.css`): a bottom sheet with a grab handle above the bottom bar on phones, a centred window on tablets, and a right-hand panel under the top bar on desktop. `wide` sheets stay a centred window on desktop.
+- Behaviour for every sheet:
+  - Escape and a click on the backdrop close it.
+  - Tab and Shift+Tab stay inside it.
+  - The page behind does not scroll.
+  - Focus returns to the button that opened it.
+  - The phone or browser Back button closes the sheet without leaving the page. `app.ui.js` loads before `app.js`, so the page router never sees that Back press.
+- Screens that render their own sheet use `PVUI.layer.enter(id, close)` / `PVUI.layer.leave(id)` and mark the dialog with `data-pv-trap`. The trip page's sheets (costs, stay, photos, stages, people) now do this: they open as a right-hand panel on desktop and a bottom sheet on phones. The map and city plan sheets keep the full window.

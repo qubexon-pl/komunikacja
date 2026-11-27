@@ -1509,7 +1509,7 @@ function setSubpage(sub){
   if((sub==='rozklad'||sub==='linie') && S.agency==='podroz') sub='';
   if(sub==='kierunki' && S.agency!=='podroz') sub='';
   if((sub==='moje'||sub==='trip') && S.agency!=='podroz') sub='';
-  if(S.sub==='trip' && sub!=='trip'){ document.getElementById('tripPage').innerHTML=''; TRIPV.city=false; TRIPV.sheet=''; TRIPV.map=false; stopVehicles(); }
+  if(S.sub==='trip' && sub!=='trip'){ document.getElementById('tripPage').innerHTML=''; window.PVUI?.layer.leave('trip'); TRIPV.city=false; TRIPV.sheet=''; TRIPV.map=false; stopVehicles(); }
   S.sub=sub;
   const V=VIEWS[S.agency];
   document.body.classList.toggle('tt-mode', sub==='rozklad' && !(S.agency==='ztm' && txCity())); // odjazdy innych miast mają własną stronę
@@ -5528,7 +5528,7 @@ function paintTripPage(page, f, T, head, flow, stepPanel, costs, cityBox, day, b
   const y=window.scrollY, was=page.querySelector('.tp-sheet'), wasKey=was?.dataset.sheet, wasTop=page.querySelector('.tp-sheet-body')?.scrollTop||0;
   const key=TRIPV.sheet==='step'?'step:'+(TRIPV.step||'go'):TRIPV.sheet;
   const body=TRIPV.sheet?tripSheetBody(f,T,flow,stepPanel,costs,cityBox):'';
-  const sheet=TRIPV.sheet?`<div class="tp-sheet-layer${was?' show':''}" data-tp-sheet-layer><div class="tp-sheet tp-sheet-${TRIPV.sheet}" data-sheet="${esc(key)}" role="dialog" aria-modal="true" aria-label="${esc(TRIPV.sheet==='step'?L2('Etap podróży','Trip stage'):TP_SHEETS[TRIPV.sheet]?.[1]||'')}">
+  const sheet=TRIPV.sheet?`<div class="tp-sheet-layer${was?' show':''}" data-tp-sheet-layer><div class="tp-sheet tp-sheet-${TRIPV.sheet}" data-sheet="${esc(key)}" data-pv-trap role="dialog" aria-modal="true" aria-label="${esc(TRIPV.sheet==='step'?L2('Etap podróży','Trip stage'):TP_SHEETS[TRIPV.sheet]?.[1]||'')}">
       <div class="tp-sheet-bar">${TRIPV.back?`<button type="button" class="btn-ghost tp-sheet-back" data-tp-sheet-back><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${L2('Wróć','Back')}</button>`:''}${TRIPV.sheet!=='step'&&TP_SHEETS[TRIPV.sheet]?`<h4><i class="fa-solid fa-${TP_SHEETS[TRIPV.sheet][0]}" aria-hidden="true"></i> ${TP_SHEETS[TRIPV.sheet][1]}</h4>`:'<span></span>'}<button type="button" class="tp-sheet-x" data-tp-sheet-close aria-label="${L2('Zamknij','Close')}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>
       <div class="tp-sheet-body">${body}</div></div></div>`:'';
   page.innerHTML=`<div class="tp">${head}${flow}${tripTools(f,T,costs,cityBox)}</div>${sheet}`;
@@ -5538,6 +5538,8 @@ function paintTripPage(page, f, T, head, flow, stepPanel, costs, cityBox, day, b
     if(wasKey===key) layer.querySelector('.tp-sheet-body').scrollTop=wasTop;
     if(!was){ requestAnimationFrame(()=>layer.classList.add('show')); layer.querySelector('[data-tp-sheet-close]').focus({preventScroll:true}); }
   }
+  // Wspólne zachowanie okien (app.ui.js): przycisk Wstecz zamyka okno, strona pod spodem się nie przewija, Tab zostaje w oknie.
+  if(window.PVUI){ if(TRIPV.sheet && !TRIPV.closing) PVUI.layer.enter('trip', why=>closeTripSheet(why)); else if(!TRIPV.sheet) PVUI.layer.leave('trip'); }
   if(TRIPV.map){ mountTripMap(f,T); setTimeout(()=>TRIPMAP.map?.invalidateSize(), 220); }
   if(f.tid && FAV.user && SHARED.ok){ if(PEOPLE.key!==`${tripOwner(f)}|${f.tid}`) PEOPLE.data=null; watchPeople(f,T); } else clearInterval(PEOPLE.timer);
   if(f.tid && window.TripPhotos){
@@ -5555,7 +5557,9 @@ function openTripSheet(key, back=''){
 function closeTripSheet(){
   if(!TRIPV.sheet) return;
   const layer=document.querySelector('#tripPage [data-tp-sheet-layer]');
-  const done=()=>{ TRIPV.sheet=''; TRIPV.back=''; TRIPV.map=false; TRIPMAP.el?.remove(); renderTripPage(); };
+  // TRIPV.closing: a render during the fade (live locations, photos) must not open a new history entry for the sheet
+  const done=()=>{ TRIPV.sheet=''; TRIPV.back=''; TRIPV.map=false; TRIPV.closing=false; TRIPMAP.el?.remove(); renderTripPage(); };
+  TRIPV.closing=true;
   if(layer){ layer.classList.remove('show'); setTimeout(done, 150); } else done();
 }
 document.addEventListener('keydown', e=>{
