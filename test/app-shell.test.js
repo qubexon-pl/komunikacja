@@ -35,3 +35,9 @@ test("collapsing keeps page names for screen readers instead of removing them", 
   assert.match(js, /podavo\.sideCollapsed/);
   assert.match(js, /setAttribute\('aria-expanded'/);
 });
+
+test("the phone bottom bar keeps a gutter so the last item does not touch the screen edge", () => {
+  const css = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "assets", "app.shell.css"), "utf8");
+  assert.match(css, /grid-template-columns:repeat\(5,auto\) !important; justify-content:space-between/);
+  assert.match(css, /padding-left:max\(12px,env\(safe-area-inset-left,0px\)\) !important/);
+});
