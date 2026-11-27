@@ -2,9 +2,11 @@
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { AIRPORTS, BY_CODE, addAirports, airportLabel, airportsNear } = require("./airports");
+const { AIRPORTS, BY_CODE, addAirports, airportLabel, airportsNear, kmBetween: kmPoints } = require("./airports");
 
 const WINDOW_DAYS = 14;
+const CITY_KM = 70; // airports this close in one country serve the same place
+const DISCOVER_DAYS = 92; // a discovery window is at most about three months
 // Airlines sell about a year ahead, and the planner plans that far.
 const STORE_DAYS = 366;
 const NETWORK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -502,6 +504,64 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
     };
   }
 
+  // Phase 5a (docs/PODAVO_REFACTOR.md): where can I fly from here in a date window? The cheapest stored fare to each
+  // destination city, from airports within the radius. Only fares the airlines or the fare API actually gave are used
+  // (a per-departure "list" price that is only the day's lowest is left out), and with nights > 0 only destinations with
+  // a stored flight home on the right day. Nothing is estimated except the drive to the airport, which says so.
+  function discover({ origin, radius = 300, from = "", to = "", nights = 0, limit = 40 }) {
+    const start = from && from >= today() ? from : today();
+    const end = to && to >= start ? (to > addDays(start, DISCOVER_DAYS) ? addDays(start, DISCOVER_DAYS) : to) : addDays(start, 30);
+    const stay = Math.max(0, Math.min(30, Math.round(Number(nights) || 0)));
+    const origins = airportsNear(origin, Math.min(Math.max(Number(radius) || 300, 30), ORIGIN_AIRPORT_KM));
+    const originBy = new Map(origins.map((airport) => [airport.code, airport]));
+    const all = current().filter((fare) => !fare.priceUnknown);
+    // Flights home: from each destination airport to any airport within the radius, cheapest per airport and day.
+    const home = new Map();
+    if (stay) {
+      for (const fare of all) {
+        if (!originBy.has(fare.to)) continue;
+        const key = `${fare.from}|${fare.day}`, was = home.get(key);
+        if (!was || compareFares(fare, was) < 0) home.set(key, fare);
+      }
+    }
+    const best = new Map(), days = new Map();
+    for (const fare of all) {
+      const airport = originBy.get(fare.from), dest = BY_CODE.get(fare.to);
+      if (!airport || !dest || originBy.has(fare.to) || fare.day < start || fare.day > end) continue;
+      // the flight home may leave from another airport of the same city (in at Luton, out from Stansted)
+      const backs = stay ? [...BY_CODE.values()].filter((a) => a.country === dest.country && kmPoints(a, dest) <= CITY_KM).map((a) => home.get(`${a.code}|${addDays(fare.day, stay)}`)).filter(Boolean) : [];
+      const ret = backs.length ? backs.reduce((a, b) => (compareFares(b, a) < 0 ? b : a)) : null;
+      if (stay && !ret) continue;
+      (days.get(fare.to) || days.set(fare.to, new Set()).get(fare.to)).add(fare.day);
+      const flightPln = Math.round(fare.pricePln + (ret ? ret.pricePln : 0));
+      const groundPln = Math.round(airport.km * ROAD_FACTOR * GROUND_PLN_PER_KM) * (ret ? 2 : 1);
+      const item = { fare, ret, flightPln, groundPln, totalPln: flightPln + groundPln };
+      const was = best.get(fare.to);
+      if (!was || item.totalPln < was.totalPln || (item.totalPln === was.totalPln && fare.day < was.fare.day)) best.set(fare.to, item);
+    }
+    const stamps = all.map((fare) => fare.collectedAt.getTime());
+    // One entry per place: airports of one city (Stansted, Luton) join the cheapest of them, listed as alsoFrom.
+    const list = [];
+    const ranked = [...best].map(([code, item]) => ({ code, ...item, a: BY_CODE.get(code) })).sort((x, y) => x.totalPln - y.totalPln || x.code.localeCompare(y.code));
+    for (const { code, fare, ret, flightPln, groundPln, totalPln, a } of ranked) {
+      const near = list.find((d) => d.country === a.country && kmPoints(d, a) <= CITY_KM);
+      if (near) { near.alsoAirports.push(code); near.days = new Set([...near._days, ...days.get(code)]).size; near._days = new Set([...near._days, ...days.get(code)]); continue; }
+      list.push({
+        city: a.city, country: a.country, code, lat: a.lat, lon: a.lon,
+        km: Math.round(Math.min(...origins.map((o) => kmPoints(o, a)))),
+        flightPln, groundPln, totalPln, days: days.get(code).size, _days: days.get(code), alsoAirports: [],
+        outbound: presentFare(fare), ret: ret ? presentFare(ret) : null,
+      });
+    }
+    for (const d of list) delete d._days;
+    return {
+      from: start, to: end, nights: stay, total: list.length,
+      destinations: list.slice(0, Math.min(100, Math.max(1, Math.round(Number(limit) || 40)))),
+      originAirports: origins.slice(0, 12).map(({ code, city, km }) => ({ code, city, km })),
+      collectedAt: stamps.length ? new Date(Math.max(...stamps)).toISOString() : null,
+    };
+  }
+
   // Without a source file another machine does the collecting, so new flights arrive through the database.
   function refresh() {
     return (file ? sync() : load()).catch((error) => console.error("Flight refresh failed:", error.message));
@@ -552,7 +612,7 @@ function createFlightStore({ database, file = process.env.FLIGHT_FARES_FILE || "
 
   // Whether anything is stored for an airline's route on a day (also an unpriced departure).
   const known = (airline, from, to, day) => fares.some((fare) => fare.airline === airline && fare.from === from && fare.to === to && fare.day === day);
-  return { addLive, cheapest, importRows, known, load, mergeRows, apiPairs, network: () => network, networkIsStale, options, pairsFor, refresh, returnPairs, saveNetwork, search, start, stop, sync, tripPairs };
+  return { addLive, cheapest, discover, importRows, known, load, mergeRows, apiPairs, network: () => network, networkIsStale, options, pairsFor, refresh, returnPairs, saveNetwork, search, start, stop, sync, tripPairs };
 }
 
 module.exports = { WINDOW_DAYS, createFlightStore, withDepartureTimes, withFlightTime, routeClockDiffs, hoursFromPoland, inWindow, lastChange, normalizeFare, rankFares, readFareFile };
