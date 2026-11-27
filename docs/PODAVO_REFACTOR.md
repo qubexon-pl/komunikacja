@@ -243,3 +243,17 @@ assets/app.discover.js).
   one format.
 - The section can be folded (remembered in this browser). The ODbL line is under the list.
 - Service worker onward-v41.
+
+## 7c: AI recommendations from catalogued places
+
+The AI sightseeing plan (src/ai-planner.js) now asks the OpenStreetMap catalogue for places within 3 km of the stay
+(or the city centre) first. When there are at least 8, the model gets them as `catalogue` (id, name, kind, distance,
+opening hours) and must pick every stop from it, copying the id into `placeId`:
+
+- a stop whose `placeId` is not in the catalogue (an invented or misremembered place) is dropped;
+- a kept stop takes its name, position and kind from the catalogue, not from the model, plus its OSM id and opening
+  hours;
+- the plan says `source: "osm"`, and the page shows the OSM attribution under it, with the opening hours on each stop.
+
+With fewer places (or Overpass unavailable) the plan works as before (`source: "model"`) and the page asks the
+traveller to check names and hours. Only the stay's point goes to Overpass. Service worker onward-v42.

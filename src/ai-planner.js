@@ -14,6 +14,8 @@ const MAX_DAYS = 5;
 const MAX_STOPS = 7;
 const MAX_TRIPS_IN_CONTEXT = 15;
 const PER_USER_PER_HOUR = 8;
+const CATALOGUE_MIN = 8; // fewer catalogued places than this: the plan falls back to the model's own knowledge
+const CATALOGUE_MAX = 80;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const TID = /^[a-z0-9]{6,24}$/;
 
@@ -72,8 +74,9 @@ const PLAN_SCHEMA = {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["time", "name", "category", "lat", "lon", "minutes", "why", "tip", "priceNote"],
+              required: ["placeId", "time", "name", "category", "lat", "lon", "minutes", "why", "tip", "priceNote"],
               properties: {
+                placeId: { type: "string", description: "The id of the place in the catalogue, copied exactly; empty only when no catalogue was given" },
                 time: { type: "string", description: "Local start time HH:MM" },
                 name: { type: "string", description: "The real name of the place, as on a map" },
                 category: { type: "string", enum: CATEGORIES },
@@ -103,7 +106,8 @@ Propose a realistic day-by-day plan for the given city only:
 - When the forecast shows rain or strong wind, prefer indoor places that day and say so in weatherNote.
 - Include one place to eat per day that fits the budget.
 - Write all text (summary, theme, weatherNote, why, tip, priceNote, tips) in Polish, short and concrete. Prices in the local currency.
-- At most ${MAX_DAYS} days and ${MAX_STOPS} stops a day. Keep tips to at most 4 short items.`;
+- At most ${MAX_DAYS} days and ${MAX_STOPS} stops a day. Keep tips to at most 4 short items.
+- When the data has a "catalogue" of places (from OpenStreetMap), every stop must be one of them: copy its id into placeId and its name exactly, and use its opening hours when they are given. Do not add places that are not in the catalogue. Without a catalogue, leave placeId empty.`;
 
 // What the traveller's other saved trips say about them: where they went and which places they planned there.
 function travelHistory(favorites, tid) {
@@ -134,8 +138,12 @@ function arrivalOf(trip) {
 }
 
 // The model's answer, checked: known days only, places near the city, sane numbers.
-function cleanPlan(raw, { centre, days }) {
+// With a catalogue (7c), a stop is kept only when it names a catalogued place, and its name, position and kind come
+// from the catalogue, not from the model.
+const CAT_OF = { museum: "museum", sight: "sight", view: "view", park: "park", food: "food", cafe: "cafe", nightlife: "nightlife" };
+function cleanPlan(raw, { centre, days, catalogue = null }) {
   const allowed = new Set(days);
+  const known = catalogue && catalogue.size ? catalogue : null;
   const out = {
     summary: text(raw?.summary, 600),
     days: [],
@@ -145,15 +153,18 @@ function cleanPlan(raw, { centre, days }) {
     if (!DAY.test(d?.day) || !allowed.has(d.day) || out.days.some((x) => x.day === d.day)) continue;
     const stops = [];
     for (const s of Array.isArray(d.stops) ? d.stops : []) {
-      const name = text(s?.name, 120);
+      const place = known ? known.get(text(s?.placeId, 40)) : null;
+      if (known && !place) continue; // not from the catalogue: an invented or unknown place is dropped
+      const name = place ? place.name : text(s?.name, 120);
       if (!name) continue;
-      const at = point(s);
+      const at = place ? { lat: place.lat, lon: place.lon } : point(s);
       // A position far from the city is a mistake: keep the place, drop the position (the page searches it by name).
       const near = at && centre && km(centre, at) <= 60 ? at : null;
       stops.push({
         time: /^\d{2}:\d{2}$/.test(s.time) ? s.time : "",
         name,
-        category: pick(s.category, CATEGORIES, "other"),
+        category: place ? CAT_OF[place.cat] || "other" : pick(s.category, CATEGORIES, "other"),
+        ...(place ? { osm: place.id, ...(place.openingHours ? { openingHours: place.openingHours } : {}) } : {}),
         lat: near ? Math.round(near.lat * 1e5) / 1e5 : null,
         lon: near ? Math.round(near.lon * 1e5) / 1e5 : null,
         minutes: Number.isInteger(s.minutes) && s.minutes > 0 ? Math.min(s.minutes, 480) : null,
@@ -192,7 +203,7 @@ function createPlanStore(pool) {
 }
 
 // client: an Anthropic SDK client (or a stand-in in tests); null switches the feature off.
-function createAiPlanner({ client = null, store, getFavorites, getPreferences, savePreferences, forecast = null, model = MODEL, now = Date.now } = {}) {
+function createAiPlanner({ client = null, store, getFavorites, getPreferences, savePreferences, forecast = null, places = null, model = MODEL, now = Date.now } = {}) {
   const used = new Map(); // userId → times of recent generations
 
   function allowed(userId) {
@@ -251,6 +262,17 @@ function createAiPlanner({ client = null, store, getFavorites, getPreferences, s
         console.warn("AI plan: no forecast:", error.message);
       }
     }
+    // 7c: the places the plan may use, from the OpenStreetMap catalogue around the stay (or the centre).
+    let catalogue = null;
+    if (places) {
+      try {
+        const at = home || centre, r = await places({ lat: at.lat, lon: at.lon, radius: 3000, cats: Object.keys(CAT_OF), lang: "pl" });
+        const list = (r?.places || []).slice(0, CATALOGUE_MAX);
+        if (list.length >= CATALOGUE_MIN) catalogue = new Map(list.map((p) => [p.id, p]));
+      } catch (error) {
+        console.warn("AI plan: no catalogue:", error.message);
+      }
+    }
     const T = trip.trip || {};
     const context = {
       city,
@@ -265,6 +287,7 @@ function createAiPlanner({ client = null, store, getFavorites, getPreferences, s
       alreadyPlannedHere: plannedHere(T, text(body.local, 120) || city),
       otherTrips: travelHistory(favorites, trip.tid),
       weather,
+      ...(catalogue ? { catalogue: [...catalogue.values()].map((p) => ({ id: p.id, name: p.name, kind: p.cat, km: p.km, ...(p.openingHours ? { hours: p.openingHours } : {}) })) } : {}),
     };
 
     const response = await client.beta.messages.create({
@@ -285,7 +308,7 @@ function createAiPlanner({ client = null, store, getFavorites, getPreferences, s
     } catch {
       throw bad("AI zwróciło nieczytelną odpowiedź. Spróbuj ponownie.", 502);
     }
-    const plan = { ...cleanPlan(raw, { centre, days }), city, preferences: style, note: context.extraWish };
+    const plan = { ...cleanPlan(raw, { centre, days, catalogue }), city, preferences: style, note: context.extraWish, source: catalogue ? "osm" : "model" };
     if (!plan.days.length) throw bad("AI nie zaproponowało żadnych miejsc. Spróbuj ponownie.", 502);
     await store.save(userId, trip.tid, city, plan, response.model || model);
     return { ...plan, createdAt: new Date(now()).toISOString() };

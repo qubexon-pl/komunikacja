@@ -111,3 +111,46 @@ test("the AI endpoints need a session and hide internal errors", async (t) => {
   assert.equal(r.status, 502);
   assert.doesNotMatch((await r.json()).error, /api-key/);
 });
+
+test("7c: with an OpenStreetMap catalogue the plan uses only catalogued places, with their own names and positions", async () => {
+  const catalogue = Array.from({ length: 9 }, (_, i) => ({ id: `n${i}`, name: `Miejsce ${i}`, cat: i ? "sight" : "museum", lat: 41.38 + i / 1000, lon: 2.17, km: i / 10, ...(i ? {} : { openingHours: "Tu-Su 10:00-18:00" }) }));
+  const calls = [];
+  const client = { beta: { messages: { create: async (params) => {
+    calls.push(params);
+    const context = JSON.parse(params.messages[0].content.split("\n").slice(1).join("\n"));
+    return { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ summary: "Plan.", tips: [], days: [{ day: context.days[0], theme: "", weatherNote: "", stops: [
+      { placeId: "n0", time: "10:00", name: "Renamed by the model", category: "food", lat: 1, lon: 1, minutes: 90, why: "", tip: "", priceNote: "" },
+      { placeId: "", time: "12:00", name: "Invented Café", category: "cafe", lat: 41.38, lon: 2.17, minutes: 30, why: "", tip: "", priceNote: "" },
+      { placeId: "n99", time: "13:00", name: "Unknown id", category: "sight", lat: 41.38, lon: 2.17, minutes: 30, why: "", tip: "", priceNote: "" },
+    ] }] }) }] };
+  } } } };
+  let askedAt = null;
+  const planner = createAiPlanner({
+    client, store: { read: async () => null, save: async () => {} },
+    getFavorites: async () => favorites, getPreferences: async () => ({}), savePreferences: async () => {},
+    places: async (q) => { askedAt = q; return { places: catalogue }; },
+  });
+  const plan = await planner.generate("user-1", { tid: "trip000001", city: "Barcelona", centre: BARCELONA, home: { lat: 41.39, lon: 2.18 }, day: "2026-12-04" });
+  assert.deepEqual([askedAt.lat, askedAt.lon, askedAt.radius], [41.39, 2.18, 3000]); // around the stay
+  const context = JSON.parse(calls[0].messages[0].content.split("\n").slice(1).join("\n"));
+  assert.equal(context.catalogue.length, 9);
+  assert.deepEqual(context.catalogue[0], { id: "n0", name: "Miejsce 0", kind: "museum", km: 0, hours: "Tu-Su 10:00-18:00" });
+  assert.equal(plan.source, "osm");
+  assert.deepEqual(plan.days[0].stops.map((s) => [s.name, s.category, s.lat, s.osm, s.openingHours]), [["Miejsce 0", "museum", 41.38, "n0", "Tu-Su 10:00-18:00"]]);
+});
+
+test("7c: too small a catalogue (or none) leaves the plan as before", async () => {
+  const planner = createAiPlanner({
+    client: { beta: { messages: { create: async (params) => {
+      const context = JSON.parse(params.messages[0].content.split("\n").slice(1).join("\n"));
+      assert.equal(context.catalogue, undefined);
+      return { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(answer(context.days)) }] };
+    } } } },
+    store: { read: async () => null, save: async () => {} },
+    getFavorites: async () => favorites, getPreferences: async () => ({}), savePreferences: async () => {},
+    places: async () => ({ places: [{ id: "n1", name: "Jedno", cat: "sight", lat: 41.38, lon: 2.17, km: 0.1 }] }),
+  });
+  const plan = await planner.generate("user-1", { tid: "trip000001", city: "Barcelona", centre: BARCELONA, day: "2026-12-04" });
+  assert.equal(plan.source, "model");
+  assert.equal(plan.days[0].stops[0].name, "Barri Gòtic");
+});
