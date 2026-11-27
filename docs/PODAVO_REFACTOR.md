@@ -70,4 +70,16 @@ Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1
 - The planner's "Przebieg podróży" list now shows only the essentials for each point: the mode, where, the times, the duration and the cost.
 - The details that used to sit open in a second column next to the list now open in a `PVUI.sheet` when you click a point: the step-by-step route, map links, check-in notes and "Szczegóły lotu". On phones that is a bottom sheet, and on desktop a panel on the right.
 - The second column ("Szczegóły wybranych punktów pojawią się tutaj") is gone, so the planner is one column on every screen.
-- Still to come in 3b: the access comparison table, the cost card (fuel assumptions, per-person maths), provider and ticket links, and baggage notes move behind the same windows.
+- Moved in part 2: the access comparison table, the cost card (fuel assumptions, per-person maths), provider and ticket links, and baggage notes are now behind the same windows.
+
+## 3b (part 2): costs and assumptions in windows
+
+- `infoButton(label, title, html)` in `app.js` renders a small button whose content is ready when the screen is drawn; clicking it opens the content in a `PVUI.sheet`. A map or flight button inside a sheet closes the sheet first and then opens the map or flight window (`wireSheet`).
+- **Step 2, Dojazd na lotnisko:** the comparison table stays, because it is where you choose. The fuel and ticket-price assumptions under it moved to "Jak liczymy koszt dojazdu". The chosen way to the airport is now one line with "Trasa krok po kroku" (the steps there and back in a window), "Trasa na mapie" and Google Maps, instead of the full step list on the page.
+- **Step 4, Plan podróży:** the cost card shows the total and the price per person. Each cost row, with the fuel and ticket assumptions, is under "Szczegóły kosztów". The per-mode price list under the price box is gone, because it repeated the cost card.
+- **Flight cards:** the per-mode price list moved to "Rozbicie ceny", together with the baggage note (a small under-seat bag only) and the estimate note. The short "W cenie: mała torba pod siedzenie" line stays on the card.
+- The trip page's own cost sheet still shows every row.
+
+## Phone fix: round-trip dates
+
+- On phones the round-trip "Termin podróży" field now takes the whole row, and the time takes its own row, so both dates and the number of days are visible.

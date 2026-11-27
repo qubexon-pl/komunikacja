@@ -2894,9 +2894,29 @@ function eurPln(pln, eur){ const e=eur!=null?eur:(FX.eur&&pln!=null?pln/FX.eur:n
 const JL_DETAIL=new Map();
 function openJourneyDetail(k){
   const d=JL_DETAIL.get(k); if(!d || !window.PVUI) return;
-  const h=PVUI.sheet.open({title:d.title, html:(d.sub?`<p class="jl-sheet-sub">${esc(d.sub)}</p>`:'')+`<div class="jl-sheet">${d.detail}</div>`});
-  // „Szczegóły lotu” w oknie: okno zamyka się i otwiera się karta lotu, jak wcześniej z listy
-  h.el.addEventListener('click', e=>{ const fl=e.target.closest('[data-flight]'); if(fl){ h.close(); openFlight(fl.dataset.flight); } });
+  wireSheet(PVUI.sheet.open({title:d.title, html:(d.sub?`<p class="jl-sheet-sub">${esc(d.sub)}</p>`:'')+`<div class="jl-sheet">${d.detail}</div>`}));
+}
+// Przyciski w oknie, które otwierają inne okno („Szczegóły lotu”, „Trasa na mapie”): to okno zamyka się najpierw,
+// tak jak wcześniej, gdy te przyciski były na liście.
+function wireSheet(h){
+  h.el.addEventListener('click', e=>{
+    const fl=e.target.closest('[data-flight]'); if(fl){ h.close(); openFlight(fl.dataset.flight); return; }
+    const rt=e.target.closest('[data-route]'); if(rt){ h.close(); openTripMap(S.planRoutes[+rt.dataset.route]); }
+  });
+  return h;
+}
+// Szczegóły, które nie muszą stale zajmować ekranu (rozbicie kosztów, założenia, trasa krok po kroku), są gotowe
+// przy rysowaniu ekranu i otwierają się w oknie (PVUI.sheet) po kliknięciu przycisku. Najstarsze wpisy wypadają.
+const INFO=new Map(); let infoSeq=0;
+function infoButton(label, title, html, {icon='circle-info', cls='btn-ghost pv-info-btn'}={}){
+  if(!html) return '';
+  const k='i'+(++infoSeq); INFO.set(k,{title, html});
+  while(INFO.size>300) INFO.delete(INFO.keys().next().value);
+  return `<button type="button" class="${cls}" data-pv-info="${k}" aria-haspopup="dialog"><i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${esc(label)}</button>`;
+}
+function openInfo(k){
+  const d=INFO.get(k); if(!d || !window.PVUI) return;
+  wireSheet(PVUI.sheet.open({title:d.title, html:`<div class="jl-sheet pv-info">${d.html}</div>`}));
 }
 function journeyLine(P, f, o, {only=''}={}){
   if(JL_DETAIL.size>300) JL_DETAIL.clear();
@@ -2945,8 +2965,11 @@ function compareHtml(P, f, options, picked){
   const fast=Math.min(...list.map(o=>o.minutes??Infinity)), cheap=Math.min(...list.map(o=>o.cost??Infinity)), flight=f.placeholder?null:fareTotal(f), many=list.length>1;
   const rows=list.map(o=>`<tr class="acc-row ${o===picked?'on':''}" data-acc-pick="${esc(offerKey(f))}" data-acc-id="${o.id}" tabindex="0"><th scope="row"><span class="acc-seq">${modeChips(mainModes(o.steps))}</span> ${esc(o.title)}${many&&o.minutes===fast?' <span class="pc-badge alt">Najszybciej</span>':''}${many&&o.cost===cheap?' <span class="pc-badge cheap">Najtaniej</span>':''}</th>
     <td data-label="Wyjście">${o.leave?(dayOfTs(o.leave)!==f.day?fmtDay(dayOfTs(o.leave))+' ':'')+fmtClock(o.leave):'—'}</td><td data-label="Droga na lotnisko">${o.minutes!=null?fmtDuration(o.minutes):'—'}</td><td data-label="Koszt dojazdu">${o.cost!=null?'ok. '+Math.round(o.cost)+' zł':'—'}</td><td data-label="Razem z lotem">${o.cost!=null&&flight!=null?'ok. '+Math.round(flight+o.cost)+' zł':'—'}</td></tr>`).join('');
+  // Założenia cen (paliwo, bilety szacowane) są w oknie „Jak liczymy koszt dojazdu”, nie pod tabelą.
+  const how=`<p>Samochód: koszt paliwa, ${esc(fuelNote())}, bez parkingu. Bilety kolejowe i autobusowe to szacunek ceny normalnej.</p>`
+    +`<p>„Razem z lotem” to cena lotu za 1 osobę i koszt dojazdu${f.ret?' tam i z powrotem':''}. Aktualną cenę biletu potwierdzisz u przewoźnika.</p>`;
   return `<div class="acc-compare"><b class="acc-title">Dojazd na lotnisko — wybierz sposób</b><table><thead><tr><th>Dojazd</th><th>Wyjście</th><th>Droga na lotnisko</th><th>Koszt dojazdu${f.ret?' (tam i z powrotem)':''}</th><th>Razem z lotem</th></tr></thead><tbody>${rows}</tbody></table>
-    <small>Samochód: koszt paliwa, ${esc(fuelNote())}, bez parkingu. Bilety kolejowe i autobusowe to szacunek ceny normalnej.</small></div>`;
+    <div class="pv-info-row">${infoButton('Jak liczymy koszt dojazdu','Jak liczymy koszt dojazdu',how)}</div></div>`;
 }
 // Karta lotu jak w wyszukiwarkach: dojazd na lotnisko, wylot, powrót, a z prawej cena za osobę.
 // Tylko główne środki transportu, bez pieszych odcinków i numerów linii: autobus › pociąg › samolot.
@@ -2983,6 +3006,14 @@ function priceSplit(P, f){
   if(f.fromAirportKm>=1) lines.push(line('car','Dojazd do celu','—'));
   return `<ul class="price-split">${lines.join('')}</ul>`;
 }
+// Rozbicie ceny i bagaż w oknie, żeby karta lotu pokazywała tylko cenę.
+const BAGGAGE_NOTE='W cenie lotu jest mała torba pod siedzenie, bez większego bagażu i wyboru miejsca. Większy bagaż dokupisz u przewoźnika.';
+function priceInfo(P, f){
+  if(f.placeholder) return '';
+  const html=priceSplit(P,f)+`<p class="pv-info-note"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> ${esc(BAGGAGE_NOTE)}</p>`
+    +`<p class="pv-info-note">Bilety autobusowe i kolejowe to szacunek ceny normalnej; samochód to koszt paliwa. Aktualną cenę potwierdzisz u przewoźnika.</p>`;
+  return infoButton('Rozbicie ceny','Rozbicie ceny',html,{icon:'receipt', cls:'btn-ghost fl-update pv-info-btn'});
+}
 // Cena za osobę razem z lotem dla wybranego sposobu dojazdu na lotnisko (tak jak w tabeli porównania).
 function priceHeadline(P, f){
   const o=pickedAccess(P,f), flight=fareTotal(f), total=o?.cost!=null?tripCosts(P,f).total:null;
@@ -3003,7 +3034,7 @@ function flightPlanCard(f, P, badge){
       ${f.placeholder?`<div class="fl-incl"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Przykładowy lot: godziny i cenę poznasz po sprawdzeniu u przewoźnika.${f.airlines.length?` Tą trasą lata ${esc(f.airlines.map(x=>AIRLINES[x]?.name||x).join(', '))}.`:''}</div>`:`<div class="fl-incl"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> W cenie: mała torba pod siedzenie${isSampleFare(f)?' · próbka':''}</div>`}
       ${open?`<div class="trip-open">${accessHtml(P,f)}</div>`:''}
     </div>
-    <div class="fl-pricebox">${f.placeholder?'<b>—</b><small>Cena po sprawdzeniu u przewoźnika</small>':`${priceHeadline(P,f)}${f.priceUnknown||f.ret?.priceUnknown?'<small>Wizz Air: cena wybranej godziny jeszcze nieznana, liczymy najniższą cenę dnia</small>':f.priceType==='list'||f.ret?.priceType==='list'?'<small>Wizz Air: najtańszy lot dnia</small>':''}${priceSplit(P,f)}`}<button class="btn-grad" type="button" data-open-flight="plan" aria-expanded="${open}">${open?'Zwiń szczegóły':'Zobacz szczegóły'}</button>${alertButton(f)}</div>
+    <div class="fl-pricebox">${f.placeholder?'<b>—</b><small>Cena po sprawdzeniu u przewoźnika</small>':`${priceHeadline(P,f)}${f.priceUnknown||f.ret?.priceUnknown?'<small>Wizz Air: cena wybranej godziny jeszcze nieznana, liczymy najniższą cenę dnia</small>':f.priceType==='list'||f.ret?.priceType==='list'?'<small>Wizz Air: najtańszy lot dnia</small>':''}${priceInfo(P,f)}`}<button class="btn-grad" type="button" data-open-flight="plan" aria-expanded="${open}">${open?'Zwiń szczegóły':'Zobacz szczegóły'}</button>${alertButton(f)}</div>
   </div>`;
 }
 // Wizz Air podaje bez wyszukiwania tylko najtańszy lot dnia; cenę innego lotu albo dnia bez ceny pobiera tracker.
@@ -3267,7 +3298,7 @@ function tripFlights(P){
       stepNav(1,options?.length?3:0,destIsAirport(P,offer.to)?'Dalej: z lotniska do centrum':'Dalej: na miejscu');
   }
   if(step===3) return stepBar(P,offer)+chosenFlights(offer)+cityStep(offer,P)+(P.xferPick?stepNav(2,4,'Dalej: plan podróży'):stepNav(2,0,'')+'<div class="empty-note cs-need">'+stateIll(assetPaths.airportTransfer,200,117)+'Wybierz sposób dojazdu albo „Pomiń — ktoś mnie odbierze”, aby zobaczyć cały plan podróży.</div>');
-  return stepBar(P,offer)+planSummaryCard(offer,P)+`<div class="plan-extra">${costCard(tripCosts(P,offer))}${weatherTimeline(planWeatherPoints(P,offer), ()=>{ if(inPlan(P)) runPlan(false); })}</div>`+(S.multi&&S.multi.cur!=='save'?multiLegBar(P,'flight'):tripSaveBar(P,offer,airportOptions(P,offer)))+stepNav(3,0,'');
+  return stepBar(P,offer)+planSummaryCard(offer,P)+`<div class="plan-extra">${costSummary(tripCosts(P,offer))}${weatherTimeline(planWeatherPoints(P,offer), ()=>{ if(inPlan(P)) runPlan(false); })}</div>`+(S.multi&&S.multi.cur!=='save'?multiLegBar(P,'flight'):tripSaveBar(P,offer,airportOptions(P,offer)))+stepNav(3,0,'');
 }
 /* ---------- Dojazd na lotnisko: kroki, trasa na mapie i Mapy Google ---------- */
 function accessLinks(P, f, o){
@@ -3276,10 +3307,12 @@ function accessLinks(P, f, o){
   const map=o.route?`<button class="btn-ghost" type="button" data-route="${S.planRoutes.push(o.route)-1}"><i class="fa-solid fa-map" aria-hidden="true"></i> Trasa na mapie</button>`:'';
   return map||g?`<div class="acc-links">${map}${g?`<a class="btn-ghost" href="${esc(g)}" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right" aria-hidden="true"></i> Google Maps</a>`:''}</div>`:'';
 }
+// Wybrany dojazd: na ekranie jedna linia z przyciskami; trasa krok po kroku (i powrót) otwiera się w oknie.
 function accessDetails(P, f, o){
-  return `<div class="journey-box acc-detail"><div class="jl-head"><h4 class="trip-title"><i class="fa-solid fa-route" aria-hidden="true"></i> ${esc(o.title)} — krok po kroku</h4>${accessLinks(P,f,o)}</div>
-    ${o.steps?.length?stepsHtml(o.steps):''}
-    ${o.back?.steps?.length?`<h5 class="acc-back"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Powrót z lotniska ${esc(f.ret?.toLabel||'')} do domu</h5>${stepsHtml(o.back.steps)}`:''}</div>`;
+  const steps=(o.steps?.length?stepsHtml(o.steps):'')
+    +(o.back?.steps?.length?`<h5 class="acc-back"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Powrót z lotniska ${esc(f.ret?.toLabel||'')} do domu</h5>${stepsHtml(o.back.steps)}`:'');
+  return `<div class="acc-detail acc-detail-row"><span class="acc-detail-what"><span class="acc-seq">${modeChips(mainModes(o.steps))}</span> <b>${esc(o.title)}</b></span>
+    <div class="acc-links">${infoButton('Trasa krok po kroku',`${o.title} — krok po kroku`,steps,{icon:'list-ol'})}${accessLinks(P,f,o).replace(/^<div class="acc-links">|<\/div>$/g,'')}</div></div>`;
 }
 /* ---------- Z lotniska do centrum: jak dojść do miejsca odjazdu ---------- */
 function walkTo(d, o){
@@ -3314,14 +3347,24 @@ function tripCosts(P, f){
   const total=Math.round(rows.reduce((s,r)=>s+(r.value||0),0));
   return {rows, total, people:n, perPerson:Math.round(total/n), missing:rows.some(r=>r.value==null)};
 }
-function costCard(c){
+function costCard(c, {head=true}={}){
   if(!c?.rows?.length) return '';
   const n=c.people||1, groups=[...new Set(c.rows.map(r=>r.group))];
-  return `<section class="cost-card"><h4><i class="fa-solid fa-wallet" aria-hidden="true"></i> Koszt podróży za ${peopleText(n)}</h4>
+  return `<section class="cost-card">${head?`<h4><i class="fa-solid fa-wallet" aria-hidden="true"></i> Koszt podróży za ${peopleText(n)}</h4>`:''}
     ${groups.map(g=>`<div class="cost-group"><small>${esc(g)}</small>${c.rows.filter(r=>r.group===g).map(r=>`<div class="cost-row"><span><i class="fa-solid fa-${esc(r.icon)}" aria-hidden="true"></i>${esc(r.label)}${r.note?` <em>${esc(r.note)}</em>`:''}</span><b>${r.value==null?'—':r.value===0?'0 zł':`${zl(r.value)}`}</b></div>`).join('')}</div>`).join('')}
     <div class="cost-total"><span>Razem</span><span>${c.missing?'od ':'ok. '}${c.total} zł</span></div>
     ${n>1?`<div class="cost-per"><span>Na osobę</span><span>ok. ${Math.round(c.total/n)} zł</span></div>`:''}
     <small class="cost-note">Bilety autobusowe i kolejowe to szacunek ceny normalnej; samochód to koszt paliwa (do ${CAR_SEATS} osób w aucie), taksówka do ${TAXI_SEATS} osób.</small></section>`;
+}
+// Planer: na ekranie tylko suma i cena na osobę; pozycje i założenia (paliwo, bilety) w oknie „Szczegóły kosztów”.
+function costSummary(c){
+  if(!c?.rows?.length) return '';
+  const n=c.people||1;
+  return `<section class="cost-card cost-short"><h4><i class="fa-solid fa-wallet" aria-hidden="true"></i> Koszt podróży za ${peopleText(n)}</h4>
+    <div class="cost-total"><span>Razem</span><span>${c.missing?'od ':'ok. '}${c.total} zł</span></div>
+    ${n>1?`<div class="cost-per"><span>Na osobę</span><span>ok. ${Math.round(c.total/n)} zł</span></div>`:''}
+    ${c.missing?'<small class="cost-note">Części ceny jeszcze nie znamy, więc suma jest dolną granicą.</small>':''}
+    <div class="pv-info-row">${infoButton('Szczegóły kosztów',`Koszt podróży za ${peopleText(n)}`,costCard(c,{head:false}),{icon:'receipt'})}</div></section>`;
 }
 /* ---------- Pogoda po drodze: start, lotniska, cel, powrót — na dzień, w którym tam jesteś ---------- */
 function planWeatherPoints(P, f){
@@ -3388,7 +3431,7 @@ function planSummaryCard(f, P){
       ${airportMismatch(f,f.ret)}
       ${details}
     </div>
-    <div class="fl-pricebox">${priceHeadline(P,f)}${open?priceSplit(P,f):''}<button class="btn-grad" type="button" data-open-flight="plan" aria-expanded="${open}">${open?'Zwiń szczegóły':'Zobacz szczegóły'}</button>${book}${alertButton(f)}${o?`<div class="plan-save-row">${planEditMenu()}</div>`:''}</div>
+    <div class="fl-pricebox">${priceHeadline(P,f)}<button class="btn-grad" type="button" data-open-flight="plan" aria-expanded="${open}">${open?'Zwiń szczegóły':'Zobacz szczegóły'}</button>${book}${alertButton(f)}${o?`<div class="plan-save-row">${planEditMenu()}</div>`:''}</div>
   </div>`;
 }
 function flightNote(P){
@@ -6969,6 +7012,7 @@ document.getElementById('planResults').addEventListener('click', e=>{
   const rd=e.target.closest('[data-radius]'); if(rd){ const sel=document.getElementById('plRadius'); sel.value=rd.dataset.radius; store('rzbus.plan.radius', rd.dataset.radius); document.getElementById('planForm').requestSubmit(); return; }
   const ap=e.target.closest('[data-acc-pick]'); if(ap){ const P=stageOf(ap); (P.accessPick||(P.accessPick=new Map())).set(ap.dataset.accPick, ap.dataset.accId); runPlan(false); return; }
   const jl=e.target.closest('[data-jl]'); if(jl){ openJourneyDetail(jl.dataset.jl); return; }
+  const inf=e.target.closest('[data-pv-info]'); if(inf){ openInfo(inf.dataset.pvInfo); return; }
   const fp=e.target.closest('[data-page]'); if(fp){ stageOf(fp).flightPage=+fp.dataset.page; runPlan(false); return; }
   const tr=e.target.closest('[data-train]'); if(tr){ openTrain(tr.dataset.train); return; }
   const bp=e.target.closest('[data-back-page]');

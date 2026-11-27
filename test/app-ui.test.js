@@ -90,3 +90,33 @@ test("the planner's journey line keeps details out of the page and opens them in
   assert.match(js, /function openJourneyDetail\(k\)\{[\s\S]*?PVUI\.sheet\.open\(/);
   assert.match(js, /closest\('\[data-jl\]'\); if\(jl\)\{ openJourneyDetail\(jl\.dataset\.jl\)/);
 });
+
+test("cost breakdowns, price assumptions, baggage and the route step by step open in a sheet", () => {
+  const js = read("assets/app.js");
+  const between = (a, b) => js.slice(js.indexOf(a), js.indexOf(b, js.indexOf(a)));
+  // the shared button keeps its content ready and opens it in PVUI.sheet; the planner's click handler opens it
+  assert.match(between("function infoButton(", "function openInfo("), /data-pv-info="\$\{k\}" aria-haspopup="dialog"/);
+  assert.match(between("function openInfo(", "function journeyLine("), /PVUI\.sheet\.open\(/);
+  assert.match(js, /closest\('\[data-pv-info\]'\); if\(inf\)\{ openInfo\(inf\.dataset\.pvInfo\)/);
+  // a map or flight button inside a sheet closes it first, then opens the map or flight window
+  assert.match(between("function wireSheet(", "const INFO="), /\[data-route\][\s\S]*h\.close\(\); openTripMap/);
+  // step 2: fuel and ticket assumptions are no longer printed under the table; the route is behind a button
+  const cmp = between("function compareHtml(", "const MODE_OF_ICON");
+  assert.doesNotMatch(cmp, /<small>Samochód: koszt paliwa/);
+  assert.match(cmp, /infoButton\('Jak liczymy koszt dojazdu'/);
+  const acc = between("function accessDetails(", "/* ---------- Z lotniska");
+  assert.doesNotMatch(acc, /\$\{o\.steps\?\.length\?stepsHtml\(o\.steps\):''\}\s*\$\{o\.back/); // no inline step list
+  assert.match(acc, /infoButton\('Trasa krok po kroku'/);
+  // step 4: the total and the per-person price stay; the rows go to "Szczegóły kosztów"
+  assert.match(js, /<div class="plan-extra">\$\{costSummary\(tripCosts\(P,offer\)\)\}/);
+  assert.match(between("function costSummary(", "/* ---------- Pogoda"), /infoButton\('Szczegóły kosztów'[\s\S]*costCard\(c,\{head:false\}\)/);
+  // flight cards: no per-mode price list on the card, a "Rozbicie ceny" button with the baggage note instead
+  assert.doesNotMatch(between("function flightPlanCard(", "function alertButton("), /priceSplit\(P,f\)/);
+  assert.doesNotMatch(between("function planSummaryCard(", "function flightNote("), /priceSplit\(P,f\)/);
+  assert.match(between("function priceInfo(", "function priceHeadline("), /priceSplit\(P,f\)[\s\S]*BAGGAGE_NOTE/);
+});
+
+test("the trip page's own cost sheet still shows every cost row", () => {
+  const js = read("assets/app.js");
+  assert.match(js, /if\(k==='cost'\) return costCard\(costs\);/);
+});
