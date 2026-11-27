@@ -206,3 +206,18 @@
 .pv-info .price-split{ margin:0; padding:0; border:0; font-size:.9rem; }
 .cost-short .cost-total{ margin-top:0; }
 @media (max-width:767px){ .pv-info-btn{ min-height:44px; } }
+
+/* Booking.com link options: property type and number of rooms, next to "Szukaj na Booking.com" */
+.book-opts{ display:inline-flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.book-opt{ display:inline-flex; align-items:center; gap:6px; font-size:.82rem; color:var(--ink-soft); }
+.book-opt select,.book-opt input{ padding:5px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); font:inherit; font-size:.86rem; }
+.book-opt input{ width:60px; }
+.book-opts .btn-ghost{ display:inline-flex; align-items:center; gap:6px; padding:6px 12px; }
+@media (max-width:767px){ .book-opt select,.book-opt input,.book-opts .btn-ghost{ min-height:44px; } .book-opts{ width:100%; } .book-opt{ flex-direction:column; align-items:stretch; gap:2px; } .book-opt:first-child{ flex:1 1 0; min-width:0; } .book-opt:first-child select{ width:100%; min-width:0; } .book-opts .btn-ghost{ flex:1 1 100%; justify-content:center; } }
+
+/* Touch screens: hour and minute lists instead of the system clock dialog (see timeSelects in app.js) */
+.pl-hm-on > input[type="time"]{ display:none; }
+.pl-hm{ display:flex; align-items:center; gap:4px; width:100%; min-width:0; }
+.pl-hm select{ flex:1 1 0; min-width:0; min-height:44px; padding:4px 6px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); font:inherit; font-weight:700; }
+.pl-hm select:disabled{ opacity:.5; }
+.pl-hm > span{ font-weight:700; color:var(--ink-soft); }

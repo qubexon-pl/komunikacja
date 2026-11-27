@@ -120,3 +120,36 @@ test("the trip page's own cost sheet still shows every cost row", () => {
   const js = read("assets/app.js");
   assert.match(js, /if\(k==='cost'\) return costCard\(costs\);/);
 });
+
+test("the Booking.com link carries the chosen property type and rooms, never more rooms than adults", () => {
+  const js = read("assets/app.js");
+  const start = js.indexOf("const BOOKING_TYPES="), end = js.indexOf("function bookingSearchLink(");
+  const ctx = { URL, localStorage: { getItem: () => JSON.stringify({ rooms: 3, type: "204" }) } };
+  vm.runInNewContext(js.slice(start, end) + ";this.f=bookingWithOpts;this.o=BOOK_OPT;", ctx);
+  const base = "https://www.booking.com/searchresults.html?ss=Rome&checkin=2027-04-08&checkout=2027-04-11&group_adults=2&no_rooms=1";
+  const u = new URL(ctx.f(base));
+  assert.equal(u.searchParams.get("no_rooms"), "2"); // 3 rooms asked, 2 adults
+  assert.equal(u.searchParams.get("nflt"), "ht_id=204");
+  assert.equal(u.searchParams.get("ss"), "Rome");
+  ctx.o.type = ""; ctx.o.rooms = 1;
+  const v = new URL(ctx.f(base + "&nflt=ht_id%3D201"));
+  assert.equal(v.searchParams.get("nflt"), null);
+  assert.equal(ctx.f("https://example.com/x?no_rooms=1"), "https://example.com/x?no_rooms=1"); // other sites untouched
+  // both hotel boxes (planner and trip page) use it
+  assert.equal((js.match(/<div class="hotel-bar">\$\{search\}\$\{bookingSearchLink\(link\)\}/g) || []).length, 2);
+});
+
+test("a stay at a destination next to the airport is searched in the city, not at the airport", () => {
+  const js = read("assets/app.js");
+  assert.match(js, /const city=d\?\.target\?\.centre\?\(d\.target\.label\|\|d\.city\):\(H\.to\|\|d\?\.city\|\|''\);/);
+});
+
+test("touch screens pick the time from hour and minute lists, kept in sync with the time field", () => {
+  const js = read("assets/app.js"), css = read("assets/app.shell.css");
+  const fn = js.slice(js.indexOf("(function timeSelects(){"), js.indexOf("const MAX_VIAS="));
+  assert.match(fn, /matchMedia\?\.\('\(pointer:coarse\)'\)/);
+  assert.match(fn, /<option value="">Teraz<\/option>/); // empty hour = now, as before
+  assert.match(fn, /Object\.defineProperty\(plTime,'value'/); // code that sets plTime.value updates the lists
+  assert.match(fn, /dispatchEvent\(new Event\('change'/);
+  assert.match(css, /\.pl-hm-on > input\[type="time"\]\{ display:none; \}/);
+});
