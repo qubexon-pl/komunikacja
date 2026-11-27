@@ -98,3 +98,14 @@ Checked for horizontal overflow on six pages at 320, 360, 390, 430, 768, 1024, 1
 - Step 4 has one filled (primary) button: "Zapisz moją podróż". "Zobacz szczegóły", "Szukaj noclegu" and the purchase links are secondary. After saving, "Zakończ" becomes the primary button and the save buttons turn secondary.
 - Every save bar (flight, train/bus/car, several places) says under the buttons that saving does not book tickets or a stay, and that the stay can be added now, later or not at all. Saving never needed a hotel; a test now guards that.
 - Purchase links say where you buy: "Kup bilet na ryanair.com / wizzair.com" or "Sprawdź w Google Flights", with a line that the link opens the airline's site.
+
+## 4a: providers, cities and capabilities
+
+- `src/transport.js` describes every transport provider the app already uses: ZTM and PKS Rzeszów (imported GTFS with live GTFS-RT), PKP PLK (rail departures and delays near Rzeszów), Transitous (48 Polish cities) and the airport transfers. Each provider says what it can do: `plan`, `departures`, `stops`, `lines`, `vehicles` (`live`, `scheduled` or none), `realtime` and `fares`.
+- A city's capabilities are joined from its providers. Transitous cities are `live` only where the operator publishes GTFS-RT (`live` in `assets/app.cities.js`); elsewhere vehicles are `scheduled`. No Transitous city claims fares.
+- The normalised models (Departure, Journey, Leg, fare) are documented in the module. `journeyFromTransitous` converts a Transitous itinerary; a leg is `live` only when the source says so, a scheduled leg never shows a delay, and fares stay `null` unless a source gives one.
+- New public endpoints (no provider is asked; rate-limited like the other public routes):
+  - `GET /api/transport/cities`: every city with its providers and capabilities.
+  - `GET /api/transport/cities/:id`: one city (404 if unknown).
+  - `GET /api/transport/providers`: the provider list.
+- Nothing on screen changes yet. 4b puts Rzeszów and PLK behind adapters that return these models; 4c builds the shared transport screens on them.
