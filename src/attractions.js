@@ -21,7 +21,9 @@ const MAX_SECTIONS = 10;
 const MAX_LINKS = 200;
 
 // Section titles about what to see (Polish and English Wikipedia).
-const SIGHT_SECTION = /zabyt|atrakcj|turysty|architektur|warto zobaczy|ciekaw|obiekty|muze|ko[śs]cio[łl]|[śs]wi[ąa]tyni|pomnik|parki|ogrody|place|budowle|sights|attraction|landmark|touris|architecture|places of interest|cityscape|museum|monument|churches|parks|squares|points of interest/i;
+const SIGHT_SECTION = /znane miejsc|miejsca|godne uwagi|warte zobaczenia|zabyt|atrakcj|turysty|architektur|warto zobaczy|ciekaw|obiekty|budynk|fontann|pa[łl]ac|zamk|plac|ulic|mosty|wzg[óo]rz|muze|ko[śs]cio[łl]|[śs]wi[ąa]tyni|pomnik|parki|ogrody|place|budowle|sights|attraction|landmark|touris|architecture|places of interest|cityscape|museum|monument|churches|parks|squares|points of interest|notable places|famous places|what to see|buildings|fountains|palaces|bridges|streets/i;
+// A whole article about a city's sights, linked from the city article.
+const SIGHT_ARTICLE = /^(zabytki|atrakcje turystyczne|architektura|znane miejsca|tourist attractions|landmarks|tourism) (w |in |of )?/i;
 const NOT_SIGHT_SECTION = /przypisy|bibliografi|linki|zobacz te[żz]|literatura|references|external|see also|further reading|notes|sources|demografi|gospodark|economy|transport|sport|edukacj|education|polityk|politic|klimat|climate|miasta partnerskie|twin/i;
 
 // Wikidata "instance of" (P31) → kind shown in the app. Direct classes only; a heritage listing (P1435) counts too.
@@ -78,22 +80,35 @@ function sightSections(sections) {
 }
 
 function createAttractions({ fetchSource = fetch } = {}) {
-  async function get(url) {
-    const response = await fetchSource(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(10000) });
+  async function get(url, ms = 12000) {
+    const response = await fetchSource(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(ms) });
     if (!response.ok) throw Object.assign(new Error(`Wikipedia odpowiedziała HTTP ${response.status}.`), { status: 502 });
     return response.json();
   }
 
-  // Titles linked from the sights sections of the city's article, in the article's order.
+  const linksOf = async (api, page, section) => {
+    const body = await get(api + new URLSearchParams({ action: "parse", page, prop: "links", redirects: "1", ...(section != null ? { section: String(section) } : {}), format: "json", formatversion: "2" })).catch(() => null);
+    return (body?.parse?.links || []).filter((l) => l.ns === 0 && l.exists !== false).map((l) => l.title);
+  };
+  // The city article: where it lies, and the articles linked from its sections about what to see ("Znane miejsca w
+  // Rzymie", "Zabytki", "Atrakcje turystyczne", "Sights"…), in the article's order. A link to a whole article about the
+  // city's sights ("Zabytki Rzymu", "Atrakcje turystyczne Krakowa") is read too. `all`: every article the city
+  // article links to, the fallback when its sights sections give little.
   async function linkedTitles(api, title) {
-    const parsed = await get(api + new URLSearchParams({ action: "parse", page: title, prop: "sections", redirects: "1", format: "json", formatversion: "2" })).catch(() => null);
+    const [parsed, where] = await Promise.all([
+      get(api + new URLSearchParams({ action: "parse", page: title, prop: "sections", redirects: "1", format: "json", formatversion: "2" })).catch(() => null),
+      get(api + new URLSearchParams({ action: "query", titles: title, prop: "coordinates", redirects: "1", format: "json", formatversion: "2" })).catch(() => null),
+    ]);
     const page = parsed?.parse?.title || title;
+    const c = where?.query?.pages?.[0]?.coordinates?.[0];
     const sections = sightSections(parsed?.parse?.sections);
-    if (!sections.length) return { page, sections: [], titles: [] };
     const titles = [];
-    for (const part of await Promise.all(sections.map((s) => get(api + new URLSearchParams({ action: "parse", page, section: String(s.index), prop: "links", format: "json", formatversion: "2" })).catch(() => null))))
-      for (const l of part?.parse?.links || []) if (l.ns === 0 && l.exists !== false && !titles.includes(l.title) && l.title !== page) titles.push(l.title);
-    return { page, sections: sections.map((s) => s.line), titles: titles.slice(0, MAX_LINKS) };
+    const add = (list) => { for (const t of list) if (!titles.includes(t) && t !== page) titles.push(t); };
+    for (const list of await Promise.all(sections.map((s) => linksOf(api, page, s.index)))) add(list);
+    const subs = titles.filter((t) => SIGHT_ARTICLE.test(t)).slice(0, 3);
+    for (const list of await Promise.all(subs.map((t) => linksOf(api, t)))) add(list);
+    const all = titles.length < 40 ? (await linksOf(api, page)).filter((t) => !titles.includes(t) && t !== page).slice(0, MAX_LINKS) : [];
+    return { page, centre: c ? { lat: c.lat, lon: c.lon } : null, sections: sections.map((s) => s.line), titles: titles.slice(0, MAX_LINKS), all };
   }
 
   async function list({ name = "", title = "", lat, lon, radius = 10000, lang = "pl" }) {
@@ -102,22 +117,29 @@ function createAttractions({ fetchSource = fetch } = {}) {
     radius = RADII.includes(radius) ? radius : 10000;
     title = String(title || "").replace(/\s+/g, " ").trim().slice(0, 120);
     const api = `https://${lang}.wikipedia.org/w/api.php?`;
-    const centre = { lat, lon };
+    let centre = { lat, lon };
     const info = { prop: "coordinates|pageprops|description|pageimages|pageviews", ppprop: "wikibase_item|disambiguation", piprop: "thumbnail", pithumbsize: "480", pilimit: "50", colimit: "50", pvipdays: "30", format: "json", formatversion: "2" };
 
     // 1. Articles linked from the city article's sights sections.
-    const linked = title ? await linkedTitles(api, title) : { titles: [], sections: [] };
-    const pages = new Map(); // pageid → { p, listed, order, type }
-    for (const part of await Promise.all(chunks(linked.titles, 50).map((group) => get(api + new URLSearchParams({ action: "query", titles: group.join("|"), redirects: "1", ...info })).catch(() => null)))) {
-      for (const p of part?.query?.pages || []) {
-        const c = p.coordinates?.[0];
-        if (!p.pageid || p.missing || !c || (p.pageprops && "disambiguation" in p.pageprops) || km(centre, c) > NEAR_KM) continue;
-        if (!pages.has(p.pageid)) pages.set(p.pageid, { p, lat: c.lat, lon: c.lon, type: String(c.type || "").toLowerCase(), listed: true });
+    const linked = title ? await linkedTitles(api, title) : { titles: [], all: [], sections: [] };
+    // The trip may point at the airport ("Rzym Fiumicino"): the city article's own position is the centre then.
+    if (linked.centre && km(centre, linked.centre) <= 60) centre = linked.centre;
+    const pages = new Map(); // pageid → { p, listed, type }
+    const titled = async (list, listed) => {
+      for (const part of await Promise.all(chunks(list, 50).map((group) => get(api + new URLSearchParams({ action: "query", titles: group.join("|"), redirects: "1", ...info })).catch(() => null)))) {
+        for (const p of part?.query?.pages || []) {
+          const c = p.coordinates?.[0];
+          if (!p.pageid || p.missing || !c || (p.pageprops && "disambiguation" in p.pageprops) || km(centre, c) > NEAR_KM) continue;
+          if (!pages.has(p.pageid)) pages.set(p.pageid, { p, lat: c.lat, lon: c.lon, type: String(c.type || "").toLowerCase(), listed });
+        }
       }
-    }
+    };
+    await titled(linked.titles, true);
+    // Few places in the sights sections: every place the city article links to, checked strictly with Wikidata.
+    await titled(linked.all || [], false);
 
     // 2. Articles around the centre.
-    const near = await get(api + new URLSearchParams({ action: "query", list: "geosearch", gscoord: `${lat.toFixed(4)}|${lon.toFixed(4)}`, gsradius: String(radius), gslimit: String(SCAN), gsprop: "type", format: "json", formatversion: "2" })).catch((e) => (pages.size ? null : Promise.reject(e)));
+    const near = await get(api + new URLSearchParams({ action: "query", list: "geosearch", gscoord: `${centre.lat.toFixed(4)}|${centre.lon.toFixed(4)}`, gsradius: String(radius), gslimit: String(SCAN), gsprop: "type", format: "json", formatversion: "2" })).catch((e) => (pages.size ? null : Promise.reject(e)));
     const found = (near?.query?.geosearch || []).filter((g) => g.ns === 0 && !pages.has(g.pageid) && !NOT_SIGHT.has(String(g.type || "").toLowerCase()));
     for (const part of await Promise.all(chunks(found, 50).map((group) => get(api + new URLSearchParams({ action: "query", pageids: group.map((g) => g.pageid).join("|"), ...info })).catch(() => null)))) {
       for (const p of part?.query?.pages || []) {
@@ -126,12 +148,12 @@ function createAttractions({ fetchSource = fetch } = {}) {
         pages.set(p.pageid, { p, lat: g.lat, lon: g.lon, type: String(g.type || "").toLowerCase(), listed: false });
       }
     }
-    if (!pages.size) return { city: name, title, lang, radius, attractions: [], sections: linked.sections, sources: [] };
+    if (!pages.size) return { city: name, title, lang, radius, centre, attractions: [], sections: linked.sections, sources: [] };
 
     const all = [...pages.values()].filter((x) => !NOT_SIGHT.has(x.type));
     const qids = [...new Set(all.map((x) => x.p.pageprops?.wikibase_item).filter((q) => /^Q\d+$/.test(q || "")))];
     const entities = {};
-    for (const part of await Promise.all(chunks(qids, 50).map((group) => get("https://www.wikidata.org/w/api.php?" + new URLSearchParams({ action: "wbgetentities", ids: group.join("|"), props: "claims", format: "json" })).catch(() => null))))
+    for (const part of await Promise.all(chunks(qids, 25).map((group) => get("https://www.wikidata.org/w/api.php?" + new URLSearchParams({ action: "wbgetentities", ids: group.join("|"), props: "claims", format: "json" }), 20000).catch(() => null))))
       Object.assign(entities, part?.entities || {});
 
     const views = (p) => Object.values(p.pageviews || {}).reduce((s, v) => s + (Number(v) || 0), 0);
@@ -149,6 +171,13 @@ function createAttractions({ fetchSource = fetch } = {}) {
       .sort((a, b) => (b.listed - a.listed) || b.views - a.views || a.km - b.km)
       .slice(0, MAX);
 
+    // Where each place is: the district or town Wikidata puts it in (P131), e.g. "Rione Monti", "Watykan".
+    const areaIds = [...new Set(kept.map((a) => ids(entities[a.wikidata], "P131")[0]).filter(Boolean))];
+    const areas = new Map();
+    for (const part of await Promise.all(chunks(areaIds, 50).map((group) => get("https://www.wikidata.org/w/api.php?" + new URLSearchParams({ action: "wbgetentities", ids: group.join("|"), props: "labels", languages: `${lang}|en`, format: "json" })).catch(() => null))))
+      for (const [id, e] of Object.entries(part?.entities || {})) { const l = e.labels?.[lang]?.value || e.labels?.en?.value; if (l) areas.set(id, l); }
+    for (const a of kept) { const area = areas.get(ids(entities[a.wikidata], "P131")[0]); if (area && area !== title && area !== linked.page) a.area = area; }
+
     // The opening sentences of each kept article (TextExtracts gives at most 20 intros a request).
     const texts = new Map();
     for (const part of await Promise.all(chunks(kept, 20).map((group) => get(api + new URLSearchParams({
@@ -157,7 +186,7 @@ function createAttractions({ fetchSource = fetch } = {}) {
     for (const a of kept) a.extract = texts.get(a.id) || "";
 
     return {
-      city: name, title: linked.page || title, lang, radius, attractions: kept, sections: linked.sections,
+      city: name, title: linked.page || title, lang, radius, centre, attractions: kept, sections: linked.sections,
       sources: [{ name: "Wikipedia", url: `https://${lang}.wikipedia.org`, license: "CC BY-SA 4.0" }, { name: "Wikidata", url: "https://www.wikidata.org", license: "CC0" }],
       fetchedAt: new Date().toISOString(),
     };

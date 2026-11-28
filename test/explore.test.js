@@ -184,7 +184,9 @@ test("attraction list, details window and plan HTML: escaped names, add buttons,
   assert.match(list, /data-xp-add="pl:2"[^>]*>.*Dodaj do planu/s);
   assert.match(list, /CC BY-SA 4\.0/);
   const detail = X.detailHtml(data.attractions[0], { inPlan: false, fromKm: 0.8, fromLabel: "noclegu" });
-  assert.match(detail, /Zamki i pałace · zamek · 800 m od noclegu/);
+  assert.match(detail, /Zamki i pałace · zamek · zwiedzanie ok\. 1 godz\. 15 min/);
+  assert.match(detail, /800 m od noclegu/);
+  assert.match(detail, /data-xa-minimap data-lat="50\.05400"/);
   assert.match(detail, /data-xa-m="add"/);
   assert.match(detail, /data-xa-m="route"/);
   assert.match(X.tabsHtml("plan", { attr: 2, plan: 1, ask: true }), /data-xa-tab="ask"/);
@@ -224,6 +226,68 @@ test("the city article's sights sections are read link by link and come first", 
   assert.deepEqual(out.attractions.map((a) => [a.title, a.listed]), [["Panteon (Rzym)", true], ["Koloseum", true], ["Fontanna di Trevi", false]]);
   assert.deepEqual(out.sections, ["Zabytki", "Starożytność"]);
   assert.ok(!asked.some((u) => /section=(4|5)&/.test(u)));
+});
+
+test("every city's sights section is found by its heading, whatever it is called", () => {
+  const { sightSections } = require("../src/attractions.js");
+  const names = (list) => sightSections(list.map((line, i) => ({ index: String(i + 1), number: String(i + 1), line }))).map((s) => s.line);
+  assert.deepEqual(names(["Historia", "Znane miejsca w Rzymie", "Transport", "Przypisy"]), ["Znane miejsca w Rzymie"]);
+  assert.deepEqual(names(["Geografia", "Zabytki", "Sport"]), ["Zabytki"]);
+  assert.deepEqual(names(["Demografia", "Atrakcje turystyczne", "Bibliografia"]), ["Atrakcje turystyczne"]);
+  assert.deepEqual(names(["History", "Landmarks", "Transport", "References"]), ["Landmarks"]);
+  assert.deepEqual(names(["Gospodarka", "Architektura i urbanistyka"]), ["Architektura i urbanistyka"]);
+});
+
+test("plan: each stop starts from where the traveller says, with visit times and a day schedule", () => {
+  const X = loadPVX();
+  const ctx = { home: { lat: 41.9, lon: 12.5, label: "Hotel" }, centre: { lat: 41.8933, lon: 12.4829, label: "centrum" } };
+  const items = [
+    { id: "a", name: "Koloseum", lat: 41.8902, lon: 12.4922, kind: "heritage" },
+    { id: "b", name: "Panteon", lat: 41.8986, lon: 12.4768, kind: "sacral", from: "centre" },
+    { id: "c", name: "Trevi", lat: 41.9009, lon: 12.4833, kind: "monument", min: 20, from: "custom", fromName: "Dworzec", fromLat: 41.901, fromLon: 12.501 },
+    { id: "d", name: "Forum", lat: 41.8925, lon: 12.4853 },
+  ];
+  assert.equal(X.originOf(items, 0, ctx).kind, "home"); // first stop: from the hotel by default
+  assert.equal(X.originOf(items, 1, ctx).kind, "centre");
+  assert.equal(X.originOf(items, 2, ctx).label, "Dworzec");
+  assert.equal(X.originOf(items, 3, ctx).label, "Trevi"); // later stops: from the previous one
+  assert.equal(X.originOf(items, 0, { home: null, centre: ctx.centre }).kind, "centre");
+  const T = X.totals(items, ctx);
+  assert.ok(Math.abs(T.legs[1] - X.km(ctx.centre, items[1])) < 1e-9);
+  assert.equal(T.visitMin, 30 + 30 + 20 + 30);
+  assert.equal(T.totalMin, T.visitMin + T.walkMin);
+  const S = X.schedule(items, ctx, "09:00");
+  assert.equal(S[0].leave, X.schedule([items[0]], ctx, "09:00")[0].leave);
+  assert.match(S[3].leave, /^\d\d:\d\d$/);
+  const html = X.planHtml({ items, ctx, startTime: "10:30" });
+  assert.match(html, /data-xp-from="b"[^>]*>.*<option value="centre" selected>/s);
+  assert.match(html, /<option value="custom" selected>Dworzec/);
+  assert.doesNotMatch(html.split('data-xp-from="b"')[0], /value="prev"/); // the first stop has no previous one
+  assert.match(html, /data-xp-time value="10:30"/);
+  assert.match(html, /Cały plan/);
+});
+
+test("suggested route fits the time, mixes kinds and is in the shortest order", () => {
+  const X = loadPVX();
+  const ctx = { home: null, centre: { lat: 41.8933, lon: 12.4829 } };
+  const at = (id, kind, views, dLat, dLon) => ({ id, title: id, kind, views, lat: 41.8933 + dLat, lon: 12.4829 + dLon });
+  const pool = [at("m1", "museum", 9000, 0.004, 0), at("m2", "museum", 8000, 0.005, 0.001), at("m3", "museum", 7000, 0.006, 0.002),
+    at("c1", "sacral", 3000, -0.003, 0.002), at("p1", "park", 2000, 0, -0.006), at("s1", "square", 1500, 0.002, -0.002), at("far", "castle", 99999, 0.3, 0.3)];
+  const two = X.suggest(pool, { ctx, budget: 120 });
+  assert.ok(X.totals(two, ctx).totalMin <= 120);
+  assert.ok(!two.some((a) => a.id === "far")); // too far to walk in the time
+  const four = X.suggest(pool, { ctx, budget: 240 });
+  assert.ok(X.totals(four, ctx).totalMin <= 240);
+  assert.ok(new Set(four.map((a) => a.kind)).size >= 3);
+  assert.ok(four.filter((a) => a.kind === "museum").length < 3); // not three museums when other kinds fit
+  assert.ok(X.suggest(pool, { ctx, budget: 240, have: ["m1"] }).every((a) => a.id !== "m1"));
+  assert.match(X.suggestHtml({ budget: 240, list: four }, ctx, {}), /data-xp-sugg-use="replace"/);
+});
+
+test("the attraction list shows where each place is", () => {
+  const X = loadPVX();
+  const data = { centre: { lat: 41.8933, lon: 12.4829 }, attractions: [{ id: "pl:1", title: "Koloseum", kind: "heritage", area: "Monti", lat: 41.8902, lon: 12.4922 }] };
+  assert.match(X.attrListHtml({ data }), /xa-where[^>]*>.*Monti · 840 m od centrum/s);
 });
 
 test("the trip page loads the exploration helpers before app.js", () => {
