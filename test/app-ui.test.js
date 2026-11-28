@@ -170,3 +170,17 @@ test("step 4 has one primary action, saving says it is not a booking, and purcha
   assert.match(bar, /const ready=!!chosen;/);
   assert.doesNotMatch(bar, /ready=[^;]*hotel/i);
 });
+
+test("9a/9b: the next trip card picks its actions by the trip's phase", () => {
+  const app = fs.readFileSync(path.resolve(__dirname, "..", "assets/app.js"), "utf8");
+  const src = app.slice(app.indexOf("function tripPhase("), app.indexOf("function nextTripCard("));
+  const ctx = {}; vm.runInNewContext(`${src}; this.tripPhase = tripPhase;`, ctx);
+  const plain = (x) => JSON.parse(JSON.stringify(x));
+  assert.deepEqual(plain(ctx.tripPhase("2026-12-04", "2026-12-07", "2026-11-28")), { phase: "before", days: 6 });
+  assert.deepEqual(plain(ctx.tripPhase("2026-12-04", "2026-12-07", "2026-12-04")), { phase: "travel" });
+  assert.deepEqual(plain(ctx.tripPhase("2026-12-04", "2026-12-07", "2026-12-05")), { phase: "during", dayN: 2, of: 4 });
+  assert.deepEqual(plain(ctx.tripPhase("2026-12-04", "", "2026-12-05")), { phase: "after" });
+  assert.deepEqual(plain(ctx.tripPhase("", "", "2026-12-05")), { phase: "undated" });
+  assert.match(app, /nextTripCard\(all\)\+tripTimeline\(all/);
+  assert.match(app, /data-next-sheet="\$\{esc\(sheet\)\}"/);
+});
