@@ -377,6 +377,27 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
 - 4d, stop board: the Rzeszów stop board (Rozkład jazdy) now draws `PVT.departureBoard`, the same rows as other cities. Its departures come from the GTFS timetable in the browser and are marked `scheduled`, so no delay is shown. `departureRow` gained two options: `open(x)` makes the row a button (here it opens the line), and `after(x)` adds HTML beside it (the line star). Past rows are dimmed and have no countdown.
 - The train board keeps its own layout. It is the same in every city, and it shows the carrier, arrivals, platform and track, and a "Na mapie" button that the shared row doesn't have.
 
+## Feedback fixes: Clean map on Kierunki, one bus mode, price alert, browser install
+
+- **Kierunki map style "Podavo" (default).** The same pastel vector map as Podavo Clean (`assets/app.mapstyle.js`,
+  OpenFreeMap positron restyled with Clean's palette through MapLibre), loaded only when the map opens. If MapLibre or the
+  style cannot load, the map shows the light Esri tiles. Ciemna, Jasna and Satelita stay as choices; the choice is kept
+  under `podavo.explore.style`.
+- **Count bubbles like Clean's district bubbles.** Destinations that fall within 64 px of each other form one teal bubble
+  with the number of destinations (size `30 + log2(n)·8`, at most 64 px, white ring, Clean's shadow). A single
+  destination is a smaller bubble with a plane; the selected one turns coral; departure airports are sun-yellow bubbles.
+  Clicking a bubble with several places zooms in to them; one place opens its card. The map now zooms to 9 so close
+  airports separate.
+- **Empty map on phones fixed.** The phone rule `img,svg,video,canvas{max-width:100%}` squeezed Leaflet's canvas (dots and
+  routes) to 0 px; canvases and images inside `.leaflet-container` are now exempt.
+- **Planuj: no "Podmiejskie" chip.** "Autobus" covers city and suburban buses (`busModes()` adds `pks` whenever `bus` is
+  ticked), on the single trip form and on every stage of a multi-stop trip. Saved choices with `pks` still tick Autobus.
+- **Price alert on the trip page.** Saved trips with a flight that has not passed show an "Alert cenowy" tile next to
+  Koszt, Nocleg and Mapa; it shows the limit once an alert is set and opens the same alert dialog.
+- **Install from the browser on Android.** "Pobierz aplikację" on Android now opens a window with the browser install
+  first (Chrome's install prompt, or the steps from the ⋮ menu when Chrome does not offer it), because only that version
+  has Web Push; the APK stays below, marked as without push for now.
+
 ## 10c: performance pass
 
 Measured with Chromium at 390px and the CPU profiler on /plan, /buses, /destinations and /trains (demo data, no network).

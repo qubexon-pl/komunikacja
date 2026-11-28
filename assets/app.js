@@ -1657,10 +1657,10 @@ document.getElementById('editBadgeEnd')?.addEventListener('click', ()=>{ S.editi
 /* ---------- Podróż w etapach: każdy odcinek (start → miejsce 1, miejsce 1 → miejsce 2, …) planujemy osobno,
    z wyborem środka transportu (samochód, pociąg, autobus, lot), a na końcu zapisujemy całą podróż ---------- */
 /* ---------- Formularz „Wiele miejsc”: start i kolejne miejsca, każde z datą, godziną i środkami transportu ---------- */
-const MF_MODES=[['bus','bus','Autobus'],['pks','suburban-bus','Podmiejskie'],['train','train','Pociąg'],['plane','plane','Samolot'],['car','car','Samochód']], MF_MAX=6;
+const MF_MODES=[['bus','bus','Autobus'],['train','train','Pociąg'],['plane','plane','Samolot'],['car','car','Samochód']], MF_MAX=6;
 const mfFrom=document.getElementById('mfFrom'), mfSteps=document.getElementById('mfSteps');
 function mfStepHtml(i, x={}){
-  const modes=x.modes||MF_MODES.map(m=>m[0]);
+  const modes=(x.modes||MF_MODES.map(m=>m[0])).map(m=>m==='pks'?'bus':m);
   return `<li class="mf-step">
     <div class="mf-route" aria-live="polite"><span class="mf-route-from"></span><i class="fa-solid fa-arrow-right-long" aria-hidden="true"></i><span class="mf-route-to"></span></div>
     <span class="mf-n" aria-hidden="true">${i+1}</span>
@@ -1700,7 +1700,7 @@ function mfAddStep(x={}){
   const steps=mfSteps.querySelectorAll('.mf-step'); if(steps.length>=MF_MAX) return null;
   const prev=steps[steps.length-1];
   if(!x.date && prev) x.date=prev.querySelector('.mf-date').value;
-  if(!x.modes && prev) x.modes=[...prev.querySelectorAll('.mf-modes input:checked')].map(i=>i.value);
+  if(!x.modes && prev) x.modes=[...busModes([...prev.querySelectorAll('.mf-modes input:checked')].map(i=>i.value))];
   mfSteps.insertAdjacentHTML('beforeend', mfStepHtml(steps.length, x));
   const li=mfSteps.lastElementChild; attachSuggest(li.querySelector('.mf-to'), {streets:true});
   mfRenumber(); return li;
@@ -1717,7 +1717,7 @@ function enterMultiForm({addStep=false, from='', steps=null}={}){
   const empty=[mfFrom, ...mfSteps.querySelectorAll('.mf-to')].find(i=>!i.value.trim());
   setTimeout(()=>(empty||mfFrom).focus(), 50);
 }
-function setPlanModes(modes){ document.querySelectorAll('#plModes input').forEach(x=>{ x.checked=modes.includes(x.value); }); }
+function setPlanModes(modes){ document.querySelectorAll('#plModes input').forEach(x=>{ x.checked=modes.includes(x.value) || (x.value==='bus' && modes.includes('pks')); }); }
 document.getElementById('mfAdd')?.addEventListener('click', ()=>{ const li=mfAddStep(); li?.querySelector('.mf-to').focus(); });
 document.getElementById('multiForm')?.addEventListener('click', e=>{
   const rm=e.target.closest('.mf-remove'); if(rm){ rm.closest('.mf-step').remove(); mfRenumber(); return; }
@@ -1730,7 +1730,7 @@ document.getElementById('multiForm')?.addEventListener('keydown', e=>{
 document.getElementById('mfGo')?.addEventListener('click', ()=>{
   const err=document.getElementById('planErr'); err.textContent='';
   const from=mfFrom.value.trim(), rows=[...mfSteps.querySelectorAll('.mf-step')];
-  const steps=rows.map(li=>({to:li.querySelector('.mf-to').value.trim(), date:li.querySelector('.mf-date').value, time:li.querySelector('.mf-time').value, when:li.querySelector('.mf-when').value, modes:[...li.querySelectorAll('.mf-modes input:checked')].map(x=>x.value)}));
+  const steps=rows.map(li=>({to:li.querySelector('.mf-to').value.trim(), date:li.querySelector('.mf-date').value, time:li.querySelector('.mf-time').value, when:li.querySelector('.mf-when').value, modes:[...busModes([...li.querySelectorAll('.mf-modes input:checked')].map(x=>x.value))]}));
   if(!from){ err.textContent='Podaj, skąd zaczynasz podróż.'; mfFrom.focus(); return; }
   const noPlace=steps.findIndex(x=>!x.to); if(noPlace>=0){ err.textContent=`Podaj miejsce ${noPlace+1}.`; rows[noPlace].querySelector('.mf-to').focus(); return; }
   if(steps.length<2){ err.textContent='Dodaj co najmniej dwa miejsca — dla jednego wybierz „W jedną stronę”.'; const li=mfAddStep(); li?.querySelector('.mf-to').focus(); return; }
@@ -3130,7 +3130,7 @@ async function loadAlerts(){
   catch(e){ console.warn('Alerty cenowe', e); }
   document.getElementById('favLink').classList.toggle('has-alert', ALERTS.list.some(a=>a.reached));
   renderAlertsBtn();
-  if(S.sub==='ulubione') renderFavorites();
+  if(S.sub==='ulubione') renderFavorites(); else if(S.sub==='trip') renderTripPage();
 }
 function openAlertDialog(a){
   if(document.body.classList.contains('guest')){ location.href=ONW.loginUrl(location.pathname); return; }
@@ -4596,7 +4596,7 @@ const ASK_RESULTS={
 /* ---------- Sprawdź kierunki: mapa świata z liniami lotów ---------- */
 // Łuki z lotnisk w pobliżu do wszystkich kierunków z listy połączeń linii: Ryanair na żółto, Wizz Air na fioletowo.
 // Kliknięcie kierunku wpisuje go w „Dokąd?”.
-const EXPLORE={markers:new Map(), map:null, layer:null, from:null, airlines:new Set(['RYANAIR','WIZZ']), hidden:new Set(), removed:new Set(), open:store('rzbus.explore.open')!==false, drawn:'', style:store('rzbus.explore.style')||'dark', tiles:null, dests:new Map(), bounds:[], sel:null, summary:''};
+const EXPLORE={markers:new Map(), map:null, layer:null, from:null, airlines:new Set(['RYANAIR','WIZZ']), hidden:new Set(), removed:new Set(), open:store('rzbus.explore.open')!==false, drawn:'', style:store('podavo.explore.style')||'podavo', tiles:null, dests:new Map(), bounds:[], sel:null, summary:''};
 const EXPLORE_COLORS={RYANAIR:'#F7C948', WIZZ:'#B04AE0'};
 function exploreAirports(){ return new Map((FL.data?.airports||[]).filter(a=>a.lat!=null&&a.lon!=null).map(a=>[a.code,a])); }
 // Punkt startu: miejsce z „Skąd?” zaplanowanej podróży, a bez niego Rzeszów.
@@ -4612,8 +4612,10 @@ function exploreArc(a, b, bend){
   for(let i=0;i<=32;i++){ const t=i/32, u=1-t; pts.push([u*u*la1+2*u*t*cx+t*t*la2, u*u*lo1+2*u*t*cy+t*t*lo2]); }
   return pts;
 }
-// Style mapy (ten sam dostawca kafelków Esri co dotąd): ciemna, jasna i zdjęcia satelitarne.
+// Style mapy: „Podavo” (pastelowa mapa jak w Podavo Clean, assets/app.mapstyle.js) oraz kafelki Esri: ciemna, jasna i satelita.
+// Gdy styl Podavo się nie wczyta, mapa pokazuje jasne kafelki Esri.
 const EXPLORE_TILES={
+  podavo:['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}','Esri, HERE, Garmin, © OpenStreetMap'],
   dark:['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}','Esri, HERE, Garmin, © OpenStreetMap'],
   light:['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}','Esri, HERE, Garmin, © OpenStreetMap'],
   satellite:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}','Esri, Maxar, Earthstar Geographics'],
@@ -4622,10 +4624,17 @@ const exploreTileUrl=()=>(EXPLORE_TILES[EXPLORE.style]||EXPLORE_TILES.dark)[0];
 const exploreTileCredit=()=>(EXPLORE_TILES[EXPLORE.style]||EXPLORE_TILES.dark)[1];
 function setExploreStyle(style){
   if(!EXPLORE_TILES[style]) return;
-  EXPLORE.style=style; store('rzbus.explore.style', style);
+  EXPLORE.style=style; store('podavo.explore.style', style);
   document.querySelectorAll('[data-explore-style]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.exploreStyle===style)));
   document.getElementById('explore')?.setAttribute('data-map-style', style);
-  if(EXPLORE.tiles){ EXPLORE.map.attributionControl.removeAttribution(EXPLORE.tiles.getAttribution()); EXPLORE.tiles.options.attribution=exploreTileCredit(); EXPLORE.map.attributionControl.addAttribution(exploreTileCredit()); EXPLORE.tiles.setUrl(exploreTileUrl()); }
+  const m=EXPLORE.map; if(!m) return;
+  const my=EXPLORE.styleToken=(EXPLORE.styleToken||0)+1;
+  const raster=()=>L.tileLayer(exploreTileUrl(),{maxZoom:9, maxNativeZoom:7, noWrap:true, bounds:L.latLngBounds([-60,-170],[78,180]), attribution:exploreTileCredit()});
+  const put=layer=>{ if(EXPLORE.tiles) m.removeLayer(EXPLORE.tiles); EXPLORE.tiles=layer.addTo(m); };
+  if(style!=='podavo' || !window.PODAVO_MAP){ put(raster()); return; }
+  if(!EXPLORE.tiles) put(raster());
+  PODAVO_MAP.podavoLayer().then(l=>{ if(my===EXPLORE.styleToken) put(l); })
+    .catch(()=>{ if(my===EXPLORE.styleToken && !(EXPLORE.tiles instanceof L.TileLayer)) put(raster()); });
 }
 function exploreFit(animate){
   if(EXPLORE.map && EXPLORE.bounds.length) EXPLORE.map.fitBounds(L.latLngBounds(EXPLORE.bounds),{padding:[24,24], maxZoom:5, animate});
@@ -4690,7 +4699,7 @@ function closeExploreCard(){
   if(EXPLORE.sel){ EXPLORE.sel=null; exploreMark(null); exploreListMark(); }
   exploreRoutes(null);
 }
-function exploreMark(code){ EXPLORE.markers.forEach((m,c)=>m.setStyle({radius:c===code?7:4, weight:c===code?3:1.5})); }
+function exploreMark(code){ EXPLORE.markers.forEach((el,codes)=>el.classList.toggle('is-selected', !!code && codes.includes(code))); }
 function exploreListMark(){ document.querySelectorAll('#exploreList [data-explore-dest]').forEach(b=>b.classList.toggle('on', b.dataset.exploreDest===EXPLORE.sel)); }
 // Trasy rysujemy tylko dla wybranego kierunku albo lotniska wylotu, bez animacji, a nie całą sieć naraz.
 function exploreRoutes(focus){
@@ -4703,24 +4712,45 @@ function exploreRoutes(focus){
     lines.forEach((airline,i)=>L.polyline(exploreArc([a.lat,a.lon],[b.lat,b.lon], lines.length>1?(i?-1:1):1),{color:EXPLORE_COLORS[airline]||'#7FB3FF', weight:2.4, opacity:.9, interactive:false, pane:'exploreRoutes'}).addTo(g));
   }
 }
-// Punkt kierunku tworzymy dopiero, gdy trafi w widoczny obszar mapy, i rysujemy go na jednym płótnie.
-function exploreDot(d){
-  const code=d.airport.code; let dot=EXPLORE.markers.get(code); if(dot) return dot;
-  const color=d.airlines.size>1?'#FFFFFF':EXPLORE_COLORS[[...d.airlines][0]], names=[...d.airlines].map(x=>AIRLINES[x]?.name||x).join(', ');
-  dot=L.circleMarker([d.airport.lat,d.airport.lon],{renderer:EXPLORE.canvas, radius:EXPLORE.sel===code?7:4, color, weight:EXPLORE.sel===code?3:1.5, fillColor:color, fillOpacity:0.9, bubblingMouseEvents:false})
-    .bindTooltip(`<b>${esc(d.airport.city)} (${esc(d.airport.code)})</b><br>${esc(d.airport.country||'')}<br>${esc(names)} · z ${esc([...d.from].join(', '))}${d.price!=null?`<br>od <b>${d.price} zł</b>`:''}`,{className:'explore-tip', direction:'top', sticky:true})
-    .on('click', ()=>openExploreCard(code));
-  EXPLORE.markers.set(code, dot); return dot;
+// Kierunki jak dzielnice w Podavo Clean: bliskie sobie miejsca łączą się w kółko z liczbą kierunków, większe przy większej liczbie.
+// Kółko z jednym kierunkiem otwiera jego kartę, a z kilkoma przybliża mapę do nich.
+const EXPLORE_CELL=64, EXPLORE_TEAL='#24a690';
+const exploreBubbleSize=n=>Math.round(Math.min(64, 30+Math.log2(Math.max(1,n))*8));
+function exploreTip(list){
+  if(list.length>1){ const names=list.slice(0,6).map(d=>d.airport.city).join(', '); return `<b>${list.length} ${esc(L2(plural(list.length,'kierunek','kierunki','kierunków'),'destinations'))}</b><br>${esc(names)}${list.length>6?' …':''}<br><small>${esc(L2('Kliknij, aby przybliżyć','Click to zoom in'))}</small>`; }
+  const d=list[0], names=[...d.airlines].map(x=>AIRLINES[x]?.name||x).join(', ');
+  return `<b>${esc(d.airport.city)} (${esc(d.airport.code)})</b><br>${esc(d.airport.country||'')}<br>${esc(names)} · ${esc(L2('z','from'))} ${esc([...d.from].join(', '))}${d.price!=null?`<br>${esc(L2('od','from'))} <b>${d.price} zł</b>`:''}`;
+}
+function exploreBubble(list, at){
+  const n=list.length, size=exploreBubbleSize(n), codes=list.map(d=>d.airport.code), sel=!!EXPLORE.sel && codes.includes(EXPLORE.sel);
+  const label=n>1?`${n} ${L2(plural(n,'kierunek','kierunki','kierunków'),'destinations')}`:`${list[0].airport.city} (${list[0].airport.code})`;
+  const icon=L.divIcon({className:'explore-bubble-wrap', iconSize:[size,size], iconAnchor:[size/2,size/2],
+    html:`<span class="explore-bubble${n===1?' one':''}${sel?' is-selected':''}" style="--bubble-size:${size}px" role="button" aria-label="${esc(label)}">${n>1?`<b>${n}</b>`:'<i class="oi oi-plane" aria-hidden="true"></i>'}</span>`});
+  const mk=L.marker(at,{icon, keyboard:true, title:label, riseOnHover:true, bubblingMouseEvents:false})
+    .bindTooltip(exploreTip(list),{className:'explore-tip', direction:'top', offset:[0,-size/2]})
+    .on('click', ()=>{
+      if(n===1){ openExploreCard(codes[0]); return; }
+      const b=L.latLngBounds(list.map(d=>[d.airport.lat,d.airport.lon]));
+      const z=EXPLORE.map.getBoundsZoom(b, false, L.point(48,48));
+      if(EXPLORE.map.getZoom()>=EXPLORE.map.getMaxZoom()-0.01){ openExploreCard(codes[0]); return; }
+      if(z<=EXPLORE.map.getZoom()+0.01) EXPLORE.map.setView(b.getCenter(), Math.min(EXPLORE.map.getMaxZoom(), EXPLORE.map.getZoom()+1.5));
+      else EXPLORE.map.fitBounds(b,{padding:[48,48], maxZoom:EXPLORE.map.getMaxZoom()});
+    });
+  mk.on('add', ()=>{ const el=mk.getElement()?.querySelector('.explore-bubble'); if(el) EXPLORE.markers.set(codes, el); });
+  return mk;
 }
 // Na mapie są tylko kierunki z widocznego obszaru (z zapasem na przesuwanie), a lista obok pokazuje te same miejsca.
 function exploreViewport(){
   const m=EXPLORE.map; if(!m || !EXPLORE.dots) return;
-  const seen=m.getBounds(), near=seen.pad(0.25), shown=[];
+  const seen=m.getBounds(), near=seen.pad(0.25), shown=[], cells=new Map(), z=m.getZoom();
   for(const d of EXPLORE.dests.values()){
-    const at=[d.airport.lat,d.airport.lon], dot=near.contains(at)?exploreDot(d):EXPLORE.markers.get(d.airport.code);
-    if(near.contains(at)){ if(!EXPLORE.dots.hasLayer(dot)) EXPLORE.dots.addLayer(dot); if(seen.contains(at)) shown.push(d); }
-    else if(dot && EXPLORE.dots.hasLayer(dot)) EXPLORE.dots.removeLayer(dot);
+    const at=L.latLng(d.airport.lat,d.airport.lon); if(!near.contains(at)) continue;
+    if(seen.contains(at)) shown.push(d);
+    const p=m.project(at, z), k=Math.floor(p.x/EXPLORE_CELL)+':'+Math.floor(p.y/EXPLORE_CELL);
+    const c=cells.get(k)||{list:[], x:0, y:0}; c.list.push(d); c.x+=p.x; c.y+=p.y; cells.set(k,c);
   }
+  EXPLORE.dots.clearLayers(); EXPLORE.markers.clear();
+  for(const c of cells.values()) EXPLORE.dots.addLayer(exploreBubble(c.list, m.unproject([c.x/c.list.length, c.y/c.list.length], z)));
   renderExploreList(shown);
 }
 const EXPLORE_LIST_MAX=60;
@@ -4741,16 +4771,14 @@ function ensureExploreMap(){
   if(EXPLORE.map) return EXPLORE.map;
   const el=document.getElementById('exploreMap'); if(!el || !el.offsetParent) return null;
   const world=L.latLngBounds([-60,-170],[78,180]);
-  const m=L.map(el,{zoomControl:true, attributionControl:true, worldCopyJump:false, minZoom:2, maxZoom:7, zoomSnap:0.25, preferCanvas:true, maxBounds:world, maxBoundsViscosity:1});
+  const m=L.map(el,{zoomControl:true, attributionControl:true, worldCopyJump:false, minZoom:2, maxZoom:9, zoomSnap:0.25, preferCanvas:true, maxBounds:world, maxBoundsViscosity:1});
   m.attributionControl.setPrefix(false);
-  EXPLORE.tiles=L.tileLayer(exploreTileUrl(),{maxZoom:7, maxNativeZoom:7, noWrap:true, bounds:world, attribution:exploreTileCredit()}).addTo(m);
   L.control.scale({position:'bottomleft', metric:true, imperial:false, maxWidth:180}).addTo(m);
   const Center=L.Control.extend({options:{position:'topleft'}, onAdd(){ const b=L.DomUtil.create('div','leaflet-bar explore-center'); b.innerHTML=`<a href="#" role="button" title="${L2('Wyśrodkuj mapę','Centre the map')}" aria-label="${L2('Wyśrodkuj mapę','Centre the map')}"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i></a>`; L.DomEvent.disableClickPropagation(b); L.DomEvent.on(b,'click',e=>{ L.DomEvent.preventDefault(e); exploreFit(true); }); return b; }});
   new Center().addTo(m);
   m.setView([48,15],4);
   m.on('click', ()=>closeExploreCard());
   m.createPane('exploreRoutes').style.zIndex=390;
-  EXPLORE.canvas=L.canvas({padding:0.3});
   m.on('moveend', ()=>{ clearTimeout(EXPLORE.moved); EXPLORE.moved=setTimeout(exploreViewport,120); });
   EXPLORE.map=m; EXPLORE.routes=L.layerGroup().addTo(m); EXPLORE.dots=L.layerGroup().addTo(m); EXPLORE.layer=L.layerGroup().addTo(m);
   setExploreStyle(EXPLORE.style);
@@ -4796,7 +4824,7 @@ function renderExplore(){
     dests.set(r.to,d); bounds.push([b.lat,b.lon]);
   }
   for(const code of from){ const a=airports.get(code); if(!a) continue; bounds.push([a.lat,a.lon]);
-    L.circleMarker([a.lat,a.lon],{radius:7, color:'#FFE9A8', weight:2, fillColor:'#F5A524', fillOpacity:1, bubblingMouseEvents:false}).bindTooltip(`<b>${esc(a.city)} (${esc(a.code)})</b><br>lotnisko wylotu`,{className:'explore-tip', direction:'top'})
+    L.marker([a.lat,a.lon],{icon:L.divIcon({className:'explore-bubble-wrap', iconSize:[30,30], iconAnchor:[15,15], html:'<span class="explore-bubble origin" style="--bubble-size:30px"><i class="oi oi-plane" aria-hidden="true"></i></span>'}), zIndexOffset:500, bubblingMouseEvents:false}).bindTooltip(`<b>${esc(a.city)} (${esc(a.code)})</b><br>lotnisko wylotu`,{className:'explore-tip', direction:'top'})
       .bindPopup(`<div class="explore-pop"><b>${esc(a.city)} (${esc(a.code)})</b><small>lotnisko wylotu</small><div class="explore-pop-btns"><button type="button" data-explore-remove="${esc(a.code)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> Usuń z mapy</button></div></div>`,{className:'explore-popup', closeButton:false})
       .on('click', ()=>{ closeExploreCard(); exploreRoutes({origin:code}); }).addTo(EXPLORE.layer); }
   EXPLORE.dests=dests; EXPLORE.bounds=bounds;
@@ -5857,6 +5885,12 @@ function tripTools(f, T, costs, cityBox){
   if(f.tid && !f.shared) out.push(tool('photos', L2('Dodaj i przeglądaj','Add and browse'), ' data-tp-photo-count'));
   out.push(tool('hotel', h?esc(h.name)+(stays>1?` +${stays-1}`:''):L2('Dodaj hotel','Add a stay')));
   out.push(tool('map', L2('Trasa i uczestnicy','Route and people')));
+  // Alert cenowy widoczny od razu na stronie podróży (dotąd był tylko w oknie etapu „Lot”).
+  const fl=savedFlight(f);
+  if(fl && !f.shared && (fl.back||fl.day)>=ymdOf(0)){
+    const set=ALERTS.list.find(x=>x.from===fl.from && x.to===fl.to && x.day===fl.day);
+    out.push(`<button type="button" class="tp-tool ${set?'on':''}" data-fav-alert="${esc(favKey(f))}" aria-haspopup="dialog"><span class="tp-tool-ic"><i class="fa-solid fa-bell" aria-hidden="true"></i></span><span class="tp-tool-tx"><b>${L2('Alert cenowy','Price alert')}</b><small>${set?esc(L2(`do ${set.maxPrice} zł${set.reached?' · osiągnięta':''}`,`up to ${set.maxPrice} zł${set.reached?' · reached':''}`)):L2('Powiadom o niższej cenie','Tell me when it drops')}</small></span></button>`);
+  }
   const about=tripCities(T,f)[0]; if(about?.centre) out.push(`<button type="button" class="tp-tool" data-tp-about aria-haspopup="dialog"><span class="tp-tool-ic"><i class="fa-solid fa-landmark" aria-hidden="true"></i></span><span class="tp-tool-tx"><b>${L2('O miejscu','About the place')}</b><small>${esc(String(about.label).split(',')[0])}</small></span></button>`);
   if(cityBox) out.push(tool('city', planned?`${planned} ${planned===1?'punkt':planned<5?'punkty':'punktów'}`:esc(cities.map(c=>c.label).slice(0,2).join(', '))||L2('Miejsca i dojazdy','Places and rides')));
   return `<nav class="tp-tools" aria-label="${L2('Szczegóły podróży','Trip details')}">${out.join('')}</nav>`;
@@ -7060,7 +7094,9 @@ function addVia(){
 }
 function clearVias(){ document.getElementById('plStops').innerHTML=''; renumberVias(); }
 // Na stronie autobusów planer szuka tylko autobusów miejskich.
-function readModes(){ return S.agency==='ztm' ? new Set(['bus']) : new Set([...document.querySelectorAll('#plModes input:checked')].map(x=>x.value)); }
+// „Autobus” obejmuje autobusy miejskie i podmiejskie (osobnego wyboru „Podmiejskie” już nie ma).
+function busModes(list){ const out=new Set(list); if(out.has('bus')) out.add('pks'); else out.delete('pks'); return out; }
+function readModes(){ return S.agency==='ztm' ? new Set(['bus','pks']) : busModes([...document.querySelectorAll('#plModes input:checked')].map(x=>x.value)); }
 function newStage(origin, dest, shared){
   const a=origin.points[0], b=dest.points[0], restore=S.restore; S.restore=null; // zapisany plan trafia do pierwszego etapu
   return {restore, from:origin.label, to:dest.label, origin, dest, km:a&&b?hav(a,b)/1000:null, stay:0, round:null, history:[], flightPage:1, openFlight:null, access:new Map(), carTo:new Map(), railLinks:new Map(), open:new Set(), ...shared};
@@ -7143,7 +7179,7 @@ const [plFrom,plTo,plTime,plWhen,plDate,plRound,plBack]=['plFrom','plTo','plTime
 const MAX_VIAS=5; let viaSeq=0;
 document.getElementById('plAddStop')?.addEventListener('click', ()=>{ if(S.agency==='podroz') enterMultiForm({addStep:true}); else addVia(); });
 document.getElementById('plStops').addEventListener('click', e=>{ const b=e.target.closest('[data-remove-via]'); if(b){ delete S.placeChoice[b.closest('.pl-stop').dataset.field]; b.closest('.pl-stop').remove(); renumberVias(); } });
-{ const saved=store('rzbus.plan.modes'); if(Array.isArray(saved)) document.querySelectorAll('#plModes input').forEach(x=>{ x.checked=saved.includes(x.value); }); }
+{ const saved=store('rzbus.plan.modes'); if(Array.isArray(saved)) setPlanModes(saved); }
 // Liczba osób: koszty liczą się od nowa w tym samym planie (bez nowego wyszukiwania).
 const planPeople=()=>Math.min(9,Math.max(1,+document.getElementById('plPeople')?.value||1));
 { const saved=+store('rzbus.plan.people'); if(saved>=1&&saved<=9) document.getElementById('plPeople').value=String(saved); }
@@ -8558,11 +8594,19 @@ weatherBoot();
     if(store){ location.href=store; return; }
     if(apk){
       const note=document.getElementById('androidPwaNote'); if(note) note.hidden=!standalone();
+      // Wersja z przeglądarki ma powiadomienia push, których plik APK jeszcze nie ma — dlatego jest na górze okna.
+      const done=standalone(); document.getElementById('installPwaBtn').hidden=done; document.getElementById('installPwaDone').hidden=!done; document.getElementById('installPwaSteps').hidden=true;
       bootstrap.Modal.getOrCreateInstance(document.getElementById('androidModal')).show(); return;
     }
     if(!deferred){ bootstrap.Modal.getOrCreateInstance(document.getElementById('installModal')).show(); return; }
     const e=deferred; deferred=null; window.__installPrompt=null; show();
     try{ await e.prompt(); }catch(err){}
+  });
+  document.getElementById('installPwaBtn')?.addEventListener('click', async ()=>{
+    if(!deferred){ document.getElementById('installPwaSteps').hidden=false; return; }
+    const e=deferred; deferred=null; window.__installPrompt=null;
+    try{ await e.prompt(); const r=await e.userChoice; if(r?.outcome==='accepted') bootstrap.Modal.getInstance(document.getElementById('androidModal'))?.hide(); }catch(err){ document.getElementById('installPwaSteps').hidden=false; }
+    show();
   });
   if(android){
     fetch('/api/android-app', {cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{ if(!d) return;

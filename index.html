@@ -143,7 +143,6 @@
     <div class="trip-options only-podroz">
     <div class="trip-modes" id="plModes" role="group" aria-label="Środki transportu">
       <label class="mode-check"><input type="checkbox" value="bus" checked> <i class="oi oi-bus" aria-hidden="true"></i> Autobus</label>
-      <label class="mode-check"><input type="checkbox" value="pks" checked> <i class="oi oi-suburban-bus" aria-hidden="true"></i> Podmiejskie</label>
       <label class="mode-check"><input type="checkbox" value="train" checked> <i class="oi oi-train" aria-hidden="true"></i> Pociąg</label>
       <label class="mode-check"><input type="checkbox" value="plane" checked> <i class="oi oi-plane" aria-hidden="true"></i> Samolot</label>
       <label class="mode-check"><input type="checkbox" value="car" checked> <i class="oi oi-car" aria-hidden="true"></i> Samochód</label>
@@ -190,7 +189,8 @@
       <aside class="explore-stats" id="exploreStats" aria-label="Podsumowanie mapy"></aside>
       <div class="explore-style" role="group" aria-label="Styl mapy">
         <i class="oi oi-map" aria-hidden="true"></i><span>Styl mapy:</span>
-        <button type="button" data-explore-style="dark" aria-pressed="true">Ciemna</button>
+        <button type="button" data-explore-style="podavo" aria-pressed="true">Podavo</button>
+        <button type="button" data-explore-style="dark" aria-pressed="false">Ciemna</button>
         <button type="button" data-explore-style="light" aria-pressed="false">Jasna</button>
         <button type="button" data-explore-style="satellite" aria-pressed="false">Satelita</button>
       </div>
@@ -330,15 +330,27 @@
     <div class="modal-content">
       <div class="modal-hero"><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button><span class="kicker mb-1">Aplikacja na Androida</span><h4 id="androidTitle">Zainstaluj podavo.voyage na telefonie</h4></div>
       <div class="modal-body p-3 p-md-4">
+        <section class="install-pwa" id="androidPwaBox">
+          <h5><i class="fa-brands fa-chrome" aria-hidden="true"></i> Z przeglądarki <span class="chip ok">z powiadomieniami push</span></h5>
+          <p class="small mb-2">Instaluje podavo.voyage z Chrome jako aplikację na ekranie początkowym. Działają powiadomienia push (przypomnienia o podróży i alerty cenowe), aparat i lokalizacja. Nic nie trzeba pobierać.</p>
+          <button type="button" class="btn-grad" id="installPwaBtn"><i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i> Zainstaluj z przeglądarki</button>
+          <ol class="install-steps mt-2" id="installPwaSteps" hidden>
+            <li>W Chrome stuknij menu <strong>⋮</strong> w prawym górnym rogu.</li>
+            <li>Wybierz <strong>Zainstaluj aplikację</strong> (albo <strong>Dodaj do ekranu głównego</strong>).</li>
+            <li>Otwórz Podavo z ekranu początkowego i włącz powiadomienia w <strong>Komunikatach</strong> (dzwonek).</li>
+          </ol>
+          <p class="small text-muted mb-0 mt-2" id="installPwaDone" hidden>Wersja z przeglądarki jest już zainstalowana na tym telefonie.</p>
+        </section>
+        <h5 class="install-apk-title"><i class="fa-brands fa-android" aria-hidden="true"></i> Plik APK <small class="text-muted">bez powiadomień push na razie</small></h5>
         <ol class="install-steps">
-          <li>Stuknij <strong>Pobierz aplikację</strong> poniżej.</li>
+          <li>Stuknij <strong>Pobierz APK</strong> poniżej.</li>
           <li>Otwórz pobrany plik <strong>podavo-voyage.apk</strong> (z powiadomienia albo z Pobranych).</li>
           <li>Jeśli telefon zapyta, zezwól przeglądarce na <strong>instalowanie nieznanych aplikacji</strong> i wróć.</li>
           <li>Stuknij <strong>Zainstaluj</strong>. Lokalizacja i aparat będą działać przez uprawnienia telefonu, nie przeglądarki.</li>
         </ol>
         <p class="small text-muted mt-3 mb-0" id="androidPwaNote" hidden>Masz już wersję z przeglądarki na ekranie początkowym? Po instalacji możesz ją usunąć.</p>
       </div>
-      <div class="modal-footer border-0 pt-0 px-3 px-md-4 pb-3"><a class="btn-grad" id="androidDownload" href="/download/voyage.apk" download="podavo-voyage.apk"><i class="fa-solid fa-download" aria-hidden="true"></i> Pobierz aplikację</a></div>
+      <div class="modal-footer border-0 pt-0 px-3 px-md-4 pb-3"><a class="btn-ghost" id="androidDownload" href="/download/voyage.apk" download="podavo-voyage.apk"><i class="fa-solid fa-download" aria-hidden="true"></i> Pobierz APK</a></div>
     </div>
   </div>
 </div>
