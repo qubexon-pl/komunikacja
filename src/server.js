@@ -558,6 +558,12 @@ async function serveAiPlan(req, res, url, aiPlanner, segments) {
       json(res, 405, { error: "Method not allowed." });
       return;
     }
+    if (segments.length === 3 && segments[2] === "city-plan-fit") {
+      if (req.method !== "POST") { res.setHeader("Allow", "POST"); json(res, 405, { error: "Method not allowed." }); return; }
+      requireSameOrigin(req);
+      json(res, 200, await aiPlanner.fit(req.user.id, await readJson(req, 8 * 1024)));
+      return;
+    }
     if (segments.length === 3 && segments[2] === "city-plan") {
       if (req.method === "GET") {
         json(res, 200, { plan: await aiPlanner.saved(req.user.id, { tid: url.searchParams.get("tid") || "", city: url.searchParams.get("city") || "" }) });

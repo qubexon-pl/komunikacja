@@ -313,3 +313,9 @@
 .near-act .btn-ghost,.near-more{min-height:44px; padding:6px 12px; font-size:.82rem}
 .near-src{display:block; margin-top:8px}
 @media (max-width:767px){ .near-row{grid-template-columns:36px 1fr} .near-act{grid-column:2; justify-content:flex-start} }
+
+/* 8a: fitting a day's route in the AI plan */
+.ai-fit-row{display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin:6px 0}
+.ai-fit-row .ai-fit{min-height:44px; margin-left:auto}
+.ai-fit-note,.ai-walk{color:var(--ink-soft); font-size:.78rem}
+.ai-walk{display:block; grid-column:1 / -1; margin:0 0 -2px}
