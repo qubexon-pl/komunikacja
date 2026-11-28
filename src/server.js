@@ -44,6 +44,7 @@ const { createRates } = require("./rates");
 const { createStoredAnswers } = require("./stored");
 const { createGeocoder, createStreetSuggester } = require("./geocode");
 const { normalizeFavorites } = require("./favorites");
+const { normalizeBlocks } = require("./calendar");
 const { LIVE_SOURCES, createLiveCollector } = require("./live-data");
 const { OPERATIONS_KEY, createPlkCollector, scheduleKey } = require("./plk");
 const { ageOf } = require("./snapshots");
@@ -1743,6 +1744,27 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
         }
         if (segments[1] === "settings" && segments[2] === "plk-key" && segments.length === 3) {
           await servePlkKey(req, res, plk);
+          return;
+        }
+        if (segments[1] === "calendar" && segments.length === 2) {
+          if (!auth.getCalendarBlocks) {
+            json(res, 503, { error: "Kalendarz jest niedostępny." });
+            return;
+          }
+          if (req.method === "GET") {
+            json(res, 200, { blocks: await auth.getCalendarBlocks(req.user.id) });
+            return;
+          }
+          if (req.method === "PUT") {
+            requireSameOrigin(req);
+            const { blocks } = await readJson(req, 64 * 1024);
+            const saved = normalizeBlocks(blocks);
+            await auth.saveCalendarBlocks(req.user.id, saved);
+            json(res, 200, { blocks: saved });
+            return;
+          }
+          res.setHeader("Allow", "GET, PUT");
+          json(res, 405, { error: "Method not allowed." });
           return;
         }
         if (segments[1] === "favorites" && segments.length === 2) {
