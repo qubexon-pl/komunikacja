@@ -2751,6 +2751,15 @@ body.multi-mode #multiForm{display:none !important}
 .tx-city-note{display:block; color:#6B7A90; font-size:.72rem}
 .tx-city-none{padding:8px 10px; color:#6B7A90; font-size:.85rem}
 .tx-mode.soon{opacity:.55}
+.tx-kinds{display:inline-flex; gap:4px; padding:4px; border-radius:12px; background:var(--bg-alt, #F3F6FA); border:1px solid var(--card-border)}
+.tx-kind{border:0; background:transparent; color:var(--ink); font-weight:600; font-size:.86rem; padding:6px 16px; border-radius:9px; min-height:36px}
+.tx-kind.on{background:var(--bg, #fff); color:var(--nav-active, #1F63B3); box-shadow:0 1px 3px rgba(23,59,112,.15)}
+.tx-kind:focus-visible{outline:2px solid var(--btn, #2472C8); outline-offset:2px}
+.tx-city-head{width:100%}
+.tx-city-head h3,.tx-city-head small,.tx-city-head .ctx-badge{text-transform:none; letter-spacing:normal}
+.tx-city-head h3{font-size:1.15rem}
+/* Lista linii ma własną zakładkę „Linie” (jak w innych miastach), więc nie powtarza się pod wyszukiwarką. */
+body[data-view="ztm"]:not(.lines-mode) .lines-part,body[data-view="pks"]:not(.lines-mode) .lines-part{display:none !important}
 .tx-mode.soon small{font-size:.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; margin-left:2px}
 @media (max-width:700px){ .tx-city{width:100%} .tx-city-btn{width:100%; justify-content:center} }
 .tx-city-head{padding:8px 10px 2px; color:#6B7A90; font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em}
