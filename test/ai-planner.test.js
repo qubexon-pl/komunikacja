@@ -106,7 +106,7 @@ test("the AI endpoints need a session and hide internal errors", async (t) => {
   const base = `http://127.0.0.1:${server.address().port}`;
   assert.equal((await fetch(`${base}/api/ai/status`)).status, 401);
   const status = await fetch(`${base}/api/ai/status`, { headers: { Cookie: "rzbus_session=ok" } });
-  assert.deepEqual(await status.json(), { enabled: true });
+  assert.deepEqual(await status.json(), { enabled: true, ask: false });
   const r = await fetch(`${base}/api/ai/city-plan`, { method: "POST", headers: { Cookie: "rzbus_session=ok", "Content-Type": "application/json", Origin: base }, body: "{}" });
   assert.equal(r.status, 502);
   assert.doesNotMatch((await r.json()).error, /api-key/);
