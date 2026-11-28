@@ -38,6 +38,9 @@ const { createTripWeather } = require("./trip-weather");
 const { createDiscover } = require("./discover");
 const { createKnowledge } = require("./knowledge");
 const { createNearby } = require("./nearby");
+const { createAttractions } = require("./attractions");
+const { createCityAsk } = require("./city-ask");
+const { createLlm } = require("./llm");
 const { createAiPlanner, createPlanStore, createAnthropicClient } = require("./ai-planner");
 const { createPksFares } = require("./pks-fares");
 const { createRates } = require("./rates");
@@ -82,7 +85,7 @@ const ANDROID_APK_PATH = "/download/voyage.apk";
 const PLK_ROUTES = new Set(["schedules", "operations"]);
 const PLK_KEY_SETTING = "plk_api_key";
 const PLK_KEY_MAX_LENGTH = 512;
-const PUBLIC_LIMITS = { streets: 120, geocode: 30, reverse: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30, "transport-info": 120, "transport-departures": 120, discover: 30, places: 30, nearby: 20 };
+const PUBLIC_LIMITS = { streets: 120, geocode: 30, reverse: 30, feeds: 120, timetable: 20, schedule: 20, plk: 60, live: 120, flights: 120, driving: 30, path: 120, walk: 60, fuel: 30, "pks-price": 120, weather: 60, transfers: 120, "transfer-trips": 30, "transfer-options": 30, "city-plan": 30, vehicles: 120, "city-list": 60, "city-stops": 120, departures: 120, "city-lines": 60, hotels: 30, rates: 30, "transport-info": 120, "transport-departures": 120, discover: 30, places: 30, nearby: 20, attractions: 20 };
 const authAttempts = new Map();
 const publicRequests = new Map();
 const GTFS_SOURCE_PATHS = new Map([
@@ -576,9 +579,23 @@ async function servePksPrice(res, url, pksFares) {
 
 // AI sightseeing plan of a saved trip's city (src/ai-planner.js): GET the last one, POST to propose a new one.
 // GET /api/ai/style and PUT /api/ai/style read and save the traveller's preferences used for it.
-async function serveAiPlan(req, res, url, aiPlanner, segments) {
+// "Zapytaj" in the city exploration plan (src/city-ask.js): POST a question, get an answer and places to add.
+async function serveCityAsk(req, res, cityAsk) {
+  if (req.method !== "POST") { res.setHeader("Allow", "POST"); json(res, 405, { error: "Method not allowed." }); return; }
+  if (!cityAsk?.enabled()) { json(res, 503, { error: "Pytania do AI nie są włączone na tym serwerze." }); return; }
+  try {
+    requireSameOrigin(req);
+    json(res, 200, await cityAsk.ask(req.user.id, await readJson(req, 48 * 1024)));
+  } catch (error) {
+    const status = error.expose ? error.status : [400, 403, 413].includes(error.statusCode) ? error.statusCode : 502;
+    if (status === 502) console.error("City question failed:", error.message);
+    json(res, status, { error: status === 502 ? "AI jest chwilowo niedostępne. Spróbuj ponownie za chwilę." : error.message });
+  }
+}
+
+async function serveAiPlan(req, res, url, aiPlanner, segments, cityAsk = null) {
   if (segments.length === 3 && segments[2] === "status" && req.method === "GET") {
-    json(res, 200, { enabled: !!aiPlanner?.enabled() });
+    json(res, 200, { enabled: !!aiPlanner?.enabled(), ask: !!cityAsk?.enabled() });
     return;
   }
   if (!aiPlanner) {
@@ -1255,7 +1272,7 @@ async function forwardToApi(req, res, url, fetchSource = fetch, maxBody = 64 * 1
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, duffel = null, hotels = createHotels({ fetchSource }), aiPlanner = null, push = null, knowledge = createKnowledge({ fetchSource }), nearbyPlaces = createNearby({ fetchSource }), sharedSettings = null, adminUsers = null, staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, duffel = null, hotels = createHotels({ fetchSource }), aiPlanner = null, push = null, knowledge = createKnowledge({ fetchSource }), nearbyPlaces = createNearby({ fetchSource }), cityAttractions = createAttractions({ fetchSource }), cityAsk = null, sharedSettings = null, adminUsers = null, staticRoot = ROOT }) {
   // Database first: geocoding, driving routes, paths, walking times, weather, hotel and PKS prices are read from the
   // stored answers and only asked from the outside service when nothing fresh is stored.
   const keep = createStoredAnswers(snapshots);
@@ -1278,6 +1295,8 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
   const placesNearby = nearbyPlaces?.nearby ? keep.wrap("osm", 14 * DAY_MS, nearbyPlaces.nearby, (q) => [q.lat.toFixed(3), q.lon.toFixed(3), q.radius, [...q.cats].sort().join(","), q.lang], (v) => v?.places?.length > 0) : null;
   // 6a: place facts kept for 30 days; "not found" too, for a day, so a miss is not asked again at once.
   const placeInfo = knowledge?.about ? keep.wrap("know", 30 * DAY_MS, knowledge.about, (q) => [String(q.name).trim().toLowerCase(), q.lat.toFixed(2), q.lon.toFixed(2), q.lang], (v) => v?.found === true) : null;
+  // Attractions of a city from Wikipedia, kept for 30 days; an empty answer is not kept.
+  const attractionList = cityAttractions?.list ? keep.wrap("wikiat", 30 * DAY_MS, cityAttractions.list, (q) => [q.lat.toFixed(2), q.lon.toFixed(2), q.radius, q.lang], (v) => v?.attractions?.length > 0) : null;
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
@@ -1340,10 +1359,10 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           || (segments[1] === "hotels" && segments.length === 2)
           || (segments[1] === "rates" && segments.length === 2)
           || (segments[1] === "discover" && segments.length === 2)
-          || (segments[1] === "places" && segments.length === 3 && ["about", "nearby"].includes(segments[2]))
+          || (segments[1] === "places" && segments.length === 3 && ["about", "nearby", "attractions"].includes(segments[2]))
           || (segments[1] === "transport" && ((segments.length === 3 && ["cities", "providers", "departures"].includes(segments[2])) || (segments.length === 4 && segments[2] === "cities")))
         ) ? (segments[1] === "feeds" ? "feeds"
-          : segments[1] === "places" ? (segments[2] === "nearby" ? "nearby" : "places")
+          : segments[1] === "places" ? (segments[2] === "nearby" ? "nearby" : segments[2] === "attractions" ? "attractions" : "places")
           : segments[1] === "transport" ? (segments[2] === "departures" ? "transport-departures" : "transport-info")
           : segments[1] === "airport-transfers" ? (segments[2] === "options" ? "transfer-options" : segments[2] ? "transfer-trips" : "transfers")
           : segments[1] === "geocode" && segments[2] === "reverse" ? "reverse"
@@ -1450,6 +1469,16 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
             json(res, 200, await placesNearby({ lat: p("lat") ? Number(p("lat")) : NaN, lon: p("lon") ? Number(p("lon")) : NaN, radius: Number(p("radius")) || 1500, cats: cats || ["museum", "sight", "view", "park", "food", "cafe", "nightlife"], lang: p("lang") === "en" ? "en" : "pl" }));
           } catch (error) {
             json(res, [400, 503, 504].includes(error.status) ? error.status : 502, { error: error.message, places: [] });
+          }
+          return;
+        }
+        if (publicRoute === "attractions") {
+          try {
+            if (!attractionList) throw Object.assign(new Error("Atrakcje z Wikipedii są niedostępne."), { status: 503 });
+            const p = (name) => url.searchParams.get(name) || "";
+            json(res, 200, await attractionList({ name: p("name").slice(0, 100), lat: p("lat") ? Number(p("lat")) : NaN, lon: p("lon") ? Number(p("lon")) : NaN, radius: Number(p("radius")) || 10000, lang: p("lang") === "en" ? "en" : "pl" }));
+          } catch (error) {
+            json(res, [400, 503].includes(error.status) ? error.status : 502, { error: error.status === 400 || error.status === 503 ? error.message : "Wikipedia jest chwilowo niedostępna.", attractions: [] });
           }
           return;
         }
@@ -1678,8 +1707,12 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           await servePreferences(req, res, auth);
           return;
         }
+        if (segments[1] === "ai" && segments.length === 3 && segments[2] === "ask") {
+          await serveCityAsk(req, res, cityAsk);
+          return;
+        }
         if (segments[1] === "ai" && segments.length === 3) {
-          await serveAiPlan(req, res, url, aiPlanner, segments);
+          await serveAiPlan(req, res, url, aiPlanner, segments, cityAsk);
           return;
         }
         if (segments[1] === "alerts" && segments.length <= 3) {
@@ -1957,6 +1990,7 @@ async function main() {
       forecast: (() => { const weather = createTripWeather(); return (q) => weather.forecast(q); })(),
       places: (() => { const osm = createNearby(); return (q) => osm.nearby(q); })(),
     }),
+    cityAsk: createCityAsk({ llm: createLlm() }),
     database: {
       health: async () => pool.request().query("SELECT 1 AS ok"),
       getSchedule: (agency, sourceKey) => getSchedule(pool, agency, sourceKey),
