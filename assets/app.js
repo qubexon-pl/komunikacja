@@ -4400,14 +4400,16 @@ let stripQuiet=0;
 function wireStrips(){
   stripQuiet=Date.now()+900; // przewinięcie przy odświeżeniu strony to nie ruch użytkownika
   document.querySelectorAll('#planResults .date-strip .ds-days').forEach(box=>{
-    let t; box.addEventListener('scroll', ()=>{ if(Date.now()<stripQuiet) return; clearTimeout(t); t=setTimeout(()=>fillStrip(box.closest('.date-strip')), 700); }, {passive:true});
+    let t; box.addEventListener('scroll', ()=>{ if(Date.now()<stripQuiet) return; clearTimeout(t); t=setTimeout(()=>fillStrip(box.closest('.date-strip')), 400); }, {passive:true});
   });
 }
-async function fillStrip(strip){
+// at: pozycja paska, do której właśnie przewijamy strzałką — sprawdzamy od razu ten tydzień, nie ten, który jeszcze
+// widać w trakcie przewijania; do końca sprawdzania strzałki i przewijanie są zablokowane.
+async function fillStrip(strip, at=null){
   if(!strip || document.body.classList.contains('guest')) return;
   const kind=strip.dataset.strip==='back'?'back':'plan', box=strip.querySelector('.ds-days'), P=S.plan?.stages.find(x=>wantsFlights(x) && x.flights);
   if(!P || STRIPFILL[kind] || ASK_NOTES[P.fetch]) return;
-  const left=box.scrollLeft, right=left+box.clientWidth, today=ymdOf(0);
+  const left=at??box.scrollLeft, right=left+box.clientWidth, today=ymdOf(0);
   // Każdy widoczny dzień idzie do API przewoźników (także dzień z ceną tylko jednej linii albo ze starą ceną);
   // serwer pomija tylko to, o co pytał w ostatnich 30 minutach.
   const missing=[...box.querySelectorAll('.ds-day')].filter(b=>b.offsetLeft-box.offsetLeft+b.offsetWidth>left && b.offsetLeft-box.offsetLeft<right && b.dataset.day>=today).map(b=>b.dataset.day);
@@ -7749,7 +7751,15 @@ document.getElementById('planResults').addEventListener('change', e=>{
 });
 document.getElementById('planResults').addEventListener('click', e=>{
   if(e.target.closest('[data-clear-filters]')){ S.planView.picked={}; applyPlanView(); return; }
-  const shift=e.target.closest('#planResults [data-shift]'); if(shift){ const box=shift.closest('.date-strip').querySelector('.ds-days'); const dayW=box.querySelector('.ds-day')?.offsetWidth||box.clientWidth/7; box.scrollBy({left:+shift.dataset.shift*dayW*7, behavior:'smooth'}); return; }
+  const shift=e.target.closest('#planResults [data-shift]'); if(shift){
+    if(shift.disabled || stripsFrozen()) return;
+    const strip=shift.closest('.date-strip'), box=strip.querySelector('.ds-days'); const dayW=box.querySelector('.ds-day')?.offsetWidth||box.clientWidth/7;
+    const target=Math.max(0, Math.min(box.scrollWidth-box.clientWidth, box.scrollLeft+ +shift.dataset.shift*dayW*7));
+    stripQuiet=Date.now()+1200; // przewijanie strzałką nie uruchamia drugiego sprawdzania (dla tygodnia „po drodze”)
+    box.scrollTo({left:target, behavior:'smooth'});
+    fillStrip(strip, target);
+    return;
+  }
   const day=e.target.closest('#planResults [data-day]');
   if(day && day.closest('.date-strip')?.dataset.strip==='back'){ plBack.value=day.dataset.day; syncReturn(); document.getElementById('planForm').requestSubmit(); return; }
   if(day){ // powrót przesuwa się razem z wyjazdem, żeby liczba dni się nie zmieniła
