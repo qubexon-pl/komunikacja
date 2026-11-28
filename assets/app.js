@@ -4727,8 +4727,12 @@ function exploreTip(list){
 function exploreBubble(list, at){
   const n=list.length, size=exploreBubbleSize(n), codes=list.map(d=>d.airport.code), sel=!!EXPLORE.sel && codes.includes(EXPLORE.sel);
   const label=n>1?`${n} ${L2(plural(n,'kierunek','kierunki','kierunków'),'destinations')}`:`${list[0].airport.city} (${list[0].airport.code})`;
+  // Kolor linii lotniczej: żółty Ryanair, fioletowy Wizz Air, a gdy latają obie — kółko podzielone w proporcji ich kierunków.
+  const ry=list.filter(d=>d.airlines.has('RYANAIR')).length, wz=list.filter(d=>d.airlines.has('WIZZ')).length;
+  const kind=ry&&wz?'both':wz?'wizz':'ryanair', share=ry&&wz?Math.round(ry/(ry+wz)*360):0;
+  const fill=kind==='both'?`;--ry-deg:${share}deg`:'';
   const icon=L.divIcon({className:'explore-bubble-wrap', iconSize:[size,size], iconAnchor:[size/2,size/2],
-    html:`<span class="explore-bubble${n===1?' one':''}${sel?' is-selected':''}" style="--bubble-size:${size}px" role="button" aria-label="${esc(label)}">${n>1?`<b>${n}</b>`:'<i class="oi oi-plane" aria-hidden="true"></i>'}</span>`});
+    html:`<span class="explore-bubble ${kind}${n===1?' one':''}${sel?' is-selected':''}" style="--bubble-size:${size}px${fill}" role="button" aria-label="${esc(label)}">${n>1?`<b>${n}</b>`:'<i class="oi oi-plane" aria-hidden="true"></i>'}</span>`});
   const mk=L.marker(at,{icon, keyboard:true, title:label, riseOnHover:true, bubblingMouseEvents:false})
     .bindTooltip(exploreTip(list),{className:'explore-tip', direction:'top', offset:[0,-size/2]})
     .on('click', ()=>{
@@ -4762,7 +4766,7 @@ function renderExploreList(shown){
   const n=shown.length, list=shown.sort((x,y)=>(x.price??1e9)-(y.price??1e9) || natSort(x.airport.city||'',y.airport.city||'')).slice(0,EXPLORE_LIST_MAX);
   box.classList.toggle('open', !!EXPLORE.sheet);
   box.innerHTML=`<button type="button" class="el-head" data-explore-sheet aria-expanded="${!!EXPLORE.sheet}"><span class="el-grip" aria-hidden="true"></span><span><b>${n}</b> ${esc(L2(plural(n,'kierunek','kierunki','kierunków'), n===1?'destination':'destinations'))} <small>${esc(L2('w widoku mapy','in the map view'))}</small></span><i class="fa-solid fa-chevron-up el-chev" aria-hidden="true"></i></button>
-    <div class="el-legend">${[...EXPLORE.airlines].map(x=>`<span><i style="background:${EXPLORE_COLORS[x]}" aria-hidden="true"></i>${esc(AIRLINES[x]?.name||x)}</span>`).join('')}<span><i style="background:#F5A524" aria-hidden="true"></i>${esc(L2('lotnisko wylotu','departure airport'))}</span></div>
+    <div class="el-legend">${[...EXPLORE.airlines].map(x=>`<span><i style="background:${EXPLORE_COLORS[x]}" aria-hidden="true"></i>${esc(AIRLINES[x]?.name||x)}</span>`).join('')}<span><i style="background:#24a690" aria-hidden="true"></i>${esc(L2('lotnisko wylotu','departure airport'))}</span></div>
     <ol class="el-items">${list.map(d=>`<li><button type="button" class="el-item ${EXPLORE.sel===d.airport.code?'on':''}" data-explore-dest="${esc(d.airport.code)}">
       <span class="el-dots" aria-hidden="true">${[...d.airlines].map(x=>`<i style="background:${EXPLORE_COLORS[x]}"></i>`).join('')}</span>
       <span class="el-name"><b>${esc(d.airport.city)}</b><small>${esc(d.airport.country||'')} · ${esc(L2('z','from'))} ${esc([...d.from].join(', '))}</small></span>
@@ -4779,6 +4783,9 @@ function ensureExploreMap(){
   L.control.scale({position:'bottomleft', metric:true, imperial:false, maxWidth:180}).addTo(m);
   const Center=L.Control.extend({options:{position:'topleft'}, onAdd(){ const b=L.DomUtil.create('div','leaflet-bar explore-center'); b.innerHTML=`<a href="#" role="button" title="${L2('Wyśrodkuj mapę','Centre the map')}" aria-label="${L2('Wyśrodkuj mapę','Centre the map')}"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i></a>`; L.DomEvent.disableClickPropagation(b); L.DomEvent.on(b,'click',e=>{ L.DomEvent.preventDefault(e); exploreFit(true); }); return b; }});
   new Center().addTo(m);
+  const Legend=L.Control.extend({options:{position:'topright'}, onAdd(){ const b=L.DomUtil.create('div','explore-map-legend'); b.setAttribute('aria-label',L2('Legenda','Legend'));
+    b.innerHTML=`<span><i class="lg ryanair" aria-hidden="true"></i>Ryanair</span><span><i class="lg wizz" aria-hidden="true"></i>Wizz Air</span><span><i class="lg both" aria-hidden="true"></i>${L2('obie linie','both')}</span><span><i class="lg origin" aria-hidden="true"></i>${L2('wylot','departure')}</span>`; L.DomEvent.disableClickPropagation(b); return b; }});
+  new Legend().addTo(m);
   m.setView([48,15],4);
   m.on('click', ()=>closeExploreCard());
   m.createPane('exploreRoutes').style.zIndex=390;

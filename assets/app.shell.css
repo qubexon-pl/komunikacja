@@ -484,3 +484,19 @@ body.trip-mode .hero-right{display:none !important}
 .install-pwa{padding:14px; margin-bottom:14px; border:1px solid var(--line,#e3e8ef); border-radius:14px; background:var(--surface-2,rgba(36,166,144,.06))}
 .install-pwa h5,.install-apk-title{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:1rem; font-weight:800; margin:0 0 8px}
 .install-apk-title small{font-weight:600; font-size:.8rem}
+
+/* Kierunki: bubbles in airline colours (Ryanair yellow, Wizz Air purple, split when both fly there). */
+.explore-bubble.ryanair{background:#F7C948; color:#13203a}
+.explore-bubble.wizz{background:#B04AE0; color:#fff}
+.explore-bubble.both{background:conic-gradient(#F7C948 0 var(--ry-deg,180deg), #B04AE0 var(--ry-deg,180deg) 360deg); color:#fff}
+.explore-bubble.both b,.explore-bubble.both i{text-shadow:0 1px 2px rgba(19,32,58,.75)}
+.explore-bubble.is-selected{background:#e68663 !important; color:#fff}
+.explore-bubble.origin{background:#24a690; color:#fff}
+.explore-map-legend{display:flex; flex-direction:column; gap:4px; padding:7px 10px; border-radius:12px; background:rgba(255,255,255,.94); color:#13203a; box-shadow:0 3px 10px rgba(19,32,58,.2); font:700 .76rem/1.2 var(--font-body,system-ui)}
+.explore-map-legend span{display:flex; align-items:center; gap:6px; white-space:nowrap}
+.explore-map-legend .lg{width:12px; height:12px; border-radius:50%; border:2px solid #fffdf5; box-shadow:0 0 0 1px rgba(19,32,58,.2)}
+.explore-map-legend .lg.ryanair{background:#F7C948}
+.explore-map-legend .lg.wizz{background:#B04AE0}
+.explore-map-legend .lg.both{background:conic-gradient(#F7C948 0 180deg,#B04AE0 180deg 360deg)}
+.explore-map-legend .lg.origin{background:#24a690}
+.explore-stage.card-on .explore-map-legend{visibility:hidden}

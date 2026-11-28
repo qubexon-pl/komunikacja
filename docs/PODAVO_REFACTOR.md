@@ -388,6 +388,8 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
   destination is a smaller bubble with a plane; the selected one turns coral; departure airports are sun-yellow bubbles.
   Clicking a bubble with several places zooms in to them; one place opens its card. The map now zooms to 9 so close
   airports separate.
+- **Airline colours.** Bubbles are Ryanair yellow or Wizz Air purple; where both fly, the bubble is split in proportion to
+  the destinations each serves. Departure airports are teal. A small legend sits in the map's top-right corner.
 - **Empty map on phones fixed.** The phone rule `img,svg,video,canvas{max-width:100%}` squeezed Leaflet's canvas (dots and
   routes) to 0 px; canvases and images inside `.leaflet-container` are now exempt.
 - **Planuj: no "Podmiejskie" chip.** "Autobus" covers city and suburban buses (`busModes()` adds `pks` whenever `bus` is
