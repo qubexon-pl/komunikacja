@@ -1,14 +1,17 @@
 /* ON/WARD service worker (served as /sw.js): the app shell works offline, and the signed-in user's own data
    (account, favourites with saved trips and itineraries, photos, trip weather) is readable offline.
    Live data and map tiles are not kept: an old bus position or price shown as current would mislead. */
-const VERSION = 'onward-v47';
+const VERSION = 'onward-v48';
 const SHELL = `${VERSION}-shell`;
 const API = 'onward-api'; // cleared at logout by the page
 const PRECACHE = ['/plan', '/login', '/assets/app.css', '/assets/app.mobile.css', '/assets/app.js', '/assets/app.transport.js', '/assets/app.discover.js', '/assets/app.push.js', '/assets/app.shell.css', '/assets/app.ui.js', '/assets/app.transport.css', '/assets/app.cities.js', '/assets/app.defaults.js', '/assets/i18n.js', '/assets/app.native.js', '/assets/app.photos.js', '/assets/app.tour.js', '/assets/app.welcome.css', '/assets/app.welcome.js', '/assets/onward/illustrations/welcome-journey.svg',
   '/assets/app.config.js', '/assets/login.css', '/assets/login.js', '/assets/manifest.webmanifest', '/assets/onward/css/tokens.css',
   '/assets/onward/logos/wordmark-on-dark.svg', '/assets/onward/logos/mark-transparent.svg', '/assets/hero.svg'];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
-const OFFLINE_API = ['/api/auth/me', '/api/auth/config', '/api/favorites', '/api/preferences', '/api/photos', '/api/weather', '/api/flights/network'];
+// Read offline from the last copy: the account, saved trips and what was planned for them (AI day plans, places nearby,
+// place descriptions, trips shared with the user). Copies carry X-Podavo-Saved-At, so the page can say how old they are.
+const OFFLINE_API = ['/api/auth/me', '/api/auth/config', '/api/favorites', '/api/preferences', '/api/photos', '/api/weather', '/api/flights/network',
+  '/api/ai/status', '/api/ai/style', '/api/ai/city-plan', '/api/places/about', '/api/places/nearby', '/api/trips/shared', '/api/trips/mine/shares'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(SHELL).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
@@ -19,11 +22,18 @@ self.addEventListener('activate', (event) => {
     .then(() => self.clients.claim()));
 });
 
+// The cached copy remembers when it was saved.
+async function stamped(response){
+  const headers = new Headers(response.headers);
+  headers.set('X-Podavo-Saved-At', new Date().toISOString());
+  return new Response(await response.blob(), { status: response.status, statusText: response.statusText, headers });
+}
+
 async function networkFirst(request, cacheName, fallbackUrl){
   const cache = await caches.open(cacheName);
   try{
     const response = await fetch(request);
-    if(response.ok && response.type !== 'opaque') cache.put(request, response.clone());
+    if(response.ok && response.type !== 'opaque') cache.put(request, await stamped(response.clone()));
     return response;
   }catch(error){
     const hit = await cache.match(request) || (fallbackUrl && await caches.match(fallbackUrl));

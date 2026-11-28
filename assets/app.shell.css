@@ -406,3 +406,7 @@
 .push-acts{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px}
 .push-acts button{min-height:44px; display:inline-flex; align-items:center; gap:8px}
 .push-note{margin:10px 0 0; color:var(--ink-soft); font-size:.86rem}
+
+/* Dane z zapisanej kopii, gdy nie ma połączenia */
+.saved-copy{display:flex; align-items:center; gap:8px; margin:0 0 10px; padding:8px 12px; border-radius:12px; background:color-mix(in srgb,#F2B84B 18%,var(--bg-alt)); color:var(--ink); font-size:.84rem}
+.saved-copy i{color:#B7791F}

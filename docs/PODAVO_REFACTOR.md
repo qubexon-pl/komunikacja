@@ -329,3 +329,14 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
   - The installed web app on Android and desktop.
   - iPhone and iPad from iOS 16.4, once Podavo is added to the Home Screen.
   - Not in the Capacitor store app: its web view has no Web Push, so the card explains how to install the web app instead. Native push in the store app would need FCM/APNs (`@capacitor/push-notifications`) and is left for later.
+
+## 10a: trip plans offline
+
+- **What the service worker now keeps.** These GET endpoints are kept as network-first copies in the per-user `onward-api` cache, which is cleared at sign-out:
+  - AI day plans: `/api/ai/city-plan`, plus `/api/ai/status` and `/api/ai/style`;
+  - places nearby: `/api/places/nearby`;
+  - place descriptions: `/api/places/about`;
+  - shared trips: `/api/trips/shared` and `/api/trips/mine/shares`.
+- **Age of a copy.** Every cached copy carries `X-Podavo-Saved-At`. When the page is offline and gets a copy, the AI plan and the nearby list show "Bez połączenia: zapisana kopia z …". Saved data is never presented as fresh.
+- **Saving ahead.** When a trip opens with a connection (and AI plans are on), the saved day plans of its cities are fetched in idle time, so they are on the device before the trip.
+- **Not kept.** Live data (departures, prices, vehicle positions) is still never served from a copy.

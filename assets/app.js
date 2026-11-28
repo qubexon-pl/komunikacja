@@ -5285,7 +5285,14 @@ function hashText(t){ let h=5381; for(let i=0;i<t.length;i++) h=((h<<5)+h+t.char
 const tidOf=f=>f.tid||('k'+hashText(favKey(f))).padEnd(6,'0');
 const newTid=()=>(Math.random().toString(36).slice(2)+Date.now().toString(36)).slice(0,12);
 function findTrip(id){ return id?FAV.items.find(f=>f.type==='trip' && tidOf(f)===id)||sharedTrip(id)||null:null; }
-function openTrip(id, opts={}){ TRIPV.id=id; TRIPV.city=false; TRIPV.cityAt=undefined; TRIPV.step='go'; TRIPV.map=false; TRIPV.sheet=''; TRIPV.back=''; PEOPLE.invite=!!opts.invite; PEOPLE.open=!!opts.invite; PEOPLE.adding=!!opts.invite; goPage('podroz','trip'); }
+// Po otwarciu podróży z połączeniem: zapisane plany dni jej miast trafiają do kopii offline (pobiera je service worker).
+function warmTripOffline(id){
+  if(navigator.onLine===false || document.body.classList.contains('guest') || !AIP.enabled) return;
+  const f=findTrip(id), T=f?.trip; if(!f?.tid || !T || f.shared) return;
+  const cities=(T.airport||T.ground||T.multi)?tripCities(T,f):[];
+  for(const c of cities.slice(0,6)) fetch('/api/ai/city-plan?'+new URLSearchParams({tid:f.tid, city:c.label})).catch(()=>{});
+}
+function openTrip(id, opts={}){ setTimeout(()=>(window.requestIdleCallback||setTimeout)(()=>warmTripOffline(id)),1500); TRIPV.id=id; TRIPV.city=false; TRIPV.cityAt=undefined; TRIPV.step='go'; TRIPV.map=false; TRIPV.sheet=''; TRIPV.back=''; PEOPLE.invite=!!opts.invite; PEOPLE.open=!!opts.invite; PEOPLE.adding=!!opts.invite; goPage('podroz','trip'); }
 // Jak podróż wyglądała w chwili zapisu: loty, dojazd na lotnisko, wybrany dojazd do centrum, cel i lotnisko docelowe.
 function tripSnapshot(P, f, o, d){
   const p=P.dest?.points?.[0], pt=Array.isArray(p)?{lat:p[0], lon:p[1]}:p, t=XFER.get(f.to);
@@ -5939,7 +5946,7 @@ async function aiInit(){
 }
 async function aiLoad(f, c){
   const key=aiKey(f,c); if(AIP.plans.has(key)) return; AIP.plans.set(key, undefined);
-  try{ const r=await fetch('/api/ai/city-plan?'+new URLSearchParams({tid:f.tid, city:c.label})); AIP.plans.set(key, r.ok?(await r.json()).plan||null:null); }
+  try{ const r=await fetch('/api/ai/city-plan?'+new URLSearchParams({tid:f.tid, city:c.label})); const plan=r.ok?(await r.json()).plan||null:null; AIP.plans.set(key, plan?{...plan, savedAt:offlineCopy(r)}:null); }
   catch(e){ AIP.plans.set(key, null); }
   if(findTrip(TRIPV.id)===f) renderTripPage();
 }
@@ -5972,13 +5979,21 @@ function aiConflicts(d, si){
     :c.kind==='closed'?L2('W ten dzień zamknięte (według OSM)','Closed on this day (according to OSM)')
     :L2('Poza godzinami otwarcia (według OSM)','Outside opening hours (according to OSM)')}</small>`).join('');
 }
+// Odpowiedź z zapisanej kopii (service worker bez połączenia): kiedy ją zapisano, żeby nie udawała świeżych danych.
+function offlineCopy(r){ const at=r.headers.get('X-Podavo-Saved-At'); return at && (navigator.onLine===false || document.body.classList.contains('offline')) ? at : ''; }
+function savedNote(at){
+  if(!at) return '';
+  const d=new Date(at); if(isNaN(d)) return '';
+  const when=d.toLocaleString(isEn()?'en-GB':'pl-PL',{day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+  return `<p class="saved-copy"><i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i> ${esc(L2(`Bez połączenia: zapisana kopia z ${when}.`,`Offline: saved copy from ${when}.`))}</p>`;
+}
 function aiPlanHtml(p){
   const days=p.days.map((d,di)=>`<div class="ai-day"><h5>${esc(longDay(d.day,{weekday:'long', day:'numeric', month:'long'}))}${d.theme?` · <span>${esc(d.theme)}</span>`:''}</h5>${d.weatherNote?`<small class="ai-wx"><i class="fa-solid fa-cloud-sun" aria-hidden="true"></i> ${esc(d.weatherNote)}</small>`:''}
     ${d.stops.filter(s=>s.lat!=null).length>=3?`<div class="ai-fit-row">${d.fitted?`<small class="ai-fit-note"><i class="fa-solid fa-person-walking" aria-hidden="true"></i> ${L2(`Kolejność ułożona: ok. ${String(d.walkKm).replace('.',',')} km pieszo (szacunek z odległości)`,`Order fitted: about ${d.walkKm} km on foot (estimated from distance)`)}</small>`:''}<button type="button" class="btn-ghost ai-fit" data-ai-fit="${di}" ${AIP.fitting===d.day?'disabled':''}><i class="fa-solid fa-shuffle" aria-hidden="true"></i> ${AIP.fitting===d.day?L2('Układam…','Fitting…'):d.fitted?L2('Ułóż ponownie','Fit again'):L2('Ułóż trasę dnia','Fit the day’s route')}</button></div>`:''}
     <ol class="ai-stops">${d.stops.map((s,si)=>`<li class="ai-stop${(d.conflicts||[]).some(c=>c.index===si)?' warn':''}">${aiConflicts(d,si)}${s.walkMin?`<small class="ai-walk"><i class="fa-solid fa-person-walking" aria-hidden="true"></i> ${L2(`ok. ${s.walkMin} min pieszo`,`about ${s.walkMin} min walk`)}</small>`:''}<span class="ai-time">${esc(s.time||'')}</span><i class="fa-solid fa-${AI_CAT[s.category]||'location-dot'} ai-cat" aria-hidden="true"></i>
       <div class="ai-stop-main"><b>${esc(s.name)}</b><small>${[s.minutes?`ok. ${fmtDuration(s.minutes)}`:'', s.priceNote, s.openingHours].filter(Boolean).map(esc).join(' · ')}</small>${s.why?`<p>${esc(s.why)}</p>`:''}${s.tip?`<p class="ai-tip"><i class="fa-regular fa-lightbulb" aria-hidden="true"></i> ${esc(s.tip)}</p>`:''}</div>
       <div class="ai-stop-actions"><button type="button" class="btn-ghost" data-ai-route="${di}:${si}"><i class="fa-solid fa-route" aria-hidden="true"></i> Dojazd</button>${linkBtn(s.lat!=null?`https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lon}`:`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.name+', '+p.city)}`,'map-location-dot','Mapa')}</div></li>`).join('')}</ol></div>`).join('');
-  return `${p.summary?`<p class="ai-sum">${esc(p.summary)}</p>`:''}${days}${p.tips?.length?`<ul class="ai-tips">${p.tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`:''}${p.source==='osm'?`<small class="cs-src ai-src">${L2('Miejsca wybrane z katalogu OpenStreetMap (© OpenStreetMap contributors, ODbL); godziny otwarcia według OSM.','Places chosen from the OpenStreetMap catalogue (© OpenStreetMap contributors, ODbL); opening hours as in OSM.')}</small>`:p.source==='model'?`<small class="cs-src ai-src">${L2('Nie mamy jeszcze katalogu miejsc dla tej okolicy: sprawdź nazwy i godziny przed wyjściem.','No place catalogue for this area yet: check names and hours before you go.')}</small>`:''}
+  return `${savedNote(p.savedAt)}${p.summary?`<p class="ai-sum">${esc(p.summary)}</p>`:''}${days}${p.tips?.length?`<ul class="ai-tips">${p.tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`:''}${p.source==='osm'?`<small class="cs-src ai-src">${L2('Miejsca wybrane z katalogu OpenStreetMap (© OpenStreetMap contributors, ODbL); godziny otwarcia według OSM.','Places chosen from the OpenStreetMap catalogue (© OpenStreetMap contributors, ODbL); opening hours as in OSM.')}</small>`:p.source==='model'?`<small class="cs-src ai-src">${L2('Nie mamy jeszcze katalogu miejsc dla tej okolicy: sprawdź nazwy i godziny przed wyjściem.','No place catalogue for this area yet: check names and hours before you go.')}</small>`:''}
     <small class="ai-foot">Zaproponowane przez AI${p.createdAt?` ${esc(new Date(p.createdAt).toLocaleDateString('pl-PL',{day:'numeric', month:'long'}))}`:''}. Godziny otwarcia i ceny sprawdź przed wyjściem.</small>`;
 }
 /* ---------- W okolicy (7b): miejsca z OpenStreetMap wokół noclegu (albo centrum miasta), z dojazdem jednym kliknięciem ---------- */
@@ -5992,7 +6007,7 @@ async function loadNear(c){
     const r=await fetch('/api/places/nearby?'+new URLSearchParams({lat:(+p.lat).toFixed(4), lon:(+p.lon).toFixed(4), radius:'2000', lang:isEn()?'en':'pl'}));
     const body=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(body.error||'');
-    NEAR.data.set(key, body);
+    NEAR.data.set(key, {...body, savedAt:offlineCopy(r)});
   }catch(e){ NEAR.err.set(key, e.message||L2('Miejsca w okolicy są chwilowo niedostępne.','Places nearby are unavailable right now.')); }
   finally{ NEAR.busy.delete(key); if(TRIPV.sheet==='city') renderTripPage(); }
 }
@@ -6001,7 +6016,7 @@ function nearBox(f, c){
   const key=nearKey(c), d=NEAR.data.get(key), err=NEAR.err.get(key), from=nearPoint(c);
   if(NEAR.open && !d && !err && !NEAR.busy.has(key)) setTimeout(()=>loadNear(c),0);
   const body=!NEAR.open?'':err?`<div class="empty-note">${esc(err)} <button type="button" class="btn-ghost" data-near-retry>${L2('Spróbuj ponownie','Try again')}</button></div>`
-    :!d?`<div class="empty-note">${L2('Szukam miejsc w okolicy…','Looking for places nearby…')}</div>`:PVD.nearList(d,{t:L2, cat:NEAR.cat, limit:NEAR.limit});
+    :!d?`<div class="empty-note">${L2('Szukam miejsc w okolicy…','Looking for places nearby…')}</div>`:savedNote(d.savedAt)+PVD.nearList(d,{t:L2, cat:NEAR.cat, limit:NEAR.limit});
   return `<section class="near-box" aria-label="${L2('W okolicy','Nearby')}"><div class="near-head"><h5><i class="fa-solid fa-compass" aria-hidden="true"></i> ${L2('W okolicy','Nearby')} <small>${L2('w promieniu 2 km','within 2 km')} · ${esc(from.label)}</small></h5>
     <button type="button" class="btn-ghost" data-near-toggle aria-expanded="${NEAR.open}">${NEAR.open?L2('Zwiń','Hide'):L2('Pokaż','Show')}</button></div>${body}</section>`;
 }
