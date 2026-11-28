@@ -193,6 +193,10 @@
   .explore-style > span,.explore-style > .oi{display:none}
   .explore-style button{flex:1; min-height:40px; padding:0 8px}
   .explore-from{flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none}
+  /* One scrolling row: chips keep their width (they were squeezed into empty slivers) and their text on one line. */
+  .explore-from > *{flex:0 0 auto}
+  .explore-from .explore-chip,.explore-from-lbl{white-space:nowrap}
+  .explore-from .explore-add{min-width:180px}
 
   /* live map: the counters band had a -24 px desktop bleed and stuck out 12 px on the left */
   .stats-band{margin:0 0 16px !important; padding:0 !important; width:100%; max-width:100%}

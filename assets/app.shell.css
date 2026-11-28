@@ -388,10 +388,11 @@
   .explore-list .el-head{background:#0F2342}
 }
 @media (max-width:991px){
-  .explore-list{position:absolute; left:8px; right:8px; bottom:8px; z-index:1010; max-height:56px; overflow:hidden; border-radius:16px; background:rgba(15,35,66,.96); border:1px solid rgba(255,255,255,.16); box-shadow:0 -10px 30px -16px rgba(0,0,0,.8); transition:max-height .2s ease}
+  /* Closed sheet: only its header, whatever the phone's text size; the rows stay hidden, not just clipped. */
+  .explore-list:not(.open) > :not(.el-head){display:none}
+  .explore-list{position:absolute; left:8px; right:8px; bottom:8px; z-index:1010; max-height:none; overflow:hidden; border-radius:16px; background:rgba(15,35,66,.96); border:1px solid rgba(255,255,255,.16); box-shadow:0 -10px 30px -16px rgba(0,0,0,.8); transition:max-height .2s ease}
   .explore-list.open{max-height:62%; overflow:auto}
-  .el-head{min-height:56px; padding-top:16px; background:transparent}
-  .explore-list.open .el-head{background:rgba(15,35,66,.98)}
+  .el-head{min-height:56px; padding-top:16px; background:rgba(15,35,66,.98)}
   .el-grip{display:block; position:absolute; top:6px; left:50%; width:36px; height:4px; margin-left:-18px; border-radius:2px; background:rgba(255,255,255,.35)}
   .el-chev{display:inline-block; margin-left:auto; transition:transform .2s ease}
   .explore-list.open .el-chev{transform:rotate(180deg)}
