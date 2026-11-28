@@ -128,6 +128,13 @@
     return c.length?`<div class="disc-chips" aria-live="polite"><span>${esc(t('Szukam:','Looking for:'))}</span>${c.map(x=>`<span class="disc-chip">${esc(x)}</span>`).join('')}</div>`:'';
   }
 
+  // 10d: when the shared catalogue last fetched this from its source (answers are kept for days, so it can be older than today).
+  function asOf(at, t){
+    const d=new Date(at||''); if(isNaN(d)) return '';
+    const day=d.toLocaleDateString(t('pl','en')==='en'?'en-GB':'pl-PL',{day:'numeric', month:'short', year:'numeric'});
+    return ` · ${esc(t(`stan na ${day}`,`as of ${day}`))}`;
+  }
+
   /* 6b: "O miejscu", from /api/places/about (src/knowledge.js). Shows only what Wikipedia and Wikidata gave, with the
      attribution their licences ask for; a missing fact is simply not listed. */
   function aboutHtml(info, o={}){
@@ -148,7 +155,7 @@
       ${info.extract?`<p>${esc(info.extract)}</p>`:''}
       ${rows.length?`<dl class="pv-about-facts">${rows.map(([k,v])=>`<div><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join('')}</dl>`:''}
       <a class="btn-ghost pv-about-more" href="${esc(info.url)}" target="_blank" rel="noopener">${esc(t('Czytaj dalej w Wikipedii','Read more on Wikipedia'))} <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a>
-      ${src?`<small class="cs-src pv-about-src">${esc(t('Źródła:','Sources:'))} ${src}</small>`:''}
+      ${src?`<small class="cs-src pv-about-src">${esc(t('Źródła:','Sources:'))} ${src}${asOf(info.fetchedAt,t)}</small>`:''}
     </article>`;
   }
 
@@ -168,7 +175,7 @@
         <span class="near-act">${p.wikipedia?`<button type="button" class="btn-ghost" data-near-about="${esc(p.id)}">${esc(t('O miejscu','About'))}</button>`:''}<button type="button" class="btn-ghost" data-near-route="${esc(p.id)}"><i class="fa-solid fa-route" aria-hidden="true"></i> ${esc(t('Dojazd','Get there'))}</button></span>
       </li>`).join('');
     const more=list.length>limit?`<button type="button" class="btn-ghost near-more" data-near-more>${esc(t(`Pokaż więcej (${list.length-limit})`,`Show more (${list.length-limit})`))}</button>`:'';
-    return `${chips}<ol class="near-list">${rows}</ol>${more}<small class="cs-src near-src">${esc(answer.attribution||'© OpenStreetMap contributors')} (${esc(answer.license||'ODbL')})</small>`;
+    return `${chips}<ol class="near-list">${rows}</ol>${more}<small class="cs-src near-src">${esc(answer.attribution||'© OpenStreetMap contributors')} (${esc(answer.license||'ODbL')})${asOf(answer.fetchedAt,t)}</small>`;
   }
 
   root.PVD={esc, sky, card, list, parseQuery, queryChips, aboutHtml, nearList, NEAR_CATS};

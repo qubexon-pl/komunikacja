@@ -1,7 +1,7 @@
 /* ON/WARD service worker (served as /sw.js): the app shell works offline, and the signed-in user's own data
    (account, favourites with saved trips and itineraries, photos, trip weather) is readable offline.
    Live data and map tiles are not kept: an old bus position or price shown as current would mislead. */
-const VERSION = 'onward-v54';
+const VERSION = 'onward-v55';
 const SHELL = `${VERSION}-shell`;
 const API = 'onward-api'; // cleared at logout by the page
 const PRECACHE = ['/plan', '/login', '/assets/app.css', '/assets/app.mobile.css', '/assets/app.js', '/assets/app.transport.js', '/assets/app.discover.js', '/assets/app.push.js', '/assets/app.shell.css', '/assets/app.ui.js', '/assets/app.transport.css', '/assets/app.cities.js', '/assets/app.defaults.js', '/assets/i18n.js', '/assets/app.native.js', '/assets/app.photos.js', '/assets/app.tour.js', '/assets/app.welcome.css', '/assets/app.welcome.js', '/assets/onward/illustrations/welcome-journey.svg',
