@@ -543,30 +543,45 @@ body.trip-mode .hero-right{display:none !important}
   body.side-collapsed .bottom-nav a .oi{ margin:0; }
   body.side-collapsed .bottom-nav a.active{ background:transparent; }
 
-  /* weather card in the sidebar: a small navy card, white text as in the header */
+  /* weather card in the sidebar: a light blue card with navy text (a softer slate blue in the dark theme) */
   .bottom-nav .wx{
+    --wx-bg:linear-gradient(160deg,#F4F8FE 0%,#E2ECFA 100%); --wx-ink:var(--onward-navy,#173B70); --wx-soft:#3D5578;
+    --wx-line:rgba(23,59,112,.28); --wx-hover:rgba(23,59,112,.08); --wx-field:#fff; --wx-border:#D3E1F5;
     flex:none; margin:auto 0 8px; width:100%; min-width:0 !important; max-width:none; transform:none !important;
-    padding:14px !important; border:0 !important; border-radius:16px; white-space:normal; font-size:.85rem;
-    background:linear-gradient(160deg,#1F4F92 0%,var(--onward-navy,#173B70) 70%) !important; color:#fff;
-    box-shadow:0 14px 28px -18px rgba(23,59,112,.8);
+    padding:14px !important; border:1px solid var(--wx-border) !important; border-radius:16px; white-space:normal; font-size:.85rem;
+    background:var(--wx-bg) !important; color:var(--wx-ink);
+    box-shadow:0 12px 26px -20px rgba(23,59,112,.55);
   }
+  :root[data-theme="dark"] .bottom-nav .wx{
+    --wx-bg:linear-gradient(160deg,#35588C 0%,#2A4A7A 100%); --wx-ink:#fff; --wx-soft:rgba(255,255,255,.86);
+    --wx-line:rgba(255,255,255,.45); --wx-hover:rgba(255,255,255,.12); --wx-field:rgba(255,255,255,.1); --wx-border:transparent;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .bottom-nav .wx{
+    --wx-bg:linear-gradient(160deg,#35588C 0%,#2A4A7A 100%); --wx-ink:#fff; --wx-soft:rgba(255,255,255,.86);
+    --wx-line:rgba(255,255,255,.45); --wx-hover:rgba(255,255,255,.12); --wx-field:rgba(255,255,255,.1); --wx-border:transparent;
+  } }
   .bottom-nav .wx ~ .side-toggle{ margin-top:0; }
-  .bottom-nav .wx .cd-label{ font-size:.74rem; font-weight:600; letter-spacing:.02em; line-height:1.3; }
+  .bottom-nav .wx .cd-label{ font-size:.74rem; font-weight:600; letter-spacing:.02em; line-height:1.3; color:var(--wx-soft); }
   .bottom-nav .wx-now{ gap:8px; margin-top:8px; flex-wrap:wrap; }
-  .bottom-nav .wx-ico{ display:grid; place-items:center; width:44px; height:44px; border-radius:12px; background:rgba(255,255,255,.94); }
+  .bottom-nav .wx-ico{ display:grid; place-items:center; width:44px; height:44px; border-radius:12px; background:#fff; box-shadow:0 4px 10px -6px rgba(23,59,112,.4); }
   .bottom-nav .wx-ico img{ width:32px; height:32px; }
-  .bottom-nav .wx-temp{ font-size:1.9rem !important; font-weight:400; }
-  .bottom-nav .wx-desc{ flex:1 1 100%; font-size:.86rem; }
-  .bottom-nav .wx-desc small{ font-size:.72rem; }
+  .bottom-nav .wx-temp{ font-size:1.9rem !important; font-weight:400; color:var(--wx-ink); }
+  .bottom-nav .wx-desc{ flex:1 1 100%; font-size:.86rem; color:var(--wx-ink); }
+  .bottom-nav .wx-desc small{ font-size:.72rem; color:var(--wx-soft); }
   .bottom-nav .wx-hours{ display:none; }
-  .bottom-nav .wx-tip{ margin-top:8px; font-size:.66rem; line-height:1.35; }
-  .bottom-nav .wx-here{ display:flex; width:100%; justify-content:center; margin-top:10px; padding:6px 10px; font-size:.74rem; white-space:normal; text-align:center; }
+  .bottom-nav .wx-tip{ margin-top:8px; font-size:.66rem; line-height:1.35; color:var(--wx-soft); }
+  .bottom-nav .wx-tip.hard{ color:var(--wx-ink); }
+  .bottom-nav .wx-here{ display:flex; width:100%; justify-content:center; margin-top:10px; padding:6px 10px; font-size:.74rem; white-space:normal; text-align:center; color:var(--wx-ink); border-color:var(--wx-line); }
+  .bottom-nav .wx-here:hover,.bottom-nav .wx-here:focus-visible{ background:var(--wx-hover); }
   .bottom-nav .wx-alert{ margin:10px 0 0; }
   .bottom-nav .wx-alert + .wx-here{ display:inline-flex; width:calc(100% - 44px); margin-left:6px; vertical-align:middle; }
   .bottom-nav .wx-pick{ max-width:none; }
-  .bottom-nav .wx-pick input{ font-size:.85rem; }
-  .bottom-nav .wx-pick button{ padding:6px 12px; }
-  .bottom-nav .wx-err{ color:rgba(255,255,255,.8); }
+  .bottom-nav .wx-pick input{ font-size:.85rem; color:var(--wx-ink); background:var(--wx-field); border-color:var(--wx-line); }
+  .bottom-nav .wx-pick input::placeholder{ color:var(--wx-soft); }
+  .bottom-nav .wx-pick button{ padding:6px 12px; background:var(--wx-ink); color:#fff; }
+  :root[data-theme="dark"] .bottom-nav .wx-pick button{ color:var(--onward-navy,#173B70); }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .bottom-nav .wx-pick button{ color:var(--onward-navy,#173B70); } }
+  .bottom-nav .wx-pick-msg,.bottom-nav .wx-err{ color:var(--wx-soft); }
 
   /* collapsed panel: only the icon and the temperature */
   body.side-collapsed .bottom-nav .wx{ padding:8px 4px !important; text-align:center; }

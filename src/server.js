@@ -403,8 +403,9 @@ async function fillStripDays(req, res, flights, wizz, ryanair) {
   const preferred = /^[A-Z]{3}$/.test(String(prefer).toUpperCase()) ? String(prefer).toUpperCase() : "";
   const pairs = flights.tripPairs({ origin: from, dest: to, prefer: preferred, radius: Number(radius) || undefined });
   const legsOf = (airline) => pairs.filter((p) => p.airlines.includes(airline)).map((p) => (dir === "out" ? { from: p.from, to: p.to, start, end } : { from: p.to, to: p.from, start, end }));
-  const hasDay = (airline, a, b, day) => flights.known(airline, a, b, day);
-  const results = [wizz ? wizz.fillRange(legsOf("WIZZ"), hasDay) : "unavailable", ryanair ? ryanair.fillRange(legsOf("RYANAIR"), hasDay) : "unavailable"];
+  // Every scrolled day is asked of the airlines' APIs again (each source skips only what it answered lately), so a
+  // day with an old stored price or with only one airline's price gets the other airline's current fare too.
+  const results = [wizz ? wizz.fillRange(legsOf("WIZZ")) : "unavailable", ryanair ? ryanair.fillRange(legsOf("RYANAIR")) : "unavailable"];
   if (results.includes("started")) json(res, 202, { started: true });
   else json(res, 200, { started: false, reason: results.includes("fresh") ? "fresh" : "unavailable" });
 }
