@@ -466,3 +466,21 @@ body.trip-mode .hero-right{display:none !important}
   .tp-tool-tx b{font-size:.88rem}
   .tp-tool-tx small{font-size:.74rem}
 }
+
+/* Kierunki: count bubbles like the district bubbles of Podavo Clean (react/src/styles/v14.css .podavo-bubble). */
+.explore-bubble-wrap{background:none; border:0}
+.explore-bubble{display:grid; place-items:center; width:var(--bubble-size); height:var(--bubble-size); border:3px solid #fffdf5; border-radius:50%; background:#24a690; color:#fff; box-shadow:0 3px 10px rgba(19,32,58,.28); cursor:pointer; transition:transform .12s ease}
+.explore-bubble b{font:800 calc(var(--bubble-size)*.38)/1 var(--font-body,system-ui); letter-spacing:-.02em}
+.explore-bubble i{font-size:calc(var(--bubble-size)*.42)}
+.explore-bubble.one{border-width:2px}
+.explore-bubble:hover{transform:scale(1.08)}
+.explore-bubble.is-selected{background:#e68663; transform:scale(1.12)}
+.explore-bubble.origin{background:#e9a92b; cursor:pointer}
+.explore[data-map-style="podavo"] #exploreMap,.explore[data-map-style="podavo"] #exploreMap .leaflet-container{background:#aee0e6}
+/* Leaflet sizes its canvases itself; the phone rule img,svg,video,canvas{max-width:100%} squeezed them to 0 px wide. */
+.leaflet-container canvas,.leaflet-container img{max-width:none !important}
+
+/* Android install window: the browser version (with push) first, the APK below. */
+.install-pwa{padding:14px; margin-bottom:14px; border:1px solid var(--line,#e3e8ef); border-radius:14px; background:var(--surface-2,rgba(36,166,144,.06))}
+.install-pwa h5,.install-apk-title{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:1rem; font-weight:800; margin:0 0 8px}
+.install-apk-title small{font-weight:600; font-size:.8rem}
