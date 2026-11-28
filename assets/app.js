@@ -4865,7 +4865,7 @@ document.getElementById('explore').addEventListener('click', e=>{
   if(e.target.closest('[data-explore-close]')){ closeExploreCard(); return; }
   const dest=e.target.closest('[data-explore-dest]');
   if(dest){ const d=EXPLORE.dests.get(dest.dataset.exploreDest); if(d){ EXPLORE.sel=d.airport.code; if(EXPLORE.map && !EXPLORE.map.getBounds().contains([d.airport.lat,d.airport.lon])) EXPLORE.map.panTo([d.airport.lat,d.airport.lon]); openExploreCard(d.airport.code); } return; }
-  if(e.target.closest('[data-explore-sheet]')){ EXPLORE.sheet=!EXPLORE.sheet; const box=document.getElementById('exploreList'); box?.classList.toggle('open', EXPLORE.sheet); box?.querySelector('[data-explore-sheet]')?.setAttribute('aria-expanded', String(EXPLORE.sheet)); return; }
+  if(e.target.closest('[data-explore-sheet]')){ EXPLORE.sheet=!EXPLORE.sheet; const box=document.getElementById('exploreList'); box?.classList.toggle('open', EXPLORE.sheet); if(box && !EXPLORE.sheet) box.scrollTop=0; box?.querySelector('[data-explore-sheet]')?.setAttribute('aria-expanded', String(EXPLORE.sheet)); return; }
   const ab=e.target.closest('[data-explore-about]'); if(ab){ const d=EXPLORE.dests.get(ab.dataset.exploreAbout); if(d) openAbout({name:d.airport.city, lat:d.airport.lat, lon:d.airport.lon}); return; }
   const pick=e.target.closest('[data-explore-pick]'); if(pick){ const a=exploreAirports().get(pick.dataset.explorePick); EXPLORE.map?.closePopup(); if(a) exploreChoose(a); return; }
   const hide=e.target.closest('[data-explore-hide]'); if(hide){ EXPLORE.hidden.add(hide.dataset.exploreHide); EXPLORE.map?.closePopup(); closeExploreCard(); renderExplore(); return; }
