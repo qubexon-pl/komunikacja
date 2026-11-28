@@ -319,3 +319,8 @@
 .ai-fit-row .ai-fit{min-height:44px; margin-left:auto}
 .ai-fit-note,.ai-walk{color:var(--ink-soft); font-size:.78rem}
 .ai-walk{display:block; grid-column:1 / -1; margin:0 0 -2px}
+/* 8b: conflicts in a planned day */
+.ai-stop.warn{border-color:#F2B84B}
+.ai-warn{display:block; grid-column:1 / -1; color:#8A5A00; font-size:.78rem; font-weight:700}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .ai-warn{color:#F2B84B} }
+:root[data-theme="dark"] .ai-warn{color:#F2B84B}

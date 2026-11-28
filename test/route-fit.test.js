@@ -48,3 +48,33 @@ test("fit() reorders one saved day of the owner's plan and stores it", async () 
   await assert.rejects(planner.fit("user-1", { tid: "notmine001", city: "Rzym", day: "2026-12-04" }), { status: 404 });
   await assert.rejects(planner.fit("user-1", { tid: "trip000001", city: "Rzym", day: "2026-12-09" }), { status: 404 });
 });
+
+const { parseHours, checkDay } = require("../src/route-fit");
+
+test("8b: common OSM opening hours are read; anything else is unknown", () => {
+  const w = parseHours("Mo-Fr 09:00-17:00; Sa 10:00-14:00; Su off");
+  assert.deepEqual(w[0], [[540, 1020]]);
+  assert.deepEqual(w[5], [[600, 840]]);
+  assert.deepEqual(w[6], []);
+  assert.deepEqual(parseHours("Tu-Su 10:00-18:00")[0], []); // a weekday no rule mentions is closed
+  assert.deepEqual(parseHours("Fr-Sa 22:00-02:00")[4], [[1320, 1560]]); // past midnight
+  assert.equal(parseHours("24/7")[3][0][1], 1440);
+  assert.equal(parseHours("Jan-Mar 10:00-16:00"), null);
+  assert.equal(parseHours("by appointment"), null);
+  assert.equal(parseHours(""), null);
+});
+
+test("8b: a day's conflicts: overlaps, closed days and visits outside the hours, nothing for unknown hours", () => {
+  const monday = "2026-12-07";
+  const c = checkDay({ day: monday, stops: [
+    { time: "10:00", minutes: 120, openingHours: "Tu-Su 10:00-18:00" }, // closed on Mondays, and runs into the next
+    { time: "11:30", minutes: 60, openingHours: "Mo-Su 12:00-20:00" }, // starts before opening
+    { time: "14:00", minutes: 60, openingHours: "Mo-Su 12:00-20:00" }, // fine
+    { time: "16:00", minutes: 60, openingHours: "summer only" }, // unknown: no claim
+  ] });
+  assert.deepEqual(c, [
+    { index: 0, kind: "overlap", minutes: 30 },
+    { index: 0, kind: "closed", hours: "Tu-Su 10:00-18:00" },
+    { index: 1, kind: "outside", hours: "Mo-Su 12:00-20:00" },
+  ]);
+});

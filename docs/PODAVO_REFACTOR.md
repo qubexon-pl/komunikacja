@@ -269,3 +269,17 @@ without a position stays right after the stop it followed.
 stores it (`fitted: true`, `walkKm`, `walkMin` per stop) and answers how many kilometres it saved. The plan shows
 "Ułóż trasę dnia" on days with at least 3 positioned stops, the walking minutes before each stop and the day's total.
 Service worker onward-v43.
+
+## 8b: conflicts in a planned day
+
+Every AI plan the server returns carries `conflicts` per day (`checkDay` in src/route-fit.js), worked out on each read
+and never stored:
+
+- **overlap**: a stop's planned time plus its length (and the walk to the next) runs more than 5 minutes into the next
+  stop;
+- **closed**: OSM's opening hours say the place is closed that weekday (in OSM a weekday no rule mentions is closed);
+- **outside**: the visit does not fit in any of that day's opening ranges.
+
+Opening hours are read only in the common OSM forms (weekday ranges, several time ranges, `off`, `24/7`, past
+midnight). Anything else (months, holidays, sunrise, free text) makes the hours unknown, and then nothing is said. The
+plan marks such stops in amber with a short note "(według OSM)". Service worker onward-v44.
