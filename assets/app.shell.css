@@ -410,3 +410,23 @@
 /* Dane z zapisanej kopii, gdy nie ma połączenia */
 .saved-copy{display:flex; align-items:center; gap:8px; margin:0 0 10px; padding:8px 12px; border-radius:12px; background:color-mix(in srgb,#F2B84B 18%,var(--bg-alt)); color:var(--ink); font-size:.84rem}
 .saved-copy i{color:#B7791F}
+
+/* 10b: kontrast WCAG AA. Te same kolory Podavo, tylko o odcień ciemniejsze tam, gdzie jest na nich mały tekst. */
+:root{ --btn:#2472C8; --btn-hover:#1F63B3; --nav-active:#1F63B3; --danger-text:#C53F3F; --gold-text:#8F5F00; }
+:root[data-theme="dark"]{ --btn:#2472C8; --btn-hover:#1F63B3; --nav-active:#8FB3E8; --danger-text:#F08A8A; --gold-text:#F2B84B; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --btn:#2472C8; --btn-hover:#1F63B3; --nav-active:#8FB3E8; --danger-text:#F08A8A; --gold-text:#F2B84B; } }
+.btn-grad,:root[data-theme="dark"] .btn-grad{background:var(--btn)}
+.btn-grad:hover,:root[data-theme="dark"] .btn-grad:hover{background:var(--btn-hover)}
+.fav-filter.on{border-color:var(--btn); background:var(--btn)}
+.bottom-nav a.active{color:var(--nav-active)}
+@media (max-width:767px){ .bottom-nav{background:var(--bg-alt)} }
+.tl-share,.tp-back{color:var(--nav-active)}
+.sec-num{color:var(--gold-text)}
+.txt-red{color:var(--danger-text)}
+.explore-search input{color:#14233D}
+.explore-search input::placeholder{color:#5A6B82}
+/* Kafelek linii: przycisk linii wypełnia kafelek, gwiazdka leży obok niego. */
+.line-tile .lt-open{display:flex; flex-direction:column; align-items:flex-start; gap:8px; width:100%; padding:0; border:0; background:none; color:inherit; text-align:left; font:inherit; cursor:pointer}
+.line-tile .lt-open:focus-visible{outline:2px solid var(--red); outline-offset:4px; border-radius:8px}
+.line-tile .lt-open::after{content:""; position:absolute; inset:0}
+.line-tile .fav-star{z-index:1}

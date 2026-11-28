@@ -2106,8 +2106,9 @@ function renderLinesGrid(){
   const counts=new Map(); for(const v of S.vehicles.values()){ const k=GT.routes.has(v.routeId)?v.routeId:v.short; counts.set(k,(counts.get(k)||0)+1); }
   const lateC=new Map(); for(const v of S.vehicles.values()) if(statusOf(v.delay)==='late'){ const k=GT.routes.has(v.routeId)?v.routeId:v.short; lateC.set(k,(lateC.get(k)||0)+1); }
   const tile = r=>{ const n=counts.get(r.id)||0, l=lateC.get(r.id)||0;
-    return `<button class="line-tile ${n?'':'off'} ${r.agency==='pks'?'is-pks':''}" data-route="${esc(r.id)}"><span class="lt-num" style="${n?`background:${lineColor(r.short,r.color,r.agency)}`:''}">${esc(r.short)}</span>
-      <span class="lt-meta">${n?`${n} w trasie`:(feedDown()?'brak danych':'nie kursuje')}${l?` · <span class="txt-red">${l} spóźn.</span>`:''}</span>${lineStar(r.id)}</button>`; };
+    // Kafelek to przycisk linii i obok niego gwiazdka (dwa osobne przyciski, nie jeden w drugim).
+    return `<div class="line-tile ${n?'':'off'} ${r.agency==='pks'?'is-pks':''}"><button type="button" class="lt-open" data-route="${esc(r.id)}"><span class="lt-num" style="${n?`background:${lineColor(r.short,r.color,r.agency)}`:''}">${esc(r.short)}</span>
+      <span class="lt-meta">${n?`${n} w trasie`:(feedDown()?'brak danych':'nie kursuje')}${l?` · <span class="txt-red">${l} spóźn.</span>`:''}</span></button>${lineStar(r.id)}</div>`; };
   const groups=[['ztm','ZTM Rzeszów — komunikacja miejska'],['pks','Komunikacja podmiejska']].filter(([ag])=>S.agency==='all'||S.agency==='kolej'||S.agency===ag);
   renderPksDestinations();
   el.innerHTML = groups.map(([ag,title])=>{ const rs=[...GT.routes.values()].filter(r=>(r.agency||'ztm')===ag).sort((a,b)=>natSort(a.short,b.short)); if(!rs.length) return ag==='pks'?`<div class="lg-head">${title}</div><div class="empty-note" style="grid-column:1/-1">Rozkład PKS nie jest wczytany — sprawdź adres w Ustawieniach.</div>`:''; return `<div class="lg-head">${title} <span>${rs.length} linii</span></div>`+rs.map(tile).join(''); }).join('');
@@ -7305,7 +7306,7 @@ function pickDate(day){
 // Systemowy wybór daty zastępujemy naszym kalendarzem; pole nadal przechowuje datę RRRR-MM-DD jak wcześniej.
 for(const input of [plDate, document.getElementById('trDate')]){
   if(!input) continue;
-  input.readOnly=true; input.classList.add('dp-input'); input.setAttribute('aria-haspopup','dialog'); input.setAttribute('aria-expanded','false');
+  input.readOnly=true; input.classList.add('dp-input'); input.setAttribute('role','combobox'); input.setAttribute('aria-haspopup','dialog'); input.setAttribute('aria-expanded','false');
   input.addEventListener('click', e=>{ e.preventDefault(); e.stopPropagation(); const pop=document.getElementById('dpPop'); if(pop&&!pop.hidden&&DP.input===input) closeDatePicker(false); else openDatePicker(input); });
   input.addEventListener('keydown', e=>{ if(['Enter',' ','ArrowDown'].includes(e.key)){ e.preventDefault(); openDatePicker(input); } });
 }

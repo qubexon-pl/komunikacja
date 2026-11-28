@@ -182,7 +182,7 @@
     <div class="explore-map-wrap">
       <div class="explore-stage">
         <aside class="explore-list" id="exploreList" aria-label="Kierunki w widoku mapy"></aside>
-        <div id="exploreMap" aria-label="Mapa kierunków lotów"></div>
+        <div id="exploreMap" role="region" aria-label="Mapa kierunków lotów"></div>
         <aside class="explore-card" id="exploreCard" aria-live="polite" hidden></aside>
         <div class="explore-hint" id="exploreHint">Kliknij kierunek, aby zobaczyć jego trasy i szczegóły.</div>
       </div>
@@ -468,7 +468,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
         <span class="kicker">Komunikaty</span><h4>Alerty, utrudnienia i stan danych</h4>
       </div>
-      <div class="modal-body p-3 p-md-4" id="alertsBody"></div>
+      <div class="modal-body p-3 p-md-4" id="alertsBody" tabindex="0"></div>
     </div>
   </div>
 </div>
