@@ -94,6 +94,23 @@ function createAlertDatabase(pool) {
           VALUES (@userId, @from, @to, @day, @back, @airline, @maxPrice, @everyHours, @label);`);
       return toAlert(result.recordset[0]);
     },
+    // Limit, schedule and name of one of the user's alerts; a new limit clears the "already notified" mark.
+    async update(userId, id, change) {
+      const result = await pool.request()
+        .input("userId", sql.UniqueIdentifier, userId)
+        .input("id", sql.UniqueIdentifier, id)
+        .input("maxPrice", sql.Decimal(10, 2), change.maxPrice)
+        .input("everyHours", sql.Int, change.everyHours)
+        .input("label", sql.NVarChar(200), change.label || null)
+        .query(`
+          UPDATE dbo.PriceAlert SET
+            notified_price_pln = CASE WHEN max_price_pln = @maxPrice THEN notified_price_pln ELSE NULL END,
+            notified_at = CASE WHEN max_price_pln = @maxPrice THEN notified_at ELSE NULL END,
+            max_price_pln = @maxPrice, every_hours = @everyHours, label = COALESCE(@label, label)
+          OUTPUT INSERTED.*
+          WHERE alert_id = @id AND user_id = @userId;`);
+      return result.recordset[0] ? toAlert(result.recordset[0]) : null;
+    },
     async remove(userId, id) {
       const result = await pool.request().input("userId", sql.UniqueIdentifier, userId).input("id", sql.UniqueIdentifier, id)
         .query("DELETE FROM dbo.PriceAlert WHERE alert_id = @id AND user_id = @userId;");
@@ -248,12 +265,24 @@ function createPriceAlerts({ db, flights, collector = null, sendEmail = null, se
     return { ...saved, email: undefined, currentPrice: found?.price ?? null, reached: found ? found.price <= saved.maxPrice : false };
   }
 
+  // Changing an alert: the most to pay, how often to check and its name. The route and days stay; a new trip needs a new alert.
+  async function update(userId, id, input) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(id))) throw new AlertError("Nie znaleziono alertu.", 404);
+    const current = (await db.list(userId)).find((alert) => alert.id === String(id).toLowerCase());
+    if (!current) throw new AlertError("Nie znaleziono alertu.", 404);
+    const checked = validateAlert({ ...current, back: current.back || "", maxPrice: input.maxPrice ?? current.maxPrice, everyHours: input.everyHours ?? current.everyHours, label: input.label ?? current.label }, current.day);
+    const saved = await db.update(userId, current.id, { maxPrice: checked.maxPrice, everyHours: checked.everyHours, label: checked.label });
+    if (!saved) throw new AlertError("Nie znaleziono alertu.", 404);
+    const found = alertPrice(flights, saved);
+    return { ...saved, email: undefined, currentPrice: found?.price ?? null, reached: found ? found.price <= saved.maxPrice : false };
+  }
+
   async function remove(userId, id) {
     if (!/^[0-9a-f-]{36}$/i.test(String(id))) throw new AlertError("Nie znaleziono alertu.", 404);
     if (!(await db.remove(userId, id))) throw new AlertError("Nie znaleziono alertu.", 404);
   }
 
-  return { create, list, remove, start, stop, tick };
+  return { create, list, remove, start, stop, tick, update };
 }
 
 module.exports = { ALERT_EVERY_HOURS, AlertError, MAX_ALERTS_PER_USER, alertPrice, createAlertDatabase, createPriceAlerts, noticeText, shouldNotify, validateAlert };

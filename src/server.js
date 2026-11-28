@@ -490,7 +490,7 @@ function fuelPrices(env = process.env) {
   };
 }
 
-// Price alerts of the signed-in user: list, add, remove.
+// Price alerts of the signed-in user: list, add, change, remove.
 // Web Push (src/push.js): the browser asks for the public key, then registers or removes this device.
 async function servePush(req, res, push, action) {
   if (action === "key" && req.method === "GET") {
@@ -534,6 +534,11 @@ async function serveAlerts(req, res, alerts, segments) {
       json(res, 201, { alert: await alerts.create(req.user.id, await readJson(req)) });
       return;
     }
+    if (segments.length === 3 && (req.method === "PUT" || req.method === "PATCH")) {
+      requireSameOrigin(req);
+      json(res, 200, { alert: await alerts.update(req.user.id, segments[2], await readJson(req)) });
+      return;
+    }
     if (segments.length === 3 && req.method === "DELETE") {
       requireSameOrigin(req);
       await alerts.remove(req.user.id, segments[2]);
@@ -541,7 +546,7 @@ async function serveAlerts(req, res, alerts, segments) {
       res.end();
       return;
     }
-    res.setHeader("Allow", "GET, POST, DELETE");
+    res.setHeader("Allow", "GET, POST, PUT, DELETE");
     json(res, 405, { error: "Method not allowed." });
   } catch (error) {
     if (error.status && error.status < 500) json(res, error.status, { error: error.message });

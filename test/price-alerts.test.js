@@ -92,3 +92,18 @@ test("a reached alert is also sent as a push, and a push alone counts as the use
   assert.equal(db.rows[0].notifiedPrice, 99);
   assert.equal((await alerts.tick()).notified, 0);
 });
+
+test("an alert's limit and schedule can be changed; a new limit can notify again", async () => {
+  const flights = { cheapest: () => ({ pricePln: 300, departure: "2026-12-01T06:20", priceType: "exact" }), pairsFor: () => [] };
+  const db = memoryDb([{ id: "00000000-0000-0000-0000-0000000000a1", userId: "u1", email: "", from: "KRK", to: "BGY", day: "2026-12-01", back: "", airline: "", maxPrice: 250, everyHours: 12, label: "Kraków → Bergamo", notifiedPrice: 240 }]);
+  db.update = async (userId, id, change) => { const row = db.rows.find((a) => a.userId === userId && a.id === id); if (!row) return null; if (row.maxPrice !== change.maxPrice) row.notifiedPrice = null; Object.assign(row, change); return row; };
+  const alerts = createPriceAlerts({ db, flights, now: () => new Date(`${TODAY}T10:00:00Z`) });
+  const saved = await alerts.update("u1", "00000000-0000-0000-0000-0000000000A1", { maxPrice: "320", everyHours: 24 });
+  assert.equal(saved.maxPrice, 320);
+  assert.equal(saved.everyHours, 24);
+  assert.equal(saved.label, "Kraków → Bergamo");
+  assert.equal(saved.reached, true);
+  assert.equal(db.rows[0].notifiedPrice, null);
+  await assert.rejects(alerts.update("u1", "00000000-0000-0000-0000-0000000000a1", { maxPrice: 0 }), /1 do 100 000/);
+  await assert.rejects(alerts.update("u2", "00000000-0000-0000-0000-0000000000a1", { maxPrice: 100 }), /Nie znaleziono/);
+});
