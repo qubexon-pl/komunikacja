@@ -303,10 +303,16 @@
     [/^(\d+) z (\d+) miejscowości$/,'$1 of $2 towns'],[/^Wysłaliśmy 6-cyfrowy kod na (\S+)\. Kod jest ważny 10 minut\.$/,'We sent a 6-digit code to $1. It is valid for 10 minutes.'],[/^Wyślij nowy kod \((\d+) s\)$/,'Send a new code ($1 s)'],[/^Tryb deweloperski: kod (\d{6}) wpisano za Ciebie\.$/,'Development mode: code $1 was filled in for you.'],[/^Trasa do (.+) z przystankami$/,'Route to $1 with stops'],[/^Trasa do: (.+)$/,'Route to: $1'],[/^(d+ przesiad(?:ka|ki|ek)) · przez (.+)$/,(m,c,v)=>`${c.replace(/^1 przesiadka$/,'1 change').replace(/^(d+) przesiad(?:ki|ek)$/,'$1 changes')} · via ${v}`],[/^(\S+) · godzina i cena do sprawdzenia u przewoźnika$/,'$1 · time and price to check with the airline'],[/^Tą trasą lata (.+)\.$/,'Flown by $1.'],[/^Linia (\S+): (.+)$/,'Line $1: $2'],[/^loty dla podróży (.+)$/,'flights for the trip $1'],[/^Na lotnisko (.+)$/,'To the airport $1'],[/^wyjdź (\S+) o (\S+)$/,'leave $1 at $2'],[/^(\d+) wynik(?:i|ów)? w dniu (\S+)(?: z powrotem (\S+))?\. „Najlepsze” liczy też koszt dojazdu na lotnisko\.$/,(m,n,d,b)=>`${n} results on ${d}${b?' returning '+b:''}. “Best” also counts getting to the airport.`],[/^Brak lotów tanich linii w tym dniu(?: z powrotem (\S+))?\.(.*)$/,(m,b,r)=>`No low-cost flights on this day${b?' returning '+b:''}.${r.replace(' Najtaniej w pobliskich dniach: ',' Cheapest nearby: ').replace(/, od (\d+) zł\./,', from $1 zł.')}`],[/^(\d+) wynik(?:i|ów)? w dniu (\S+)\.?$/,'$1 results on $2']
   ];
 
+  // The same texts come back on every re-render (and most are not in the dictionary), so answers are remembered:
+  // without it every text node is tested against all the patterns (10c).
+  const memo=new Map();
   function lookup(s){
     if(Object.prototype.hasOwnProperty.call(EXACT,s)) return EXACT[s];
-    for(const [re,to] of PATTERNS) if(re.test(s)) return s.replace(re,to);
-    return null;
+    if(memo.has(s)) return memo.get(s);
+    let out=null;
+    for(const [re,to] of PATTERNS) if(re.test(s)){ out=s.replace(re,to); break; }
+    if(memo.size>5000) memo.clear();
+    memo.set(s,out); return out;
   }
   // Czas podróży zostaje po polsku w środku przetłumaczonych zdań.
   const hours=s=>s.replace(/(\d+) godz\.(?= |$)/g,'$1 h');

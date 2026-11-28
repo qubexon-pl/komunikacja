@@ -376,3 +376,18 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
 - `/suburban` in a city without suburban buses opens that city's transport (or trains) instead of Rzeszów's suburban data.
 - 4d, stop board: the Rzeszów stop board (Rozkład jazdy) now draws `PVT.departureBoard`, the same rows as other cities. Its departures come from the GTFS timetable in the browser and are marked `scheduled`, so no delay is shown. `departureRow` gained two options: `open(x)` makes the row a button (here it opens the line), and `after(x)` adds HTML beside it (the line star). Past rows are dimmed and have no countdown.
 - The train board keeps its own layout. It is the same in every city, and it shows the carrier, arrivals, platform and track, and a "Na mapie" button that the shared row doesn't have.
+
+## 10c: performance pass
+
+Measured with Chromium at 390px and the CPU profiler on /plan, /buses, /destinations and /trains (demo data, no network).
+
+- **City list at start-up.** The city list (Komunikacja → Miasto) took about 300 ms on the main thread at every load. There were two causes:
+  - Every name sort built a new `Intl.Collator`, because `localeCompare` was called with options. Sorts now share one collator (`NAT_COLLATOR`, `PL_COLLATOR`).
+  - Each city filtered all station names. One pass over the names now fills every city.
+  - The result is about 18 ms, and the same list.
+- **English mode.** The translation layer tested every text node against all of its patterns on each re-render. Answers are now remembered (up to 5,000 texts), which halves the time spent translating.
+- **Static files.** The server gzipped `app.js` (750 KB) on every full download. Compressed files up to 4 MB are now kept in memory, at level 9, until the file's ETag changes. Browsers still revalidate with ETag and get 304 when nothing changed.
+- **Result.** The longest main-thread task at start-up fell from 200–270 ms to 75–90 ms. Script time fell by about 20%, and `load` came about 250 ms earlier on every page measured.
+- **Not changed.**
+  - Bootstrap, Leaflet, JSZip and protobuf.js still load on every page, because the Rzeszów timetable and live positions start at boot.
+  - The web fonts are kept, for the look.
