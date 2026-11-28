@@ -131,12 +131,12 @@
   .city-panel .cp-body{grid-template-columns:minmax(0,1fr) !important}
   .cp-map-wrap{position:relative; top:auto}
   .city-panel:not(.map-full) .cp-map{height:min(55vh,380px) !important}
-  .city-panel.map-full .cp-map-wrap{position:fixed; left:0; right:0; top:calc(56px + env(safe-area-inset-top,0px)); bottom:calc(72px + env(safe-area-inset-bottom,0px)); z-index:1025; background:var(--bg)}
+  .city-panel.map-full .cp-map-wrap{position:fixed; left:0; right:0; top:var(--cp-top,calc(56px + env(safe-area-inset-top,0px))); bottom:var(--cp-bottom,calc(72px + env(safe-area-inset-bottom,0px))); z-index:1064; background:var(--bg)}
   .city-panel.map-full .cp-map{height:100% !important; min-height:0; max-height:none; border:0; border-radius:0}
-  .city-panel.map-full .cp-map-close{display:inline-flex; align-items:center; gap:8px; position:absolute; top:12px; right:12px; z-index:850; min-height:var(--pv-target,44px); padding:0 16px; border-radius:999px; border:1px solid var(--line); background:var(--bg-alt); color:var(--ink); font-weight:800; font-size:.86rem; box-shadow:0 6px 18px -10px rgba(23,43,73,.5)}
+  .city-panel.map-full .cp-map-close{display:inline-flex; align-items:center; gap:8px; position:absolute; top:12px; right:12px; z-index:1001; min-height:var(--pv-target,44px); padding:0 16px; border-radius:999px; border:1px solid var(--line); background:var(--bg-alt); color:var(--ink); font-weight:800; font-size:.86rem; box-shadow:0 6px 18px -10px rgba(23,43,73,.5)}
   .city-panel.map-full .cp-map-close i{color:var(--red)}
   .city-panel.map-full .cp-legend{display:none}
-  .city-panel.map-full .cp-summary{left:0; right:0; bottom:0; max-width:none; border-radius:18px 18px 0 0; padding:16px 16px 14px; border-bottom:0}
+  .city-panel.map-full .cp-summary{z-index:1001; left:0; right:0; bottom:0; max-width:none; border-radius:18px 18px 0 0; padding:16px 16px 14px; border-bottom:0}
   .city-panel.map-full .cp-summary::before{content:""; position:absolute; top:6px; left:50%; width:36px; height:4px; margin-left:-18px; border-radius:2px; background:var(--line)}
   .city-panel:not(.map-full) .cp-summary{display:none}
   body.cp-map-open{overflow:hidden}

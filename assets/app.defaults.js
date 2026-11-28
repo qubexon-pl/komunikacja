@@ -14,7 +14,7 @@ window.VOYAGE_DEFAULTS = Object.freeze({
   proxy: 'auto',
   proxyCustom: '',
   demo: false,
-  tiles: 'esri',
+  tiles: 'podavo',
   gkey: '',
   traffic: true,
   // PKS Rzeszów (ZGPKS) — linie podmiejskie.
