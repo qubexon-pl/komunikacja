@@ -4967,6 +4967,8 @@ async function openAbout({name, lat, lon}){
   const h=PVUI.sheet.open({title:L2(`O miejscu: ${clean}`,`About ${clean}`), html:`<div class="empty-note">${esc(L2('Wczytuję opis…','Loading…'))}</div>`});
   try{
     const info=await aboutInfo(clean, lat, lon);
+    // Tytuł arkusza: nazwa znalezionego artykułu („Rzym”), a nie etykieta lotniska, od której zaczęliśmy.
+    if(info?.found && info.title){ const t=document.querySelector('.pv-sheet-layer:last-of-type .pv-sheet-title'); if(t) t.textContent=L2(`O miejscu: ${info.title}`,`About ${info.title}`); }
     h.setContent(PVD.aboutHtml(info,{t:L2}));
   }catch(e){ h.setContent(`<div class="empty-note">${esc(e.message||L2('Opis jest chwilowo niedostępny.','The description is unavailable right now.'))}</div>`); }
 }
@@ -5780,7 +5782,7 @@ function renderTripPage(){
       <small>${day?`${longDay(day,{weekday:'short', day:'numeric', month:'long'})}${back?` – ${longDay(back,{weekday:'short', day:'numeric', month:'long', year:'numeric'})}`:''}`:''}${stay?` · ${stay} ${stay===1?'dzień':'dni'}`:''}${when?` · ${when}`:''}</small></div>
     <div class="tp-actions">
       ${booked||f.shared?'':'<button type="button" class="btn-grad" data-tp-book><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button>'}
-      ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-plan><i class="fa-solid fa-pen" aria-hidden="true"></i> Edytuj w planerze</button>'}
+      ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-plan><i class="fa-solid fa-pen" aria-hidden="true"></i> Edytuj<span class="tp-long"> w planerze</span></button>'}
       ${f.tid&&FAV.user?`<span class="tp-share-wrap"><button type="button" class="btn-ghost ${PEOPLE.open?'on':''}" data-tp-share aria-expanded="${PEOPLE.open}" aria-controls="tripPeople"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${f.shared?L2('Uczestnicy','Participants'):L2('Udostępnij','Share')}</button></span>`:''}
       ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-remove><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Usuń</button>'}
       <a class="tp-back" href="${booked?(when==='minęła'?'/my-trips#archive':'/my-trips'):'/favourites#trips'}" ${booked?`data-go-mytrips="${when==='minęła'?'archive':''}"`:'data-fav-goto'}><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${booked?(when==='minęła'?'Archiwum':'Moje podróże'):'Ulubione'}</a>
@@ -5853,6 +5855,9 @@ function paintTripPage(page, f, T, head, flow, stepPanel, costs, cityBox, day, b
       <div class="tp-sheet-body">${body}</div></div></div>`:'';
   page.innerHTML=`<div class="tp">${head}${flow}${tripTools(f,T,costs,cityBox)}</div>${sheet}`;
   if(window.scrollY!==y) window.scrollTo(0,y);
+  // Na telefonie przebieg podróży to poziomy pasek: przewijamy go do bieżącego kroku (bez przewijania strony).
+  const strip=page.querySelector('.tp-flow'), cur=strip?.querySelector('.tp-point.on');
+  if(strip && cur && strip.scrollWidth>strip.clientWidth) strip.scrollLeft=Math.max(0, cur.offsetLeft-strip.offsetLeft-(strip.clientWidth-cur.offsetWidth)/2);
   const layer=page.querySelector('[data-tp-sheet-layer]');
   if(layer){
     if(wasKey===key) layer.querySelector('.tp-sheet-body').scrollTop=wasTop;

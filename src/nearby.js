@@ -6,7 +6,10 @@
 // for 14 days (src/stored.js), so the catalogue of places grows as trips are planned. Data © OpenStreetMap
 // contributors, ODbL: every answer says so.
 
-const OVERPASS = process.env.OVERPASS_URL || "https://overpass-api.de/api/interpreter";
+// Public Overpass servers, tried in order: the main one is often busy, so a slow or refused answer moves to the next.
+const OVERPASS = (process.env.OVERPASS_URL || "https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter,https://overpass.private.coffee/api/interpreter")
+  .split(",").map((u) => u.trim()).filter(Boolean);
+const SLOW = "Mapa miejsc (OpenStreetMap) odpowiada teraz zbyt wolno. Spróbuj ponownie za chwilę.";
 const UA = "podavo-voyage/1.0 (local exploring; https://podavo.voyage)";
 const MAX = 120;
 
@@ -41,7 +44,7 @@ const kindOf = (tags) => KINDS.find(([, test]) => test(tags))?.[0] || null;
 function overpassQuery({ lat, lon, radius, cats }) {
   const around = `(around:${radius},${lat.toFixed(4)},${lon.toFixed(4)})`;
   const parts = cats.flatMap((c) => QUERY[c]).map((q) => `${q}["name"]${around};`).join("");
-  return `[out:json][timeout:20];(${parts});out center tags ${MAX * 3};`;
+  return `[out:json][timeout:12];(${parts});out center tags ${MAX * 3};`;
 }
 
 function toPlaces(body, point, lang) {
@@ -66,18 +69,29 @@ function toPlaces(body, point, lang) {
 }
 
 function createNearby({ fetchSource = fetch, url = OVERPASS } = {}) {
+  const urls = Array.isArray(url) ? url : [url];
   async function nearby({ lat, lon, radius = 1500, cats = CATEGORIES, lang = "pl" }) {
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw bad("Podaj współrzędne miejsca.");
     const r = Math.min(5000, Math.max(300, Math.round(Number(radius) || 1500)));
     const list = [...new Set((cats || []).filter((c) => CATEGORIES.includes(c)))];
     if (!list.length) throw bad("Wybierz rodzaj miejsc.");
     const point = { lat: Math.round(lat * 1000) / 1000, lon: Math.round(lon * 1000) / 1000 };
-    const response = await fetchSource(url, {
-      method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ data: overpassQuery({ ...point, radius: r, cats: list }) }).toString(), signal: AbortSignal.timeout(25000),
-    });
-    if (!response.ok) throw Object.assign(new Error(`OpenStreetMap (Overpass) odpowiedział HTTP ${response.status}.`), { status: 502 });
-    const places = toPlaces(await response.json(), point, lang === "en" ? "en" : "pl");
+    const body = new URLSearchParams({ data: overpassQuery({ ...point, radius: r, cats: list }) }).toString();
+    let data = null;
+    for (const server of urls) {
+      try {
+        const response = await fetchSource(server, {
+          method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded" }, body, signal: AbortSignal.timeout(15000),
+        });
+        if (!response.ok) continue; // busy (429/504) or down: the next server
+        data = await response.json();
+        break;
+      } catch {
+        // timed out or unreachable: the next server
+      }
+    }
+    if (!data) throw Object.assign(new Error(SLOW), { status: 504 });
+    const places = toPlaces(data, point, lang === "en" ? "en" : "pl");
     return { centre: point, radius: r, cats: list, places, source: "OpenStreetMap", license: "ODbL", attribution: "© OpenStreetMap contributors", fetchedAt: new Date().toISOString() };
   }
   return { nearby };

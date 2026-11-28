@@ -52,7 +52,7 @@ test("nearby() validates, clamps the radius and says where the data comes from",
   await assert.rejects(n.nearby({ lat: NaN, lon: 1 }), /współrzędne/);
   await assert.rejects(n.nearby({ lat: 1, lon: 1, cats: ["bogus"] }), /rodzaj/);
   const down = createNearby({ fetchSource: async () => ({ ok: false, status: 504 }) });
-  await assert.rejects(down.nearby({ lat: 1, lon: 1 }), /HTTP 504/);
+  await assert.rejects(down.nearby({ lat: 1, lon: 1 }), /zbyt wolno/);
 });
 
 test("GET /api/places/nearby", async () => {
@@ -70,4 +70,18 @@ test("GET /api/places/nearby", async () => {
   } finally {
     server.close();
   }
+});
+
+test("nearby() moves to the next Overpass server when one is slow or busy", async () => {
+  const asked = [];
+  const fetchSource = async (url) => {
+    asked.push(url);
+    if (url.includes("first")) throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+    if (url.includes("second")) return { ok: false, status: 429, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ elements: [{ type: "node", id: 1, lat: 41.9, lon: 12.49, tags: { tourism: "museum", name: "Muzeum" } }] }) };
+  };
+  const { createNearby: make } = require("../src/nearby");
+  const out = await make({ fetchSource, url: ["https://first/api", "https://second/api", "https://third/api"] }).nearby({ lat: 41.9, lon: 12.49 });
+  assert.equal(out.places.length, 1);
+  assert.deepEqual(asked, ["https://first/api", "https://second/api", "https://third/api"]);
 });

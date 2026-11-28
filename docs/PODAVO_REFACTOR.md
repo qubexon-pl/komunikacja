@@ -355,3 +355,14 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
   - **Kierunki search field.** Its text was white on white in dark mode.
   - **Line tiles.** The star sat inside the line button (nested interactive controls). It is now a separate button next to the line button, which still fills the tile.
   - **Smaller fixes.** The date field gets `role="combobox"`, the Komunikaty panel body is focusable, and the Kierunki map is a labelled region.
+
+## Feedback fixes: compact trip screen, About and nearby
+
+- **Trip page on phones.** The first screen is now the trip itself.
+  - The page hero and the Rzeszów weather box are hidden there.
+  - The trip header has short actions.
+  - The step timeline is a horizontal strip that scrolls to the current step, instead of a tall wrapping grid.
+  - The tool tiles are low rows.
+  - A flight trip went from about 1,300px to under 600px.
+- **"O miejscu".** A place named after its airport ("Rzym Fiumicino") is looked up as the full name, then with trailing words dropped ("Rzym"). The sheet title shows the article found.
+- **"W okolicy".** Overpass servers are tried in order: overpass-api.de, kumi.systems, private.coffee, each with a 15 s limit. If all are slow, the user sees a Polish message with "Spróbuj ponownie" instead of a raw "operation was aborted" error.

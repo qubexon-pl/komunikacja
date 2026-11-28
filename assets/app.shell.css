@@ -430,3 +430,30 @@
 .line-tile .lt-open:focus-visible{outline:2px solid var(--red); outline-offset:4px; border-radius:8px}
 .line-tile .lt-open::after{content:""; position:absolute; inset:0}
 .line-tile .fav-star{z-index:1}
+
+/* Podróż na telefonie: pierwszy ekran to nagłówek podróży i jej przebieg, bez dużego nagłówka strony i pogody w Rzeszowie. */
+body.trip-mode .hero-right{display:none !important}
+@media (max-width:767px){
+  body[data-view="podroz"].trip-mode .hero{display:none !important}
+  body.trip-mode .tp-ready{display:none}
+  .tp-head{gap:10px}
+  .tp-head h3{font-size:1.3rem}
+  .tp-actions{gap:6px}
+  .tp-actions .btn-ghost,.tp-actions .btn-grad{min-height:40px; padding:6px 12px; font-size:.86rem}
+  .tp-long{display:none}
+  /* Przebieg podróży: poziomy pasek kroków zamiast wysokiej siatki */
+  .tp-flow{flex-wrap:nowrap; justify-content:flex-start; align-items:stretch; overflow-x:auto; overscroll-behavior-x:contain; scroll-snap-type:x proximity; padding:8px; row-gap:0; scrollbar-width:none}
+  .tp-flow::-webkit-scrollbar{display:none}
+  .tp-flow .tp-point{flex:0 0 auto; min-width:116px; max-width:150px; padding:8px 10px; scroll-snap-align:center}
+  .tp-flow .tp-point b{font-size:.9rem; white-space:nowrap}
+  .tp-flow .tp-point > span:not(.wx-chip){max-width:130px}
+  .tp-flow .tp-conn{flex:0 0 10px; width:10px; align-self:center}
+}
+@media (max-width:767px){
+  /* Narzędzia podróży jako niskie kafelki: ikona obok tekstu */
+  .tp-tools{gap:8px; margin:10px 0}
+  .tp-tool{flex-direction:row; align-items:center; gap:10px; min-height:60px; padding:10px}
+  .tp-tool-ic{width:34px; height:34px; font-size:.95rem}
+  .tp-tool-tx b{font-size:.88rem}
+  .tp-tool-tx small{font-size:.74rem}
+}

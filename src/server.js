@@ -1395,7 +1395,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
             const cats = p("cats") ? p("cats").split(",").slice(0, 10) : undefined;
             json(res, 200, await placesNearby({ lat: p("lat") ? Number(p("lat")) : NaN, lon: p("lon") ? Number(p("lon")) : NaN, radius: Number(p("radius")) || 1500, cats: cats || ["museum", "sight", "view", "park", "food", "cafe", "nightlife"], lang: p("lang") === "en" ? "en" : "pl" }));
           } catch (error) {
-            json(res, error.status === 400 || error.status === 503 ? error.status : 502, { error: error.message, places: [] });
+            json(res, [400, 503, 504].includes(error.status) ? error.status : 502, { error: error.message, places: [] });
           }
           return;
         }
