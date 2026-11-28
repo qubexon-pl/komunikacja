@@ -257,3 +257,15 @@ opening hours) and must pick every stop from it, copying the id into `placeId`:
 
 With fewer places (or Overpass unavailable) the plan works as before (`source: "model"`) and the page asks the
 traveller to check names and hours. Only the stay's point goes to Overpass. Service worker onward-v42.
+
+## 8a: fitting a day's route
+
+`src/route-fit.js` orders a day's stops so the walk from the stay is shortest (nearest neighbour, then 2-opt). Walking
+time is an estimate from the straight-line distance (×1.3 for streets, 4.5 km/h) and is labelled as one. The day keeps
+its earliest planned time; each stop lasts its own minutes (60 when unknown) and the walk is added before it. A stop
+without a position stays right after the stop it followed.
+
+`POST /api/ai/city-plan-fit {tid, city, day, start}` (signed in, own trip only) fits one day of the saved AI plan,
+stores it (`fitted: true`, `walkKm`, `walkMin` per stop) and answers how many kilometres it saved. The plan shows
+"Ułóż trasę dnia" on days with at least 3 positioned stops, the walking minutes before each stop and the day's total.
+Service worker onward-v43.

@@ -8,6 +8,7 @@
 // Needs ANTHROPIC_API_KEY. Without it the feature reports itself as unavailable and the app works as before.
 
 const sql = require("mssql");
+const { fitDay } = require("./route-fit");
 
 const MODEL = process.env.AI_PLAN_MODEL || "claude-opus-5-5";
 const MAX_DAYS = 5;
@@ -314,7 +315,22 @@ function createAiPlanner({ client = null, store, getFavorites, getPreferences, s
     return { ...plan, createdAt: new Date(now()).toISOString() };
   }
 
-  return { enabled: () => !!client, saved, generate, styleOf, saveStyle };
+  // 8a: one day of the saved plan in the order that walks the least from the stay; times move with the order.
+  async function fit(userId, body = {}) {
+    const name = text(body.city, 120);
+    if (!name || !DAY.test(body.day || "")) throw bad("Podaj miasto i dzień.");
+    await findTrip(userId, body.tid);
+    const plan = await store.read(userId, body.tid, name);
+    const d = plan?.days?.find((x) => x.day === body.day);
+    if (!d) throw bad("Nie ma planu na ten dzień.", 404);
+    const { stops, walkKm, savedKm } = fitDay(d.stops, { start: point(body.start) });
+    const { createdAt, ...kept } = plan;
+    const next = { ...kept, days: plan.days.map((x) => (x === d ? { ...x, stops, walkKm, fitted: true } : x)) };
+    await store.save(userId, body.tid, name, next, "route-fit");
+    return { plan: { ...next, createdAt }, savedKm };
+  }
+
+  return { enabled: () => !!client, saved, generate, fit, styleOf, saveStyle };
 }
 
 // The real client, when a key is configured.
