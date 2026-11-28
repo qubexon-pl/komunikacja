@@ -920,3 +920,57 @@ test("the address at the person's location is served without naming the provider
   assert.equal(failed.status, 502);
   assert.doesNotMatch(await failed.text(), /nominatim/);
 });
+
+test("the Podavo group page is the start and signs in to Voyage with a single-use ticket", async (t) => {
+  const previous = process.env.PODAVO_GROUP_URL;
+  process.env.PODAVO_GROUP_URL = "https://podavo.example/";
+  t.after(() => { if (previous === undefined) delete process.env.PODAVO_GROUP_URL; else process.env.PODAVO_GROUP_URL = previous; });
+  const tickets = new Map([["ticket-from-podavo-group-page", "rider@example.com"]]);
+  const handoffs = [];
+  const baseUrl = await startServer(t, {}, {
+    acceptHandoff: async (token) => {
+      if (!tickets.delete(token)) throw Object.assign(new Error("Link logowania wygasł albo został już użyty. Zaloguj się ponownie."), { statusCode: 400 });
+      return { user: { id: "user-1", email: "rider@example.com" }, session: { token: "voyage-session" } };
+    },
+    createHandoff: async (user, app) => { handoffs.push([user.id, app]); return "ticket-for-clean"; },
+  });
+
+  // Signed out, "/" goes to the group page; signed in it is still the app, and /welcome still answers.
+  const guest = await fetch(`${baseUrl}/`, { redirect: "manual" });
+  assert.equal(guest.status, 302);
+  assert.equal(guest.headers.get("location"), "https://podavo.example/");
+  const signedIn = await fetch(`${baseUrl}/`, { headers: { cookie: "rzbus_session=test-session" } });
+  assert.match(await signedIn.text(), /<title>Zaplanuj podróż · podavo\.voyage<\/title>/);
+  assert.equal((await fetch(`${baseUrl}/welcome`)).status, 200);
+  assert.equal((await (await fetch(`${baseUrl}/api/auth/config`)).json()).groupUrl, "https://podavo.example");
+
+  // /sso is the login page, which posts the ticket; only same-origin, and a ticket works once.
+  const page = await fetch(`${baseUrl}/sso`);
+  assert.match(await page.text(), /<title>Logowanie · podavo\.voyage<\/title>/);
+  const post = (origin) => fetch(`${baseUrl}/api/auth/sso`, {
+    method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify({ token: "ticket-from-podavo-group-page" }),
+  });
+  assert.equal((await post("https://attacker.example")).status, 403);
+  const accepted = await post(baseUrl);
+  assert.equal(accepted.status, 200);
+  assert.match(accepted.headers.get("set-cookie"), /rzbus_session=voyage-session; Path=\/; HttpOnly; SameSite=Lax/);
+  assert.equal((await post(baseUrl)).status, 400);
+
+  // The way back to the group page: signed in with a ticket in the fragment, signed out a plain link.
+  const back = await fetch(`${baseUrl}/api/auth/sso/clean?dalej=/konto`, { redirect: "manual", headers: { cookie: "rzbus_session=test-session" } });
+  assert.equal(back.status, 302);
+  assert.equal(back.headers.get("location"), "https://podavo.example/sso#t=ticket-for-clean&dalej=%2Fkonto");
+  assert.deepEqual(handoffs, [["user-1", "clean"]]);
+  const outside = await fetch(`${baseUrl}/api/auth/sso/clean?dalej=//evil.example`, { redirect: "manual" });
+  assert.equal(outside.headers.get("location"), "https://podavo.example/");
+});
+
+test("without PODAVO_GROUP_URL Voyage keeps its own welcome page and has no way to the group page", async (t) => {
+  const previous = process.env.PODAVO_GROUP_URL;
+  delete process.env.PODAVO_GROUP_URL;
+  t.after(() => { if (previous !== undefined) process.env.PODAVO_GROUP_URL = previous; });
+  const baseUrl = await startServer(t, {});
+  assert.match(await (await fetch(`${baseUrl}/`)).text(), /<title>Witaj · podavo\.voyage<\/title>/);
+  assert.equal((await fetch(`${baseUrl}/api/auth/sso/clean`, { redirect: "manual" })).status, 404);
+  assert.equal((await (await fetch(`${baseUrl}/api/auth/config`)).json()).groupUrl, null);
+});

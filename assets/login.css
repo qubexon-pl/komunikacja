@@ -145,3 +145,8 @@ body { background: #F4F7FB; }
 .lang-switch button:focus-visible { outline: 2px solid #2878D0; outline-offset: 2px; }
 .brand { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .brand-tag { color: #DDEEFF; font-size: .66rem; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; padding-left: 50px; }
+
+/* Back to the Podavo group page (podavo.pl), shown when PODAVO_GROUP_URL is set. */
+.group-link { display: inline-block; margin-bottom: 12px; color: var(--onward-blue, #2878D0); font-size: 0.9rem; font-weight: 600; text-decoration: none; }
+.group-link:hover, .group-link:focus-visible { text-decoration: underline; }
+.group-link[hidden] { display: none; }
