@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { once } = require("node:events");
-const { createKnowledge, pickArticle, claim } = require("../src/knowledge");
+const { createKnowledge, pickArticle, claim, candidates } = require("../src/knowledge");
 const { createServer } = require("../src/server");
 
 const ok = (body) => ({ ok: true, status: 200, json: async () => body });
@@ -85,4 +85,13 @@ test("GET /api/places/about answers and validates", async () => {
   } finally {
     server.close();
   }
+});
+
+test("a place named after its airport finds the city's article (Rzym Fiumicino -> Rzym)", async () => {
+  assert.deepEqual(candidates("Rzym Fiumicino (FCO)"), ["Rzym Fiumicino", "Rzym"]);
+  assert.deepEqual(candidates("Nowy Jork"), ["Nowy Jork", "Nowy"]);
+  const { fetchSource } = fakeFetch();
+  const info = await createKnowledge({ fetchSource }).about({ name: "Rzym Fiumicino", lat: 41.89, lon: 12.48, lang: "pl" });
+  assert.equal(info.found, true);
+  assert.equal(info.title, "Rzym");
 });

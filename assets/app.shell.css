@@ -299,6 +299,14 @@
 .near-head{display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap}
 .near-head h5{margin:0; font-size:1rem; font-weight:800}
 .near-head h5 small{font-weight:500; color:var(--ink-soft); font-size:.78rem; margin-left:4px}
+.near-tools{display:flex; align-items:center; gap:6px; margin-left:auto}
+.near-range{display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 4px 0 10px; border:1px solid var(--card-border); border-radius:999px; background:var(--bg); color:var(--ink-soft); font-size:.85rem}
+.near-range select{border:0; background:transparent; color:var(--ink); font-weight:700; font-size:.85rem; padding:0 4px; cursor:pointer}
+.near-range select:focus{outline:none}
+.near-range:focus-within{outline:2px solid var(--btn); outline-offset:2px}
+.near-toggle{width:36px; height:36px; display:inline-grid; place-items:center; border:1px solid var(--card-border); border-radius:50%; background:var(--bg); color:var(--ink); cursor:pointer}
+.near-toggle:hover{background:var(--bg-alt)}
+.near-toggle:focus-visible{outline:2px solid var(--btn); outline-offset:2px}
 .near-cats{display:flex; gap:6px; overflow-x:auto; padding:10px 0 4px; scrollbar-width:none}
 .near-cat{flex:0 0 auto; min-height:40px; padding:6px 12px; border:1.5px solid var(--card-border); border-radius:999px; background:transparent; color:var(--ink); font-weight:700; font-size:.82rem}
 .near-cat.on{border-color:var(--navy); background:var(--navy); color:#fff}
@@ -410,3 +418,50 @@
 /* Dane z zapisanej kopii, gdy nie ma połączenia */
 .saved-copy{display:flex; align-items:center; gap:8px; margin:0 0 10px; padding:8px 12px; border-radius:12px; background:color-mix(in srgb,#F2B84B 18%,var(--bg-alt)); color:var(--ink); font-size:.84rem}
 .saved-copy i{color:#B7791F}
+
+/* 10b: kontrast WCAG AA. Te same kolory Podavo, tylko o odcień ciemniejsze tam, gdzie jest na nich mały tekst. */
+:root{ --btn:#2472C8; --btn-hover:#1F63B3; --nav-active:#1F63B3; --danger-text:#C53F3F; --gold-text:#8F5F00; }
+:root[data-theme="dark"]{ --btn:#2472C8; --btn-hover:#1F63B3; --nav-active:#8FB3E8; --danger-text:#F08A8A; --gold-text:#F2B84B; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --btn:#2472C8; --btn-hover:#1F63B3; --nav-active:#8FB3E8; --danger-text:#F08A8A; --gold-text:#F2B84B; } }
+.btn-grad,:root[data-theme="dark"] .btn-grad{background:var(--btn)}
+.btn-grad:hover,:root[data-theme="dark"] .btn-grad:hover{background:var(--btn-hover)}
+.fav-filter.on{border-color:var(--btn); background:var(--btn)}
+.bottom-nav a.active{color:var(--nav-active)}
+@media (max-width:767px){ .bottom-nav{background:var(--bg-alt)} }
+.tl-share,.tp-back{color:var(--nav-active)}
+.sec-num{color:var(--gold-text)}
+.txt-red{color:var(--danger-text)}
+.explore-search input{color:#14233D}
+.explore-search input::placeholder{color:#5A6B82}
+/* Kafelek linii: przycisk linii wypełnia kafelek, gwiazdka leży obok niego. */
+.line-tile .lt-open{display:flex; flex-direction:column; align-items:flex-start; gap:8px; width:100%; padding:0; border:0; background:none; color:inherit; text-align:left; font:inherit; cursor:pointer}
+.line-tile .lt-open:focus-visible{outline:2px solid var(--red); outline-offset:4px; border-radius:8px}
+.line-tile .lt-open::after{content:""; position:absolute; inset:0}
+.line-tile .fav-star{z-index:1}
+
+/* Podróż na telefonie: pierwszy ekran to nagłówek podróży i jej przebieg, bez dużego nagłówka strony i pogody w Rzeszowie. */
+body.trip-mode .hero-right{display:none !important}
+@media (max-width:767px){
+  body[data-view="podroz"].trip-mode .hero{display:none !important}
+  body.trip-mode .tp-ready{display:none}
+  .tp-head{gap:10px}
+  .tp-head h3{font-size:1.3rem}
+  .tp-actions{gap:6px}
+  .tp-actions .btn-ghost,.tp-actions .btn-grad{min-height:40px; padding:6px 12px; font-size:.86rem}
+  .tp-long{display:none}
+  /* Przebieg podróży: poziomy pasek kroków zamiast wysokiej siatki */
+  .tp-flow{flex-wrap:nowrap; justify-content:flex-start; align-items:stretch; overflow-x:auto; overscroll-behavior-x:contain; scroll-snap-type:x proximity; padding:8px; row-gap:0; scrollbar-width:none}
+  .tp-flow::-webkit-scrollbar{display:none}
+  .tp-flow .tp-point{flex:0 0 auto; min-width:116px; max-width:150px; padding:8px 10px; scroll-snap-align:center}
+  .tp-flow .tp-point b{font-size:.9rem; white-space:nowrap}
+  .tp-flow .tp-point > span:not(.wx-chip){max-width:130px}
+  .tp-flow .tp-conn{flex:0 0 10px; width:10px; align-self:center}
+}
+@media (max-width:767px){
+  /* Narzędzia podróży jako niskie kafelki: ikona obok tekstu */
+  .tp-tools{gap:8px; margin:10px 0}
+  .tp-tool{flex-direction:row; align-items:center; gap:10px; min-height:60px; padding:10px}
+  .tp-tool-ic{width:34px; height:34px; font-size:.95rem}
+  .tp-tool-tx b{font-size:.88rem}
+  .tp-tool-tx small{font-size:.74rem}
+}

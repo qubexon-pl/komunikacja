@@ -27,6 +27,17 @@ function pickArticle(pages, name) {
   return pages.find(named) || pages.find((p) => fold(p.title).startsWith(want + " ")) || null;
 }
 
+// "Rzym Fiumicino (FCO)" -> ["Rzym Fiumicino", "Rzym"]: the name, then shorter by whole words (at least 3 letters left).
+function candidates(name) {
+  const words = String(name).replace(/\s*\([^)]*\)\s*$/, "").split(",")[0].trim().split(/\s+/).filter(Boolean);
+  const out = [];
+  for (let n = words.length; n >= 1; n -= 1) {
+    const c = words.slice(0, n).join(" ");
+    if (c.length >= 3 && !out.includes(c)) out.push(c);
+  }
+  return out.slice(0, 3);
+}
+
 // The newest value of a Wikidata claim (by its point-in-time qualifier when there are several, e.g. population).
 function claim(entity, prop) {
   const list = (entity?.claims?.[prop] || []).filter((c) => c.rank !== "deprecated" && c.mainsnak?.datavalue);
@@ -57,11 +68,16 @@ function createKnowledge({ fetchSource = fetch } = {}) {
     if (!LANGS.includes(lang)) lang = "pl";
     const wiki = `https://${lang}.wikipedia.org`;
     const near = await get(`${wiki}/w/api.php?` + new URLSearchParams({ action: "query", list: "geosearch", gscoord: `${lat.toFixed(4)}|${lon.toFixed(4)}`, gsradius: String(SEARCH_M), gslimit: "50", format: "json" }));
-    let page = pickArticle(near?.query?.geosearch || [], name);
+    // Places named after their airport ("Rzym Fiumicino", "Londyn Luton") are looked up as the full name first, then
+    // with words dropped from the end, so the city's own article is found.
+    const tries = candidates(name);
+    let page = null;
+    for (const n of tries) if (!page) page = pickArticle(near?.query?.geosearch || [], n);
     // A point at the airport can be farther from the city's article than the 10 km Wikipedia searches: then the article
     // of that name, if it lies within FALLBACK_KM and is not a disambiguation page.
-    if (!page) {
-      const named = await get(`${wiki}/w/api.php?` + new URLSearchParams({ action: "query", prop: "coordinates|pageprops", titles: name, redirects: "1", format: "json" }));
+    for (const n of tries) {
+      if (page) break;
+      const named = await get(`${wiki}/w/api.php?` + new URLSearchParams({ action: "query", prop: "coordinates|pageprops", titles: n, redirects: "1", format: "json" }));
       const p = Object.values(named?.query?.pages || {})[0], c = p?.coordinates?.[0];
       if (p && !p.missing && c && !(p.pageprops && "disambiguation" in p.pageprops) && kmBetween({ lat, lon }, c) <= FALLBACK_KM) page = { title: p.title };
     }
@@ -99,4 +115,4 @@ function createKnowledge({ fetchSource = fetch } = {}) {
   return { about };
 }
 
-module.exports = { createKnowledge, pickArticle, claim, fold };
+module.exports = { createKnowledge, pickArticle, claim, fold, candidates };

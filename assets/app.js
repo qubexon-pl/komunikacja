@@ -2106,8 +2106,9 @@ function renderLinesGrid(){
   const counts=new Map(); for(const v of S.vehicles.values()){ const k=GT.routes.has(v.routeId)?v.routeId:v.short; counts.set(k,(counts.get(k)||0)+1); }
   const lateC=new Map(); for(const v of S.vehicles.values()) if(statusOf(v.delay)==='late'){ const k=GT.routes.has(v.routeId)?v.routeId:v.short; lateC.set(k,(lateC.get(k)||0)+1); }
   const tile = r=>{ const n=counts.get(r.id)||0, l=lateC.get(r.id)||0;
-    return `<button class="line-tile ${n?'':'off'} ${r.agency==='pks'?'is-pks':''}" data-route="${esc(r.id)}"><span class="lt-num" style="${n?`background:${lineColor(r.short,r.color,r.agency)}`:''}">${esc(r.short)}</span>
-      <span class="lt-meta">${n?`${n} w trasie`:(feedDown()?'brak danych':'nie kursuje')}${l?` · <span class="txt-red">${l} spóźn.</span>`:''}</span>${lineStar(r.id)}</button>`; };
+    // Kafelek to przycisk linii i obok niego gwiazdka (dwa osobne przyciski, nie jeden w drugim).
+    return `<div class="line-tile ${n?'':'off'} ${r.agency==='pks'?'is-pks':''}"><button type="button" class="lt-open" data-route="${esc(r.id)}"><span class="lt-num" style="${n?`background:${lineColor(r.short,r.color,r.agency)}`:''}">${esc(r.short)}</span>
+      <span class="lt-meta">${n?`${n} w trasie`:(feedDown()?'brak danych':'nie kursuje')}${l?` · <span class="txt-red">${l} spóźn.</span>`:''}</span></button>${lineStar(r.id)}</div>`; };
   const groups=[['ztm','ZTM Rzeszów — komunikacja miejska'],['pks','Komunikacja podmiejska']].filter(([ag])=>S.agency==='all'||S.agency==='kolej'||S.agency===ag);
   renderPksDestinations();
   el.innerHTML = groups.map(([ag,title])=>{ const rs=[...GT.routes.values()].filter(r=>(r.agency||'ztm')===ag).sort((a,b)=>natSort(a.short,b.short)); if(!rs.length) return ag==='pks'?`<div class="lg-head">${title}</div><div class="empty-note" style="grid-column:1/-1">Rozkład PKS nie jest wczytany — sprawdź adres w Ustawieniach.</div>`:''; return `<div class="lg-head">${title} <span>${rs.length} linii</span></div>`+rs.map(tile).join(''); }).join('');
@@ -4966,6 +4967,8 @@ async function openAbout({name, lat, lon}){
   const h=PVUI.sheet.open({title:L2(`O miejscu: ${clean}`,`About ${clean}`), html:`<div class="empty-note">${esc(L2('Wczytuję opis…','Loading…'))}</div>`});
   try{
     const info=await aboutInfo(clean, lat, lon);
+    // Tytuł arkusza: nazwa znalezionego artykułu („Rzym”), a nie etykieta lotniska, od której zaczęliśmy.
+    if(info?.found && info.title){ const t=document.querySelector('.pv-sheet-layer:last-of-type .pv-sheet-title'); if(t) t.textContent=L2(`O miejscu: ${info.title}`,`About ${info.title}`); }
     h.setContent(PVD.aboutHtml(info,{t:L2}));
   }catch(e){ h.setContent(`<div class="empty-note">${esc(e.message||L2('Opis jest chwilowo niedostępny.','The description is unavailable right now.'))}</div>`); }
 }
@@ -5779,7 +5782,7 @@ function renderTripPage(){
       <small>${day?`${longDay(day,{weekday:'short', day:'numeric', month:'long'})}${back?` – ${longDay(back,{weekday:'short', day:'numeric', month:'long', year:'numeric'})}`:''}`:''}${stay?` · ${stay} ${stay===1?'dzień':'dni'}`:''}${when?` · ${when}`:''}</small></div>
     <div class="tp-actions">
       ${booked||f.shared?'':'<button type="button" class="btn-grad" data-tp-book><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> Zapisz moją podróż</button>'}
-      ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-plan><i class="fa-solid fa-pen" aria-hidden="true"></i> Edytuj w planerze</button>'}
+      ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-plan><i class="fa-solid fa-pen" aria-hidden="true"></i> Edytuj<span class="tp-long"> w planerze</span></button>'}
       ${f.tid&&FAV.user?`<span class="tp-share-wrap"><button type="button" class="btn-ghost ${PEOPLE.open?'on':''}" data-tp-share aria-expanded="${PEOPLE.open}" aria-controls="tripPeople"><i class="fa-solid fa-user-group" aria-hidden="true"></i> ${f.shared?L2('Uczestnicy','Participants'):L2('Udostępnij','Share')}</button></span>`:''}
       ${f.shared?'':'<button type="button" class="btn-ghost" data-tp-remove><i class="fa-regular fa-trash-can" aria-hidden="true"></i> Usuń</button>'}
       <a class="tp-back" href="${booked?(when==='minęła'?'/my-trips#archive':'/my-trips'):'/favourites#trips'}" ${booked?`data-go-mytrips="${when==='minęła'?'archive':''}"`:'data-fav-goto'}><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> ${booked?(when==='minęła'?'Archiwum':'Moje podróże'):'Ulubione'}</a>
@@ -5852,6 +5855,9 @@ function paintTripPage(page, f, T, head, flow, stepPanel, costs, cityBox, day, b
       <div class="tp-sheet-body">${body}</div></div></div>`:'';
   page.innerHTML=`<div class="tp">${head}${flow}${tripTools(f,T,costs,cityBox)}</div>${sheet}`;
   if(window.scrollY!==y) window.scrollTo(0,y);
+  // Na telefonie przebieg podróży to poziomy pasek: przewijamy go do bieżącego kroku (bez przewijania strony).
+  const strip=page.querySelector('.tp-flow'), cur=strip?.querySelector('.tp-point.on');
+  if(strip && cur && strip.scrollWidth>strip.clientWidth) strip.scrollLeft=Math.max(0, cur.offsetLeft-strip.offsetLeft-(strip.clientWidth-cur.offsetWidth)/2);
   const layer=page.querySelector('[data-tp-sheet-layer]');
   if(layer){
     if(wasKey===key) layer.querySelector('.tp-sheet-body').scrollTop=wasTop;
@@ -5997,14 +6003,15 @@ function aiPlanHtml(p){
     <small class="ai-foot">Zaproponowane przez AI${p.createdAt?` ${esc(new Date(p.createdAt).toLocaleDateString('pl-PL',{day:'numeric', month:'long'}))}`:''}. Godziny otwarcia i ceny sprawdź przed wyjściem.</small>`;
 }
 /* ---------- W okolicy (7b): miejsca z OpenStreetMap wokół noclegu (albo centrum miasta), z dojazdem jednym kliknięciem ---------- */
-const NEAR={data:new Map(), busy:new Set(), err:new Map(), cat:'', limit:12, open:store('podavo.near.open')!==false};
+const NEAR_RADII=[1000,2000,3000,5000];
+const NEAR={data:new Map(), busy:new Set(), err:new Map(), cat:'', limit:12, open:store('podavo.near.open')!==false, radius:NEAR_RADII.includes(+store('podavo.near.radius'))?+store('podavo.near.radius'):2000};
 const nearPoint=c=>c.home?.lat!=null?{lat:c.home.lat, lon:c.home.lon, label:c.home.label||L2('Nocleg','Stay')}:{lat:c.centre.lat, lon:c.centre.lon, label:c.label};
-const nearKey=c=>{ const p=nearPoint(c); return `${(+p.lat).toFixed(3)},${(+p.lon).toFixed(3)}|${isEn()?'en':'pl'}`; };
+const nearKey=c=>{ const p=nearPoint(c); return `${(+p.lat).toFixed(3)},${(+p.lon).toFixed(3)}|${NEAR.radius}|${isEn()?'en':'pl'}`; };
 async function loadNear(c){
   const key=nearKey(c), p=nearPoint(c); if(NEAR.busy.has(key)) return;
   NEAR.busy.add(key); NEAR.err.delete(key);
   try{
-    const r=await fetch('/api/places/nearby?'+new URLSearchParams({lat:(+p.lat).toFixed(4), lon:(+p.lon).toFixed(4), radius:'2000', lang:isEn()?'en':'pl'}));
+    const r=await fetch('/api/places/nearby?'+new URLSearchParams({lat:(+p.lat).toFixed(4), lon:(+p.lon).toFixed(4), radius:String(NEAR.radius), lang:isEn()?'en':'pl'}));
     const body=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(body.error||'');
     NEAR.data.set(key, {...body, savedAt:offlineCopy(r)});
@@ -6017,8 +6024,9 @@ function nearBox(f, c){
   if(NEAR.open && !d && !err && !NEAR.busy.has(key)) setTimeout(()=>loadNear(c),0);
   const body=!NEAR.open?'':err?`<div class="empty-note">${esc(err)} <button type="button" class="btn-ghost" data-near-retry>${L2('Spróbuj ponownie','Try again')}</button></div>`
     :!d?`<div class="empty-note">${L2('Szukam miejsc w okolicy…','Looking for places nearby…')}</div>`:savedNote(d.savedAt)+PVD.nearList(d,{t:L2, cat:NEAR.cat, limit:NEAR.limit});
-  return `<section class="near-box" aria-label="${L2('W okolicy','Nearby')}"><div class="near-head"><h5><i class="fa-solid fa-compass" aria-hidden="true"></i> ${L2('W okolicy','Nearby')} <small>${L2('w promieniu 2 km','within 2 km')} · ${esc(from.label)}</small></h5>
-    <button type="button" class="btn-ghost" data-near-toggle aria-expanded="${NEAR.open}">${NEAR.open?L2('Zwiń','Hide'):L2('Pokaż','Show')}</button></div>${body}</section>`;
+  const range=`<label class="near-range"><span class="visually-hidden">${L2('Promień wyszukiwania','Search radius')}</span><i class="fa-solid fa-bullseye" aria-hidden="true"></i><select data-near-radius aria-label="${L2('Promień wyszukiwania','Search radius')}">${NEAR_RADII.map(r=>`<option value="${r}" ${r===NEAR.radius?'selected':''}>${r/1000} km</option>`).join('')}</select></label>`;
+  return `<section class="near-box" aria-label="${L2('W okolicy','Nearby')}"><div class="near-head"><h5><i class="fa-solid fa-compass" aria-hidden="true"></i> ${L2('W okolicy','Nearby')} <small>${esc(from.label)}</small></h5>
+    <div class="near-tools">${range}<button type="button" class="near-toggle" data-near-toggle aria-expanded="${NEAR.open}" aria-label="${NEAR.open?L2('Zwiń','Hide'):L2('Rozwiń','Show')}" title="${NEAR.open?L2('Zwiń','Hide'):L2('Rozwiń','Show')}"><i class="fa-solid fa-chevron-${NEAR.open?'up':'down'}" aria-hidden="true"></i></button></div></div>${body}</section>`;
 }
 function nearRoute(f, c, id){
   const p=NEAR.data.get(nearKey(c))?.places?.find(x=>x.id===id); if(!p) return;
@@ -6630,6 +6638,12 @@ document.getElementById('tripPage').addEventListener('click', e=>{
   if(e.target.closest('[data-tp-hotel-remove]')){ askConfirm(L2('Usunąć hotel z tej podróży?','Remove the hotel from this trip?'), {detail:f.trip?.hotel?.name||'', ok:L2('Usuń hotel','Remove hotel'), danger:true}).then(ok=>{ if(!ok) return; const {hotel, ...rest}=f.trip; f.trip=rest; saveFavorites().catch(err=>console.warn('Nie zapisano', err)); TRIPMAP.key=''; renderTripPage(); }); return; }
   const rf=e.target.closest('[data-fav-refresh]'); if(rf){ const fl=savedFlight(f); if(fl) refreshSavedPrice(rf.dataset.favRefresh, fl).then(()=>{ if(S.sub==='trip') renderTripPage(); }); return; }
   const fa=e.target.closest('[data-fav-alert]'); if(fa){ const fl=savedFlight(f); if(fl) openAlertDialog({...fl, price:FAVP.get(fa.dataset.favAlert)?.price??f.flight?.price??null, label:`${f.from} → ${f.to}`}); }
+});
+// W okolicy: promień wyszukiwania (1–5 km), zapamiętany na tym urządzeniu.
+document.addEventListener('change', e=>{
+  const t=e.target.closest('[data-near-radius]'); if(!t) return;
+  const r=+t.value; if(!NEAR_RADII.includes(r)) return;
+  NEAR.radius=r; NEAR.limit=12; store('podavo.near.radius', r); renderTripPage();
 });
 document.getElementById('tripPage').addEventListener('submit', async e=>{
   const form=e.target.closest('[data-tp-hotel-form]'); if(!form) return;
@@ -7305,7 +7319,7 @@ function pickDate(day){
 // Systemowy wybór daty zastępujemy naszym kalendarzem; pole nadal przechowuje datę RRRR-MM-DD jak wcześniej.
 for(const input of [plDate, document.getElementById('trDate')]){
   if(!input) continue;
-  input.readOnly=true; input.classList.add('dp-input'); input.setAttribute('aria-haspopup','dialog'); input.setAttribute('aria-expanded','false');
+  input.readOnly=true; input.classList.add('dp-input'); input.setAttribute('role','combobox'); input.setAttribute('aria-haspopup','dialog'); input.setAttribute('aria-expanded','false');
   input.addEventListener('click', e=>{ e.preventDefault(); e.stopPropagation(); const pop=document.getElementById('dpPop'); if(pop&&!pop.hidden&&DP.input===input) closeDatePicker(false); else openDatePicker(input); });
   input.addEventListener('keydown', e=>{ if(['Enter',' ','ArrowDown'].includes(e.key)){ e.preventDefault(); openDatePicker(input); } });
 }

@@ -340,3 +340,29 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
 - **Age of a copy.** Every cached copy carries `X-Podavo-Saved-At`. When the page is offline and gets a copy, the AI plan and the nearby list show "Bez połączenia: zapisana kopia z …". Saved data is never presented as fresh.
 - **Saving ahead.** When a trip opens with a connection (and AI plans are on), the saved day plans of its cities are fetched in idle time, so they are on the device before the trip.
 - **Not kept.** Live data (departures, prices, vehicle positions) is still never served from a copy.
+
+## 10b: accessibility pass
+
+- **How it was checked.** axe-core (WCAG 2.0/2.1 A and AA), light and dark, at 390px, on:
+  - Plan, Kierunki (list and map), Moje podróże, a trip, Ulubione, Komunikacja and login;
+  - the open Komunikaty panel and the trip's city and journey sheets.
+  - Everything now reports no violations.
+- **Fixes.**
+  - **Mobile bottom bar in dark mode.** It stayed white with light text (2.2:1). It now uses the dark surface.
+  - **Small text on Podavo blue.** It sat at 4.47:1, so buttons, active tabs, the active bottom-bar item and share links use a shade darker (`--btn` #2472C8, `--nav-active` #1F63B3, light #8FB3E8 in dark). The fills stay Podavo blue.
+  - **Section numbers.** The amber number was 2.7:1. It is a darker amber in light mode and Podavo amber in dark mode.
+  - **"spóźn." in line tiles.** Uses `--danger-text`.
+  - **Kierunki search field.** Its text was white on white in dark mode.
+  - **Line tiles.** The star sat inside the line button (nested interactive controls). It is now a separate button next to the line button, which still fills the tile.
+  - **Smaller fixes.** The date field gets `role="combobox"`, the Komunikaty panel body is focusable, and the Kierunki map is a labelled region.
+
+## Feedback fixes: compact trip screen, About and nearby
+
+- **Trip page on phones.** The first screen is now the trip itself.
+  - The page hero and the Rzeszów weather box are hidden there.
+  - The trip header has short actions.
+  - The step timeline is a horizontal strip that scrolls to the current step, instead of a tall wrapping grid.
+  - The tool tiles are low rows.
+  - A flight trip went from about 1,300px to under 600px.
+- **"O miejscu".** A place named after its airport ("Rzym Fiumicino") is looked up as the full name, then with trailing words dropped ("Rzym"). The sheet title shows the article found.
+- **"W okolicy".** Overpass servers are tried in order: overpass-api.de, kumi.systems, private.coffee, each with a 15 s limit. If all are slow, the user sees a Polish message with "Spróbuj ponownie" instead of a raw "operation was aborted" error.
