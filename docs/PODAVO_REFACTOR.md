@@ -375,6 +375,11 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
 - The line list lives only in the "Linie" tab, as in other cities, instead of also appearing under the Rzeszów search.
 - `/suburban` in a city without suburban buses opens that city's transport (or trains) instead of Rzeszów's suburban data.
 - 4d, stop board: the Rzeszów stop board (Rozkład jazdy) now draws `PVT.departureBoard`, the same rows as other cities. Its departures come from the GTFS timetable in the browser and are marked `scheduled`, so no delay is shown. `departureRow` gained two options: `open(x)` makes the row a button (here it opens the line), and `after(x)` adds HTML beside it (the line star). Past rows are dimmed and have no countdown.
+- "Szukaj połączenia" in Rzeszów is now the same page as in Warszawa and every other city: the city header, live
+  vehicle counts, "Pokaż mapę" and "Zaplanuj przejazd po mieście" (Transitous planner). Transitous imports ZTM Rzeszów
+  and PKS Rzeszów with their GTFS-Realtime feeds, so one search covers city and suburban buses; the Miejskie/Podmiejskie
+  switch is only on Rozkład jazdy and Linie, where it picks the imported timetable. The mode tab reads "Komunikacja
+  miejska" in every city.
 - The train board keeps its own layout. It is the same in every city, and it shows the carrier, arrivals, platform and track, and a "Na mapie" button that the shared row doesn't have.
 
 ## Feedback fixes: Clean map on Kierunki, one bus mode, price alert, browser install
