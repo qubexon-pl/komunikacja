@@ -290,6 +290,43 @@ test("the attraction list shows where each place is", () => {
   assert.match(X.attrListHtml({ data }), /xa-where[^>]*>.*Monti · 840 m od centrum/s);
 });
 
+test("places linked anywhere in the city article (e.g. a navigation box) count, even without a sights section", async () => {
+  const fetchSource = async (url) => {
+    const u = new URL(url), q = u.searchParams;
+    if (q.get("action") === "parse" && q.get("prop") === "sections") return ok({ parse: { title: "Rzym", sections: [{ index: "1", number: "1", line: "Historia" }] } });
+    if (q.get("generator") === "links") {
+      if (!q.get("gplcontinue")) return ok({ continue: { gplcontinue: "x", continue: "gplcontinue||" }, query: { pages: [{ pageid: 11, title: "Koloseum", coordinates: [{ lat: 41.8902, lon: 12.4922 }] }, { pageid: 30, title: "Mediolan", coordinates: [{ lat: 45.46, lon: 9.19 }] }] } });
+      return ok({ query: { pages: [{ pageid: 13, title: "Panteon (Rzym)", coordinates: [{ lat: 41.8986, lon: 12.4768 }] }, { pageid: 31, title: "Historia Rzymu" }] } });
+    }
+    if (q.get("action") === "query" && q.get("titles") === "Rzym") return ok({ query: { pages: [{ title: "Rzym", coordinates: [{ lat: 41.8933, lon: 12.4829 }] }] } });
+    if (q.get("titles")) return ok({ query: { pages: q.get("titles").split("|").map((t) => ({ "Koloseum": { pageid: 11, title: "Koloseum", pageprops: { wikibase_item: "Q10285" }, coordinates: [{ lat: 41.8902, lon: 12.4922 }], pageviews: { a: 100 } }, "Panteon (Rzym)": { pageid: 13, title: "Panteon (Rzym)", pageprops: { wikibase_item: "Q99309" }, coordinates: [{ lat: 41.8986, lon: 12.4768 }], pageviews: { a: 500 } } })[t]).filter(Boolean) } });
+    if (q.get("list") === "geosearch") return ok({ query: { geosearch: [] } });
+    if (u.hostname === "www.wikidata.org") return ok({ entities: { Q10285: { claims: claimOf("P31", "Q54831") }, Q99309: { claims: claimOf("P31", "Q16970") } } });
+    return { ok: false, status: 500, json: async () => ({}) };
+  };
+  // The trip points at Fiumicino airport: the article's own position becomes the centre.
+  const out = await createAttractions({ fetchSource }).list({ name: "Rzym Fiumicino", title: "Rzym", lat: 41.80, lon: 12.25 });
+  assert.deepEqual(out.attractions.map((a) => a.title), ["Panteon (Rzym)", "Koloseum"]);
+  assert.deepEqual(out.centre, { lat: 41.8933, lon: 12.4829 });
+  assert.ok(createAttractions({ fetchSource }).version >= 3); // a new lookup is not hidden behind old cached lists
+});
+
+test("after adding a place the app asks where you start; a finished plan can join the trip", () => {
+  const X = loadPVX();
+  const ask = X.fromAskHtml({ name: "Koloseum", prev: "Panteon", home: "Hotel Roma", centre: "Rzym", def: "prev" });
+  for (const k of ["prev", "home", "centre", "custom"]) assert.match(ask, new RegExp(`data-xp-askfrom="${k}"`));
+  assert.match(ask, /class="xa-fromopt on" data-xp-askfrom="prev"/);
+  assert.doesNotMatch(X.fromAskHtml({ name: "A", centre: "Rzym", def: "centre" }), /data-xp-askfrom="(prev|home)"/);
+  const items = [{ id: "a", name: "Koloseum", lat: 41.8902, lon: 12.4922 }];
+  const ctx = { home: null, centre: { lat: 41.8933, lon: 12.4829 } };
+  const days = [{ value: "2026-12-12", label: "sob." }, { value: "2026-12-13", label: "niedz." }];
+  assert.match(X.planHtml({ items, ctx, trip: { inTrip: false, day: "2026-12-12", days, city: "Rzym" } }), /data-xp-trip="on"/);
+  const on = X.planHtml({ items, ctx, trip: { inTrip: true, day: "2026-12-13", days, city: "Rzym" } });
+  assert.match(on, /data-xp-trip="off"/);
+  assert.match(on, /<option value="2026-12-13" selected>/);
+  assert.match(on, /Skąd:/);
+});
+
 test("the trip page loads the exploration helpers before app.js", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
   assert.ok(html.indexOf("/assets/app.explore.js") > 0 && html.indexOf("/assets/app.explore.js") < html.indexOf("/assets/app.js"));

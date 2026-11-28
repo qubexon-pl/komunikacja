@@ -161,13 +161,13 @@
     const o=T.origins[i], d=T.legs[i], cur=x.from||(i>0?'prev':ctx.home?'home':'centre');
     const opts=ORIGIN.filter(([k])=>(k!=='prev'||i>0)&&(k!=='home'||ctx.home));
     const label=o?(o.kind==='prev'?t(`od: ${o.label}`,`from ${o.label}`):o.kind==='home'?t(`od: ${o.label||'nocleg'}`,`from ${o.label||'your stay'}`):o.kind==='centre'?t(`od: ${o.label||'centrum'}`,`from ${o.label||'the centre'}`):t(`od: ${o.label}`,`from ${o.label}`)):'';
-    const sel=edit?`<label class="xa-from"><span class="visually-hidden">${esc(t(`Skąd idziesz do: ${x.name}`,`Where you start for: ${x.name}`))}</span><select data-xp-from="${esc(x.id)}">${opts.map(([k,pl,en])=>`<option value="${k}" ${k===cur?'selected':''}>${esc(k==='custom'&&cur==='custom'&&x.fromName?x.fromName:t(pl,en))}</option>`).join('')}</select></label>`:'';
+    const sel=edit?`<label class="xa-from"><span>${esc(t('Skąd:','From:'))}</span><span class="visually-hidden">${esc(t(` skąd idziesz do: ${x.name}`,` where you start for: ${x.name}`))}</span><select data-xp-from="${esc(x.id)}">${opts.map(([k,pl,en])=>`<option value="${k}" ${k===cur?'selected':''}>${esc(k==='custom'&&cur==='custom'&&x.fromName?x.fromName:t(pl,en))}</option>`).join('')}</select></label>`:'';
     const form=edit&&fromEdit===x.id?`<form class="xa-fromform" data-xp-from-form="${esc(x.id)}" autocomplete="off"><label class="cp-field"><span>${esc(t('Skąd zaczynasz','Where you start'))}</span><input id="xpFromName" name="name" required maxlength="120" placeholder="${esc(t('np. dworzec, kawiarnia, adres','e.g. station, café, address'))}"></label><span class="xa-addform-btns"><button type="submit" class="btn-grad">${esc(t('Ustaw','Set'))}</button><button type="button" class="btn-ghost" data-xp-from-cancel>${esc(t('Anuluj','Cancel'))}</button></span></form>`:'';
     const dist=d!=null?`<i class="fa-solid fa-person-walking" aria-hidden="true"></i> ${esc(fmtKm(d,t))} · ${esc(fmtMin(walkMin(d),t))}`:'';
     return `<li class="xa-leg">${sel||(label?`<span>${esc(label)}</span>`:'')}${dist?`<span class="xa-leg-d">${dist}</span>`:''}${form}</li>`;
   }
   // Mój plan: punkty po kolei, przed każdym skąd idziemy i ile; godziny dnia, czas zwiedzania i suma.
-  function planHtml({items=[], ctx=null, start=null, edit=true, t=PL, adding=false, startTime='09:00', fromEdit='', sugg=null}={}){
+  function planHtml({items=[], ctx=null, start=null, edit=true, t=PL, adding=false, startTime='09:00', fromEdit='', sugg=null, trip=null}={}){
     const C=ctx?ctxOf(ctx):ctxOf(start), T=totals(items, C), n=items.length, S=schedule(items, C, startTime);
     const minSel=x=>edit?`<label class="xa-min"><span class="visually-hidden">${esc(t(`Czas zwiedzania: ${x.name}`,`Visit time: ${x.name}`))}</span><select data-xp-min="${esc(x.id)}">${[...new Set([...MINS, visitMin(x)])].sort((a,b)=>a-b).map(m=>`<option value="${m}" ${m===visitMin(x)?'selected':''}>${esc(fmtMin(m,t))}</option>`).join('')}</select></label>`:`<span>${esc(fmtMin(visitMin(x),t))}</span>`;
     const rows=items.map((x,i)=>`${legHtml(x,i,T,C,{edit,t,fromEdit})}
@@ -184,7 +184,21 @@
         <label class="cp-field"><span>${esc(t('Notatka (opcjonalnie)','Note (optional)'))}</span><input name="note" maxlength="160" placeholder="${esc(t('np. obiad, bilety kupione','e.g. lunch, tickets bought'))}"></label>
         <span class="xa-addform-btns"><button type="submit" class="btn-grad"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${esc(t('Dodaj do planu','Add to plan'))}</button><button type="button" class="btn-ghost" data-xp-add-cancel>${esc(t('Anuluj','Cancel'))}</button></span></form>`
       :`<div class="xa-planbtns"><button type="button" class="btn-ghost xa-own" data-xp-add-open><i class="fa-solid fa-plus" aria-hidden="true"></i> ${esc(t('Dodaj własne miejsce','Add your own place'))}</button>${sugg?'':`<button type="button" class="btn-grad" data-xp-sugg-open><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${esc(t('Zaproponuj trasę','Suggest a route'))}</button>`}</div>`):'';
-    return `${sugg?suggestHtml(sugg,C,{t,startTime,n}):''}${head}${n?`<ol class="xa-plan">${rows}</ol>${sum}`:sugg?'':`<div class="empty-note">${esc(t('Plan jest pusty. Dodaj miejsca z zakładki „Atrakcje”, dodaj własne miejsce albo poproś o propozycję trasy na wybrany czas.','The plan is empty. Add places from the Sights tab, add your own, or ask for a route suggestion for the time you have.'))}</div>`}${form}`;
+    return `${sugg?suggestHtml(sugg,C,{t,startTime,n}):''}${head}${n?`<ol class="xa-plan">${rows}</ol>${sum}${edit&&trip?tripHtml(trip,T,t):''}`:sugg?'':`<div class="empty-note">${esc(t('Plan jest pusty. Dodaj miejsca z zakładki „Atrakcje”, dodaj własne miejsce albo poproś o propozycję trasy na wybrany czas.','The plan is empty. Add places from the Sights tab, add your own, or ask for a route suggestion for the time you have.'))}</div>`}${form}`;
+  }
+  // Gotowy plan jako etap podróży: wybór dnia, a w przebiegu podróży pojawia się ikona „Zwiedzanie”.
+  function tripHtml({inTrip=false, day='', days=[], city=''}, T, t=PL){
+    const opts=days.map(d=>`<option value="${esc(d.value)}" ${d.value===day?'selected':''}>${esc(d.label)}</option>`).join('');
+    const pick=days.length?`<label class="xa-day"><span>${esc(t('Dzień','Day'))}</span><select data-xp-day>${opts}</select></label>`:'';
+    return `<section class="xa-trip${inTrip?' on':''}" aria-label="${esc(t('Zwiedzanie w podróży','Sightseeing in the trip'))}"><p><i class="fa-solid fa-${inTrip?'circle-check':'suitcase-rolling'}" aria-hidden="true"></i> ${esc(inTrip?t(`Zwiedzanie ${city} jest w przebiegu podróży (${fmtMin(T.totalMin,t)}).`,`Sightseeing in ${city} is in your trip (${fmtMin(T.totalMin,t)}).`):t('Plan gotowy? Dodaj go do podróży: pojawi się jako ikona „Zwiedzanie” w przebiegu podróży.','Plan ready? Add it to the trip: it shows as a “Sightseeing” icon in the trip’s stages.'))}</p>
+      <div class="xa-addform-btns">${pick}${inTrip?`<button type="button" class="btn-ghost" data-xp-trip="off"><i class="fa-solid fa-xmark" aria-hidden="true"></i> ${esc(t('Usuń z podróży','Remove from trip'))}</button>`:`<button type="button" class="btn-grad" data-xp-trip="on"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> ${esc(t('Dodaj do podróży','Add to trip'))}</button>`}</div></section>`;
+  }
+  // Pytanie przy dodawaniu miejsca: skąd do niego idziesz.
+  function fromAskHtml({name='', prev='', home='', centre='', def='', t=PL}={}){
+    const opt=(k,icon,label,sub)=>`<button type="button" class="xa-fromopt${k===def?' on':''}" data-xp-askfrom="${k}"><i class="fa-solid fa-${icon}" aria-hidden="true"></i><span><b>${esc(label)}</b>${sub?`<small>${esc(sub)}</small>`:''}</span></button>`;
+    return `<div class="xa-fromask"><p>${esc(t(`Skąd pójdziesz do: ${name}?`,`Where will you start for ${name}?`))}</p>
+      ${prev?opt('prev','arrow-turn-down',t('Z poprzedniego miejsca','From the previous place'),prev):''}${home?opt('home','hotel',t('Z hotelu','From the hotel'),home):''}${opt('centre','city',t('Z centrum','From the centre'),centre)}${opt('custom','location-dot',t('Z innego miejsca…','From another place…'),t('wpisz nazwę lub adres','type a name or address'))}
+      <form class="xa-fromform" data-xp-askfrom-form autocomplete="off" hidden><label class="cp-field"><span>${esc(t('Skąd zaczynasz','Where you start'))}</span><input id="xpAskFromName" name="name" required maxlength="120" placeholder="${esc(t('np. dworzec, kawiarnia, adres','e.g. station, café, address'))}"></label><span class="xa-addform-btns"><button type="submit" class="btn-grad">${esc(t('Ustaw','Set'))}</button></span></form></div>`;
   }
   // Propozycja trasy: wybór czasu, lista z godzinami i rodzajami, „Użyj tej trasy”.
   const BUDGETS=[120,240,360,480];
@@ -212,5 +226,5 @@
   }
 
 
-  root.PVX={esc, km, legs, totals, shortest, mapsUrl, walkMin, fmtKm, fmtMin, visitMin, originOf, schedule, suggest, whereHtml, suggestHtml, headHtml, tabsHtml, attrListHtml, detailHtml, planHtml, askHtml, KIND};
+  root.PVX={esc, km, legs, totals, shortest, mapsUrl, walkMin, fmtKm, fmtMin, visitMin, originOf, schedule, suggest, whereHtml, suggestHtml, tripHtml, fromAskHtml, headHtml, tabsHtml, attrListHtml, detailHtml, planHtml, askHtml, KIND};
 })(typeof window!=='undefined'?window:globalThis);

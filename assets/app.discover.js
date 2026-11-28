@@ -136,7 +136,7 @@
   }
 
   /* 6b: "O miejscu", from /api/places/about (src/knowledge.js). Shows only what Wikipedia and Wikidata gave, with the
-     attribution their licences ask for; a missing fact is simply not listed. */
+     attribution their licences ask for; a missing fact is simply not listed. Text only: no picture. */
   function aboutHtml(info, o={}){
     const t=o.t||PL;
     if(!info?.found) return `<div class="empty-note">${esc(t('Nie znaleźliśmy opisu tego miejsca w Wikipedii.','We found no Wikipedia article about this place.'))}</div>`;
@@ -150,7 +150,6 @@
     ].filter(Boolean);
     const src=(info.sources||[]).map(s=>`<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.name)}</a> (${esc(s.license)})`).join(', ');
     return `<article class="pv-about">
-      ${info.image?`<img class="pv-about-img" src="${esc(info.image)}" alt="${esc(info.title)}" loading="lazy" decoding="async">`:''}
       <h4>${esc(info.title)}</h4>${info.description?`<div class="pv-about-desc">${esc(info.description)}</div>`:''}
       ${info.extract?`<p>${esc(info.extract)}</p>`:''}
       ${rows.length?`<dl class="pv-about-facts">${rows.map(([k,v])=>`<div><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join('')}</dl>`:''}
