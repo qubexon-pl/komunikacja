@@ -500,3 +500,13 @@ body.trip-mode .hero-right{display:none !important}
 .explore-map-legend .lg.both{background:conic-gradient(#F7C948 0 180deg,#B04AE0 180deg 360deg)}
 .explore-map-legend .lg.origin{background:#24a690}
 .explore-stage.card-on .explore-map-legend{visibility:hidden}
+
+/* "Zainstaluj Podavo" bar: shows by itself when the browser can install the app; sits above the phone tab bar. */
+.install-banner{position:fixed; left:12px; right:12px; bottom:calc(var(--app-bottom,0px) + 12px + env(safe-area-inset-bottom,0px)); z-index:1040; display:flex; align-items:center; gap:10px; max-width:520px; margin:0 auto; padding:10px 10px 10px 12px; border-radius:16px; background:var(--bg-alt,#fff); color:var(--ink,#13203a); border:1px solid var(--line,#e3e8ef); box-shadow:0 10px 30px -10px rgba(19,32,58,.45)}
+.install-banner img{border-radius:10px; flex:0 0 auto}
+.install-banner .ib-text{flex:1; min-width:0}
+.install-banner .ib-text b{display:block; font-size:.92rem}
+.install-banner .ib-text small{display:block; color:var(--ink-soft,#5b6b80); font-size:.76rem; line-height:1.25}
+.install-banner .ib-go{flex:0 0 auto; padding:8px 14px; white-space:nowrap}
+.install-banner .ib-x{flex:0 0 auto; width:32px; height:32px; border:0; border-radius:50%; background:transparent; color:var(--ink-soft,#5b6b80)}
+@media (min-width:1024px){ .install-banner{left:auto; right:20px; bottom:20px; width:420px} }

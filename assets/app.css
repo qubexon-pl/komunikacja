@@ -3197,3 +3197,7 @@ button.ctx-dep-open:focus-visible{outline:2px solid var(--btn, #2472C8); outline
 .wx-alert-pop b{display:block; margin-bottom:4px; color:#C9363B; font-size:.82rem}
 .wx-alert-close{position:absolute; top:6px; right:6px; width:26px; height:26px; border:0; border-radius:50%; background:transparent; color:var(--ink-soft,#5A6B82)}
 .wx-alert-close:hover{background:var(--soft,#EEF3F9)}
+/* Moje alerty cenowe: the card fits the dialog (a grid item would otherwise grow to its longest line) */
+.my-alerts-list{grid-template-columns:minmax(0,1fr)}
+.fav-alert .fav-card-open b{white-space:normal; overflow-wrap:anywhere}
+.fav-alert .fav-card-open small{overflow-wrap:anywhere}

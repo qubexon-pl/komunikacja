@@ -5235,10 +5235,15 @@ function savedPriceHtml(key, fl, stored){
   return `<div class="fav-price"><span>${stored?`zapisano za ${stored} zł · `:''}${now}${diff?` <b class="${diff<0?'txt-ok':'txt-red'}">${diff<0?'':'+'}${diff} zł</b>`:''}</span>
     <span class="fav-price-tools"><button class="btn-ghost" type="button" data-fav-refresh="${esc(key)}" ${p?.state==='asking'?'disabled':''}><i class="fa-solid fa-rotate" aria-hidden="true"></i> Odśwież cenę</button><button class="btn-ghost" type="button" data-fav-alert="${esc(key)}"><i class="fa-solid fa-bell" aria-hidden="true"></i> Powiadom o cenie</button></span></div>`;
 }
+// Nazwa podróży do alertów: własny tytuł, a bez niego miasta (bez ulicy i numeru domu z „Skąd?”).
+function placeShort(s){ const parts=String(s||'').split(',').map(x=>x.trim()).filter(Boolean); return parts.length>1 && /\d/.test(parts[0]) ? parts[1] : (parts[0]||''); }
+function tripName(f){ return f?.title || `${placeShort(f?.from)} → ${placeShort(f?.to)}`; }
+function alertTrip(a){ return FAV.items.find(f=>{ if(f.type!=='trip') return false; const fl=savedFlight(f); return fl && fl.from===a.from && fl.to===a.to && fl.day===a.day; }); }
+function alertName(a){ const t=alertTrip(a); return t ? tripName(t) : String(a.label||a.from+' → '+a.to).split(' → ').map(placeShort).join(' → '); }
 function alertCard(a){
-  const price=a.currentPrice!=null?`teraz ${a.currentPrice} zł`:'brak ceny';
+  const price=a.currentPrice!=null?`teraz ${Math.round(a.currentPrice)} zł`:'brak ceny';
   return `<div class="fav-card fav-alert ${a.reached?'reached':''}"><span class="fav-ico"><i class="fa-solid fa-bell" aria-hidden="true"></i></span>
-    <div class="fav-card-open"><b>${esc(a.label||a.from+' → '+a.to)}</b><small>${esc(a.from)} → ${esc(a.to)} · ${fmtDay(a.day)}${a.back?' – '+fmtDay(a.back):''} · do ${a.maxPrice} zł · ${ALERT_EVERY[a.everyHours]||''}</small>
+    <div class="fav-card-open"><b>${esc(alertName(a))}</b><small>${esc(a.from)} → ${esc(a.to)} · ${fmtDay(a.day)}${a.back?' – '+fmtDay(a.back):''} · do ${a.maxPrice} zł · ${ALERT_EVERY[a.everyHours]||''}</small>
       <small>${price}${a.reached?' · <span class="chip ok">Cena osiągnięta</span>':''}${a.notifiedAt?' · wysłano e-mail':''}</small></div>
     <button class="fav-card-remove" type="button" data-alert-remove="${esc(a.id)}" title="Usuń alert" aria-label="Usuń alert"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>`;
 }
@@ -5349,7 +5354,7 @@ document.getElementById('favPage').addEventListener('click', e=>{
   const rm=e.target.closest('[data-alert-remove]'); if(rm){ removeAlert(rm.dataset.alertRemove); return; }
   const item=key=>FAV.items.find(x=>favKey(x)===key);
   const rf=e.target.closest('[data-fav-refresh]'); if(rf){ const f=item(rf.dataset.favRefresh), fl=f&&savedFlight(f); if(fl) refreshSavedPrice(rf.dataset.favRefresh, fl); return; }
-  const fa=e.target.closest('[data-fav-alert]'); if(fa){ const f=item(fa.dataset.favAlert), fl=f&&savedFlight(f); if(fl) openAlertDialog({...fl, price:FAVP.get(fa.dataset.favAlert)?.price??f.flight?.price??null, label:`${f.from} → ${f.to}`}); }
+  const fa=e.target.closest('[data-fav-alert]'); if(fa){ const f=item(fa.dataset.favAlert), fl=f&&savedFlight(f); if(fl) openAlertDialog({...fl, price:FAVP.get(fa.dataset.favAlert)?.price??f.flight?.price??null, label:tripName(f)}); }
 });
 document.getElementById('favFilters').addEventListener('click', e=>{
   const b=e.target.closest('[data-fav-kind]'); if(!b) return;
@@ -6717,7 +6722,7 @@ document.getElementById('tripPage').addEventListener('click', e=>{
   const ha=e.target.closest('[data-tp-hotel-add]'); if(ha){ const st=HOT.get(tidOf(f)), h=st?.hotels?.find(x=>String(x.id)===ha.dataset.tpHotelAdd), q=hotelQuery(f.trip); if(h){ setTripHotel(f,{...h, checkin:q?.checkin||'', checkout:q?.checkout||''}); toast(`Dodano hotel: ${h.name}.`); } return; }
   if(e.target.closest('[data-tp-hotel-remove]')){ askConfirm(L2('Usunąć hotel z tej podróży?','Remove the hotel from this trip?'), {detail:f.trip?.hotel?.name||'', ok:L2('Usuń hotel','Remove hotel'), danger:true}).then(ok=>{ if(!ok) return; const {hotel, ...rest}=f.trip; f.trip=rest; saveFavorites().catch(err=>console.warn('Nie zapisano', err)); TRIPMAP.key=''; renderTripPage(); }); return; }
   const rf=e.target.closest('[data-fav-refresh]'); if(rf){ const fl=savedFlight(f); if(fl) refreshSavedPrice(rf.dataset.favRefresh, fl).then(()=>{ if(S.sub==='trip') renderTripPage(); }); return; }
-  const fa=e.target.closest('[data-fav-alert]'); if(fa){ const fl=savedFlight(f); if(fl) openAlertDialog({...fl, price:FAVP.get(fa.dataset.favAlert)?.price??f.flight?.price??null, label:`${f.from} → ${f.to}`}); }
+  const fa=e.target.closest('[data-fav-alert]'); if(fa){ const fl=savedFlight(f); if(fl) openAlertDialog({...fl, price:FAVP.get(fa.dataset.favAlert)?.price??f.flight?.price??null, label:tripName(f)}); }
 });
 // W okolicy: promień wyszukiwania (1–5 km), zapamiętany na tym urządzeniu.
 document.addEventListener('change', e=>{
@@ -8597,7 +8602,27 @@ weatherBoot();
   let apk=false, store=null; // the Android app: its Google Play page, or the APK on this server (checked once, below)
   let deferred=window.__installPrompt||null;
   const item=btn.closest('li')||btn;
-  const show=()=>{ item.hidden= native || !(store || apk || (!standalone() && (deferred || ios))); };
+  // Pasek „Zainstaluj aplikację” pojawia się sam, gdy przeglądarka pozwala zainstalować Podavo (jak w Podavo Clean):
+  // jedno stuknięcie otwiera okno instalacji przeglądarki. Zamknięty wraca po 14 dniach. Na iPhonie prowadzi do instrukcji.
+  const BANNER_KEY='podavo.install.dismissed', BANNER_DAYS=14;
+  const bannerOff=()=>{ try{ const t=+localStorage.getItem(BANNER_KEY)||0; return Date.now()-t<BANNER_DAYS*864e5; }catch{ return false; } };
+  const banner=()=>{
+    const want=!native && !standalone() && !bannerOff() && !!(deferred || (ios && /safari/i.test(navigator.userAgent) && !/crios|fxios/i.test(navigator.userAgent)));
+    let el=document.getElementById('installBanner');
+    if(!want){ el?.remove(); return; }
+    if(el) return;
+    el=document.createElement('div'); el.id='installBanner'; el.className='install-banner'; el.setAttribute('role','region'); el.setAttribute('aria-label',L2('Zainstaluj aplikację','Install the app'));
+    el.innerHTML=`<img src="/assets/onward/png/icon-192.png" alt="" width="40" height="40"><div class="ib-text"><b>${L2('Zainstaluj Podavo','Install Podavo')}</b><small>${L2('Na ekranie początkowym, z powiadomieniami push','On your home screen, with push notifications')}</small></div><button type="button" class="btn-grad ib-go">${L2('Zainstaluj','Install')}</button><button type="button" class="ib-x" aria-label="${L2('Nie teraz','Not now')}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
+    el.querySelector('.ib-x').addEventListener('click', ()=>{ try{ localStorage.setItem(BANNER_KEY, String(Date.now())); }catch{} el.remove(); });
+    el.querySelector('.ib-go').addEventListener('click', async ()=>{
+      if(!deferred){ bootstrap.Modal.getOrCreateInstance(document.getElementById('installModal')).show(); return; }
+      const e=deferred; deferred=null; window.__installPrompt=null; el.remove();
+      try{ await e.prompt(); const r=await e.userChoice; if(r?.outcome!=='accepted'){ try{ localStorage.setItem(BANNER_KEY, String(Date.now())); }catch{} } }catch(err){}
+      show();
+    });
+    document.body.appendChild(el);
+  };
+  const show=()=>{ item.hidden= native || !(store || apk || (!standalone() && (deferred || ios))); banner(); };
   window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferred=e; window.__installPrompt=e; show(); });
   window.addEventListener('appinstalled', ()=>{ deferred=null; window.__installPrompt=null; show(); });
   btn.addEventListener('click', async ()=>{
