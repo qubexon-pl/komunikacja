@@ -636,7 +636,7 @@ BEGIN
         user_id UNIQUEIDENTIFIER NOT NULL,
         trip_id VARCHAR(24) NOT NULL,
         city NVARCHAR(120) NOT NULL,
-        plan NVARCHAR(MAX) NOT NULL,
+        [plan] NVARCHAR(MAX) NOT NULL,  -- PLAN is a reserved word in T-SQL
         model VARCHAR(60) NOT NULL,
         created_at DATETIME2(0) NOT NULL CONSTRAINT DF_TripAiPlan_CreatedAt DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT PK_TripAiPlan PRIMARY KEY (user_id, trip_id, city),
