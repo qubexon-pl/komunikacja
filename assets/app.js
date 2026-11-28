@@ -1333,11 +1333,11 @@ const pageHash=()=>OLD_HASH[location.hash]||location.hash;
 const FAVF={kind:'all'};
 // Moje podróże (/my-trips) i strona jednej zapisanej podróży (/trip?id=…).
 const TRIPV={id:'', city:false, map:false, sheet:'', back:''};
-// Moje podróże mają dwie zakładki: nadchodzące (domyślnie) i archiwum minionych (/my-trips#archive).
+// Moje podróże mają trzy zakładki: nadchodzące (domyślnie), archiwum minionych (/my-trips#archive) i kalendarz (/my-trips#calendar).
 const MYT={tab:'upcoming'};
 function pageFromLocation(){
   if(location.pathname==='/destinations') return {view:'podroz', sub:'kierunki', kind:'all'};
-  if(location.pathname==='/my-trips'){ MYT.tab=pageHash()==='#archive'?'archive':'upcoming'; return {view:'podroz', sub:'moje', kind:'all'}; }
+  if(location.pathname==='/my-trips'){ MYT.tab=pageHash()==='#archive'?'archive':pageHash()==='#calendar'?'calendar':'upcoming'; return {view:'podroz', sub:'moje', kind:'all'}; }
   if(location.pathname==='/trip'){ TRIPV.id=new URLSearchParams(location.search).get('id')||''; return {view:'podroz', sub:'trip', kind:'all'}; }
   if(location.pathname==='/favourites'){
     const kind=Object.keys(FAV_HASH).find(k=>'#'+FAV_HASH[k]===pageHash())||'all';
@@ -1352,7 +1352,7 @@ function pageFromLocation(){
 function pageUrl(view, sub, kind){
   if(sub==='ulubione') return '/favourites'+(kind&&kind!=='all'?'#'+FAV_HASH[kind]:'');
   if(sub==='kierunki') return '/destinations';
-  if(sub==='moje') return '/my-trips'+(MYT.tab==='archive'?'#archive':'');
+  if(sub==='moje') return '/my-trips'+(MYT.tab==='archive'?'#archive':MYT.tab==='calendar'?'#calendar':'');
   if(sub==='trip') return '/trip?id='+encodeURIComponent(TRIPV.id);
   return VIEWS[view].path+(sub==='rozklad'?'#timetable':sub==='linie'?'#lines':'');
 }
@@ -1600,7 +1600,7 @@ function setSubpage(sub){
   if(TRANSIT.includes(S.agency) && ['','rozklad','linie'].includes(sub)) [title,lead]=transitHead(S.agency, sub, TCITY.name, tx);
   if(sub==='ulubione'){ title=FAV_TITLES[FAVF.kind]; lead='Zapisane trasy, przystanki, stacje i podróże.'; }
   if(sub==='kierunki'){ title='Sprawdź kierunki'; lead=EXPLORE.summary||'Sprawdź, dokąd polecisz z polskich lotnisk.'; }
-  if(sub==='moje'){ title='Moje podróże'; lead=MYT.tab==='archive'?'Archiwum: Twoje minione podróże, ich plany i zdjęcia.':'Twoje zaplanowane podróże w jednym miejscu.'; }
+  if(sub==='moje'){ title='Moje podróże'; lead=MYT.tab==='archive'?'Archiwum: Twoje minione podróże, ich plany i zdjęcia.':MYT.tab==='calendar'?L2('Kalendarz: podróże, plany z ulubionych i Twoje wolne dni.','Calendar: trips, saved plans and your days off.'):'Twoje zaplanowane podróże w jednym miejscu.'; }
   if(sub==='trip'){ const t=findTrip(TRIPV.id); title='Szczegóły podróży'; lead=t?tripLead(t):'Twoja podróż krok po kroku.'; }
   setHeroTitle(title);
   document.getElementById('heroLead').textContent=lead;
@@ -5498,18 +5498,89 @@ function renderMyTrips(){
   const list=FAV.items.filter(f=>f.type==='trip' && f.status==='booked');
   const shared=SHARED.items.map(x=>({...x.trip, shared:{ownerId:x.ownerId, ownerName:x.ownerName}}));
   const all=[...list, ...shared], past=all.filter(tripIsPast), next=all.length-past.length;
-  const archive=MYT.tab==='archive';
-  const tabs=all.length?`<div class="fav-filters mytrips-tabs" role="tablist" aria-label="Moje podróże">
-    <button type="button" role="tab" class="fav-filter ${archive?'':'on'}" data-mytrips-tab="upcoming" aria-selected="${!archive}"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> ${L2('Nadchodzące','Upcoming')} <small>${next}</small></button>
-    <button type="button" role="tab" class="fav-filter ${archive?'on':''}" data-mytrips-tab="archive" aria-selected="${archive}"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> ${L2('Archiwum','Archive')} <small>${past.length}</small></button></div>`:'';
+  const archive=MYT.tab==='archive', calendar=MYT.tab==='calendar', upcomingTab=!archive&&!calendar;
+  // Kalendarz jest zawsze dostępny (dni wolne można blokować jeszcze przed pierwszą podróżą).
+  const tabs=`<div class="fav-filters mytrips-tabs" role="tablist" aria-label="Moje podróże">
+    <button type="button" role="tab" class="fav-filter ${upcomingTab?'on':''}" data-mytrips-tab="upcoming" aria-selected="${upcomingTab}"><i class="fa-solid fa-suitcase-rolling" aria-hidden="true"></i> ${L2('Nadchodzące','Upcoming')} <small>${next}</small></button>
+    ${all.length?`<button type="button" role="tab" class="fav-filter ${archive?'on':''}" data-mytrips-tab="archive" aria-selected="${archive}"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> ${L2('Archiwum','Archive')} <small>${past.length}</small></button>`:''}
+    <button type="button" role="tab" class="fav-filter ${calendar?'on':''}" data-mytrips-tab="calendar" aria-selected="${calendar}"><i class="fa-regular fa-calendar" aria-hidden="true"></i> ${L2('Kalendarz','Calendar')}</button></div>`;
   let body;
-  if(!all.length) body=`<div class="empty-note">${stateIll(assetPaths.noTrips)}Nie masz jeszcze zapisanych podróży. Zaplanuj lot, a na ostatnim kroku „Z lotniska do centrum” kliknij „Zapisz moją podróż”. Plany, których nie jesteś pewien, zapisuj w ulubionych.</div>`;
+  if(calendar) body=tripCalendarHtml();
+  else if(!all.length) body=`<div class="empty-note">${stateIll(assetPaths.noTrips)}Nie masz jeszcze zapisanych podróży. Zaplanuj lot, a na ostatnim kroku „Z lotniska do centrum” kliknij „Zapisz moją podróż”. Plany, których nie jesteś pewien, zapisuj w ulubionych.</div>`;
   else if(archive) body=past.length?`<p class="mytrips-note">${L2('Podróże, które już się skończyły. Otwórz podróż, aby zobaczyć jej plan i dodać zdjęcia.','Trips that have already ended. Open a trip to see its plan and add photos.')}</p>${tripTimeline(past,{booked:true, only:'past'})}`
     :`<div class="empty-note">${L2('Archiwum jest puste. Podróże trafiają tu same, gdy minie dzień powrotu.','The archive is empty. Trips move here on their own once the return day has passed.')}</div>`;
   else body=next?nextTripCard(all)+tripTimeline(all,{booked:true, only:'upcoming'})
     :`<div class="empty-note">${stateIll(assetPaths.noTrips)}${L2('Nie masz nadchodzących podróży. Minione znajdziesz w zakładce „Archiwum”.','You have no upcoming trips. Past ones are in the “Archive” tab.')}</div>`;
   page.innerHTML=tabs+body;
 }
+/* ---------- Kalendarz podróży (assets/app.calendar.js): podróże, plany z ulubionych i zablokowane dni ----------
+   Podróże i plany biorą daty z zapisanych ulubionych; zablokowane dni (wolne / zajęte) są na koncie, /api/calendar. */
+const CAL={month:'', selected:'', form:null, blocks:[], loaded:false, loading:null};
+function calTrips(){
+  const mine=FAV.items.filter(f=>f.type==='trip').map(f=>({f, shared:false}));
+  const shared=SHARED.items.map(x=>({f:{...x.trip, shared:{ownerId:x.ownerId, ownerName:x.ownerName}}, shared:true}));
+  return [...mine, ...shared].map(({f, shared})=>{ const fl=savedFlight(f)||groundDates(f); if(!fl?.day) return null;
+    return {key:shared?'':favKey(f), tid:tidOf(f), title:tripName(f), route:routeText(f), from:fl.day, to:fl.back||fl.day, status:shared?'booked':f.status==='booked'?'booked':'planned', shared}; }).filter(Boolean);
+}
+function loadCalendar(){
+  if(!FAV.user || CAL.loaded || CAL.loading) return CAL.loading;
+  CAL.loading=fetch('/api/calendar').then(r=>r.ok?r.json():null).then(x=>{ if(x){ CAL.blocks=x.blocks||[]; CAL.loaded=true; } })
+    .catch(e=>console.warn('Nie wczytano kalendarza', e)).finally(()=>{ CAL.loading=null; if(S.sub==='moje'&&MYT.tab==='calendar') renderMyTrips(); });
+  return CAL.loading;
+}
+async function saveCalendar(blocks){
+  const before=CAL.blocks; CAL.blocks=blocks; renderMyTrips();
+  try{
+    const r=await fetch('/api/calendar',{method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks})});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    CAL.blocks=(await r.json()).blocks||[]; renderMyTrips(); return true;
+  }catch(e){ console.warn('Nie zapisano kalendarza', e); CAL.blocks=before; renderMyTrips(); toast(L2('Nie udało się zapisać kalendarza. Spróbuj ponownie.','Could not save the calendar. Please try again.')); return false; }
+}
+function tripCalendarHtml(){
+  const today=ymdOf(0);
+  if(!CAL.month){ CAL.month=today.slice(0,7); CAL.selected=today; }
+  if(FAV.user && !CAL.loaded) loadCalendar();
+  if(CAL.form) CAL.form.conflicts=PVCAL.conflicts(CAL.form, calTrips(), CAL.blocks, L2);
+  return PVCAL.render({state:CAL, trips:calTrips(), blocks:CAL.blocks, today, signedIn:!!FAV.user, loaded:CAL.loaded, t:L2});
+}
+const calFormValues=()=>({...CAL.form, from:document.getElementById('calFrom')?.value||CAL.form.from, to:document.getElementById('calTo')?.value||CAL.form.to,
+  note:document.getElementById('calNote')?.value??CAL.form.note, kind:document.querySelector('#calForm input[name="calKind"]:checked')?.value||CAL.form.kind});
+document.getElementById('myTripsPage')?.addEventListener('click', e=>{
+  if(MYT.tab!=='calendar') return;
+  const sh=e.target.closest('[data-cal-shift]'); if(sh){ CAL.month=PVCAL.shiftMonth(CAL.month, +sh.dataset.calShift); renderMyTrips(); return; }
+  if(e.target.closest('[data-cal-today]')){ const d=ymdOf(0); CAL.month=d.slice(0,7); CAL.selected=d; renderMyTrips(); return; }
+  const day=e.target.closest('[data-cal-day]');
+  if(day){ const d=day.dataset.calDay; CAL.selected=d; if(d.slice(0,7)!==CAL.month) CAL.month=d.slice(0,7);
+    if(CAL.form&&!CAL.form.id){ CAL.form={...calFormValues(), from:d, to:d}; } renderMyTrips(); document.querySelector(`[data-cal-day="${d}"]`)?.focus(); return; }
+  if(e.target.closest('[data-cal-add]')){ CAL.form={from:CAL.selected, to:CAL.selected, kind:'off', note:''}; renderMyTrips(); document.getElementById('calNote')?.focus(); return; }
+  if(e.target.closest('[data-cal-cancel]')){ CAL.form=null; renderMyTrips(); return; }
+  const ed=e.target.closest('[data-cal-edit]');
+  if(ed){ const b=CAL.blocks.find(x=>x.id===ed.dataset.calEdit); if(b){ CAL.form={id:b.id, from:b.from, to:b.to, kind:b.kind, note:b.note||''}; renderMyTrips(); document.getElementById('calNote')?.focus(); } return; }
+  const rm=e.target.closest('[data-cal-remove]');
+  if(rm){ const b=CAL.blocks.find(x=>x.id===rm.dataset.calRemove); if(!b) return;
+    if(CAL.form?.id===b.id) CAL.form=null;
+    saveCalendar(CAL.blocks.filter(x=>x.id!==b.id)).then(ok=>{ if(ok) toast(L2('Usunięto z kalendarza.','Removed from the calendar.')); }); }
+});
+document.getElementById('myTripsPage')?.addEventListener('change', e=>{
+  if(MYT.tab!=='calendar' || !CAL.form || !e.target.closest('#calForm')) return;
+  // Bez przerysowania formularza (kliknięte właśnie pole daty musi zostać): tylko najwcześniejszy dzień „Do” i nakładki.
+  const v=calFormValues(), to=document.getElementById('calTo');
+  if(to){ to.min=v.from; if(v.to<v.from){ v.to=v.from; to.value=v.from; } }
+  v.conflicts=PVCAL.conflicts(v, calTrips(), CAL.blocks, L2);
+  CAL.form=v;
+  const box=document.getElementById('calConflict'); if(box) box.innerHTML=PVCAL.conflictHtml(v.conflicts, L2);
+});
+document.getElementById('myTripsPage')?.addEventListener('submit', e=>{
+  if(e.target.id!=='calForm') return;
+  e.preventDefault();
+  const v=calFormValues(), DAYRE=/^\d{4}-\d{2}-\d{2}$/;
+  if(!DAYRE.test(v.from)||!DAYRE.test(v.to)||v.to<v.from){ CAL.form={...v, error:L2('Wybierz pierwszy i ostatni dzień (ostatni nie może być wcześniej).','Pick the first and last day (the last one cannot be earlier).')}; renderMyTrips(); return; }
+  if(PVCAL.addDays(v.from,366)<=v.to){ CAL.form={...v, error:L2('Najwyżej rok naraz.','A year at most.')}; renderMyTrips(); return; }
+  const block={id:v.id||newTid(), from:v.from, to:v.to, kind:v.kind==='busy'?'busy':'off', note:(v.note||'').trim().slice(0,200)};
+  const edited=!!v.id;
+  CAL.form=null; CAL.selected=v.from; CAL.month=v.from.slice(0,7);
+  saveCalendar([...CAL.blocks.filter(x=>x.id!==block.id), block]).then(ok=>{ if(ok) toast(edited?L2('Zapisano zmiany.','Changes saved.'):block.kind==='off'?L2('Dodano dni wolne.','Days off added.'):L2('Zablokowano dni.','Days blocked.')); });
+});
 const fmtTs=ts=>ts?`${fmtDay(dayOfTs(ts))} ${fmtClock(ts)}`:'';
 /* ---------- Pogoda jako mała plakietka przy miejscu (start, lotniska, centrum) ---------- */
 function wxChipHtml(w){

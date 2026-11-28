@@ -662,3 +662,24 @@ BEGIN
     CREATE INDEX IX_PushSubscription_User ON dbo.PushSubscription (user_id);
 END;
 GO
+
+-- Trip calendar (src/calendar.js): days a traveller blocks, either days off that are free for travel ("off") or days
+-- that are taken ("busy"). Same shape as Podavo Clean's dbo.BusyBlock (start, end, note), with whole days.
+IF OBJECT_ID(N'dbo.CalendarBlock', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.CalendarBlock (
+        user_id UNIQUEIDENTIFIER NOT NULL,
+        block_id VARCHAR(24) NOT NULL,
+        starts_on DATE NOT NULL,
+        ends_on DATE NOT NULL,
+        kind VARCHAR(8) NOT NULL,
+        note NVARCHAR(200) NULL,
+        updated_at DATETIME2(0) NOT NULL CONSTRAINT DF_CalendarBlock_UpdatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_CalendarBlock PRIMARY KEY (user_id, block_id),
+        CONSTRAINT FK_CalendarBlock_AppUser FOREIGN KEY (user_id) REFERENCES dbo.AppUser (user_id) ON DELETE CASCADE,
+        CONSTRAINT CK_CalendarBlock_Range CHECK (ends_on >= starts_on),
+        CONSTRAINT CK_CalendarBlock_Kind CHECK (kind IN ('off', 'busy'))
+    );
+    CREATE INDEX IX_CalendarBlock_User ON dbo.CalendarBlock (user_id, starts_on);
+END;
+GO

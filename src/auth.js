@@ -161,6 +161,28 @@ function createAuthService(pool, {
       `);
   }
 
+  // Blocked days of the trip calendar (already checked by normalizeBlocks): the whole list is replaced in one go.
+  async function getCalendarBlocks(userId) {
+    const result = await pool.request().input("userId", sql.UniqueIdentifier, userId).query(`
+      SELECT block_id AS id, CONVERT(char(10), starts_on, 23) AS [from], CONVERT(char(10), ends_on, 23) AS [to], kind, note
+      FROM dbo.CalendarBlock WHERE user_id = @userId ORDER BY starts_on, ends_on, block_id;`);
+    return result.recordset.map((r) => (r.note ? { id: r.id, from: r.from, to: r.to, kind: r.kind, note: r.note } : { id: r.id, from: r.from, to: r.to, kind: r.kind }));
+  }
+  async function saveCalendarBlocks(userId, blocks) {
+    await pool.request()
+      .input("userId", sql.UniqueIdentifier, userId)
+      .input("blocks", sql.NVarChar(sql.MAX), JSON.stringify(blocks))
+      .query(`
+        SET XACT_ABORT ON;
+        BEGIN TRANSACTION;
+        DELETE FROM dbo.CalendarBlock WHERE user_id = @userId;
+        INSERT INTO dbo.CalendarBlock (user_id, block_id, starts_on, ends_on, kind, note)
+          SELECT @userId, j.id, j.[from], j.[to], j.kind, NULLIF(j.note, N'')
+          FROM OPENJSON(@blocks) WITH (id VARCHAR(24) '$.id', [from] DATE '$.from', [to] DATE '$.to', kind VARCHAR(8) '$.kind', note NVARCHAR(200) '$.note') AS j;
+        COMMIT TRANSACTION;
+      `);
+  }
+
   // Voyage's own data of a person who leaves the app (the shared account is handled in accounts.js).
   async function deleteLocal(userId) {
     await pool.request().input("userId", sql.UniqueIdentifier, userId).query(`
@@ -168,6 +190,7 @@ function createAuthService(pool, {
       BEGIN TRANSACTION;
       DELETE FROM dbo.UserFavorites WHERE user_id = @userId;
       DELETE FROM dbo.UserPreference WHERE user_id = @userId;
+      IF OBJECT_ID(N'dbo.CalendarBlock', N'U') IS NOT NULL DELETE FROM dbo.CalendarBlock WHERE user_id = @userId;
       IF OBJECT_ID(N'dbo.TripAiPlan', N'U') IS NOT NULL DELETE FROM dbo.TripAiPlan WHERE user_id = @userId;
       IF OBJECT_ID(N'dbo.EmailChallenge', N'U') IS NOT NULL DELETE FROM dbo.EmailChallenge WHERE user_id = @userId;
       IF OBJECT_ID(N'dbo.AuthSession', N'U') IS NOT NULL DELETE FROM dbo.AuthSession WHERE user_id = @userId;
@@ -180,7 +203,7 @@ function createAuthService(pool, {
 
   return {
     sendNotice,
-    getFavorites, saveFavorites, getPreferences, savePreferences,
+    getFavorites, saveFavorites, getPreferences, savePreferences, getCalendarBlocks, saveCalendarBlocks,
     resolveSession: accounts.resolveSession,
     revokeSession: accounts.revokeSession,
     startEmailLogin: accounts.startEmailLogin,

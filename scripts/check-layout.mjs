@@ -18,7 +18,7 @@ const { chromium } = require('playwright');
 
 const WIDTHS = [320, 390, 768, 1024, 1440];
 const THEMES = ['light', 'dark'];
-const PAGES = ['/plan', '/destinations', '/my-trips', '/favourites', '/buses', '/buses#timetable', '/buses#lines', '/suburban', '/trains', '/trains#timetable', '/login', '/welcome'];
+const PAGES = ['/plan', '/destinations', '/my-trips', '/my-trips#calendar', '/favourites', '/buses', '/buses#timetable', '/buses#lines', '/suburban', '/trains', '/trains#timetable', '/login', '/welcome'];
 const HTML = { '/plan': 'index.html', '/destinations': 'index.html', '/my-trips': 'index.html', '/favourites': 'index.html', '/buses': 'index.html', '/suburban': 'index.html', '/trains': 'index.html', '/login': 'login.html', '/welcome': 'welcome.html' };
 const TYPES = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.json': 'application/json', '.webmanifest': 'application/json', '.woff2': 'font/woff2', '.ttf': 'font/ttf' };
 const NM = join(root, 'node_modules');
