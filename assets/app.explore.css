@@ -97,3 +97,14 @@
 .xa-sugg-list{list-style:none; margin:8px 0; padding:0; display:grid; gap:6px}
 .xa-sugg-list li{display:flex; align-items:center; gap:10px} .xa-sugg-list li>span:last-child{display:grid; min-width:0} .xa-sugg-list small{color:var(--ink-soft); font-size:.76rem}
 @media (max-width:767px){ .xa-planmap{height:200px} .xa-leg{margin-left:13px; padding-left:14px} }
+
+/* Skąd do każdego miejsca (pytanie po dodaniu), plan jako etap podróży */
+.xa-from{display:inline-flex; align-items:center; gap:6px; font-weight:600; color:var(--ink)}
+.xa-fromask p{margin:0 0 10px; font-weight:600}
+.xa-fromopt{display:flex; align-items:center; gap:12px; width:100%; margin-bottom:8px; padding:10px 12px; min-height:52px; border:1.5px solid var(--card-border, #dbe3ee); border-radius:12px; background:var(--bg, #fff); color:inherit; text-align:left; cursor:pointer}
+.xa-fromopt i{width:22px; text-align:center; color:#2878D0} .xa-fromopt span{display:grid} .xa-fromopt small{color:var(--ink-soft); font-size:.78rem}
+.xa-fromopt.on{border-color:#2878D0; background:color-mix(in srgb, #2878D0 7%, var(--bg, #fff))}
+.xa-trip{margin-top:12px; padding:12px; border:1px dashed var(--card-border, #dbe3ee); border-radius:14px} .xa-trip.on{border-style:solid; border-color:#2b8a3e}
+.xa-trip p{margin:0 0 8px; font-size:.86rem} .xa-trip p i{color:#2b8a3e}
+.xa-day{display:inline-flex; align-items:center; gap:6px; font-size:.86rem; font-weight:600} .xa-day select{min-height:40px; padding:4px 8px; border:1px solid var(--card-border, #dbe3ee); border-radius:10px; background:var(--bg, #fff); color:inherit; font:inherit}
+.tp-point.tp-tour i{color:#2b8a3e}

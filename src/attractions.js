@@ -107,8 +107,21 @@ function createAttractions({ fetchSource = fetch } = {}) {
     for (const list of await Promise.all(sections.map((s) => linksOf(api, page, s.index)))) add(list);
     const subs = titles.filter((t) => SIGHT_ARTICLE.test(t)).slice(0, 3);
     for (const list of await Promise.all(subs.map((t) => linksOf(api, t)))) add(list);
-    const all = titles.length < 40 ? (await linksOf(api, page)).filter((t) => !titles.includes(t) && t !== page).slice(0, MAX_LINKS) : [];
-    return { page, centre: c ? { lat: c.lat, lon: c.lon } : null, sections: sections.map((s) => s.line), titles: titles.slice(0, MAX_LINKS), all };
+    return { page, centre: c ? { lat: c.lat, lon: c.lon } : null, sections: sections.map((s) => s.line), titles: titles.slice(0, MAX_LINKS) };
+  }
+  // Every article the city article links to that has coordinates (generator=links, all links, not only the first
+  // ones alphabetically), with its position. Covers places listed in a navigation box at the foot of the article
+  // ("Znane miejsca w Rzymie") or in lists without a section heading of their own.
+  async function linkedWithCoords(api, page) {
+    const out = [];
+    let cont = {};
+    for (let round = 0; round < 6; round++) {
+      const body = await get(api + new URLSearchParams({ action: "query", generator: "links", titles: page, gplnamespace: "0", gpllimit: "max", prop: "coordinates", colimit: "max", coprimary: "primary", redirects: "1", format: "json", formatversion: "2", ...cont })).catch(() => null);
+      for (const p of body?.query?.pages || []) if (p.coordinates?.[0] && !p.missing) out.push({ title: p.title, lat: p.coordinates[0].lat, lon: p.coordinates[0].lon });
+      if (!body?.continue) break;
+      cont = body.continue;
+    }
+    return out;
   }
 
   async function list({ name = "", title = "", lat, lon, radius = 10000, lang = "pl" }) {
@@ -121,9 +134,12 @@ function createAttractions({ fetchSource = fetch } = {}) {
     const info = { prop: "coordinates|pageprops|description|pageimages|pageviews", ppprop: "wikibase_item|disambiguation", piprop: "thumbnail", pithumbsize: "480", pilimit: "50", colimit: "50", pvipdays: "30", format: "json", formatversion: "2" };
 
     // 1. Articles linked from the city article's sights sections.
-    const linked = title ? await linkedTitles(api, title) : { titles: [], all: [], sections: [] };
+    const linked = title ? await linkedTitles(api, title) : { titles: [], sections: [] };
     // The trip may point at the airport ("Rzym Fiumicino"): the city article's own position is the centre then.
     if (linked.centre && km(centre, linked.centre) <= 60) centre = linked.centre;
+    // Every place the city article links to that lies in the city, checked strictly with Wikidata below.
+    const placed = title ? (await linkedWithCoords(api, linked.page || title)).filter((x) => km(centre, x) <= NEAR_KM && !linked.titles.includes(x.title)) : [];
+    linked.all = placed.map((x) => x.title).slice(0, 400);
     const pages = new Map(); // pageid → { p, listed, type }
     const titled = async (list, listed) => {
       for (const part of await Promise.all(chunks(list, 50).map((group) => get(api + new URLSearchParams({ action: "query", titles: group.join("|"), redirects: "1", ...info })).catch(() => null)))) {
@@ -135,8 +151,7 @@ function createAttractions({ fetchSource = fetch } = {}) {
       }
     };
     await titled(linked.titles, true);
-    // Few places in the sights sections: every place the city article links to, checked strictly with Wikidata.
-    await titled(linked.all || [], false);
+    await titled(linked.all, false);
 
     // 2. Articles around the centre.
     const near = await get(api + new URLSearchParams({ action: "query", list: "geosearch", gscoord: `${centre.lat.toFixed(4)}|${centre.lon.toFixed(4)}`, gsradius: String(radius), gslimit: String(SCAN), gsprop: "type", format: "json", formatversion: "2" })).catch((e) => (pages.size ? null : Promise.reject(e)));
@@ -191,7 +206,10 @@ function createAttractions({ fetchSource = fetch } = {}) {
       fetchedAt: new Date().toISOString(),
     };
   }
-  return { list };
+  return { list, version: VERSION };
 }
 
-module.exports = { createAttractions, kindOf, shortText, sightSections, KINDS };
+// Bumped whenever the way attractions are found changes, so cached lists from before are not served.
+const VERSION = 3;
+
+module.exports = { VERSION, createAttractions, kindOf, shortText, sightSections, KINDS };

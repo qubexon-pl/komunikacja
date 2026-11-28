@@ -1297,8 +1297,8 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
   const placesNearby = nearbyPlaces?.nearby ? keep.wrap("osm", 14 * DAY_MS, nearbyPlaces.nearby, (q) => [q.lat.toFixed(3), q.lon.toFixed(3), q.radius, [...q.cats].sort().join(","), q.lang], (v) => v?.places?.length > 0) : null;
   // 6a: place facts kept for 30 days; "not found" too, for a day, so a miss is not asked again at once.
   const placeInfo = knowledge?.about ? keep.wrap("know", 30 * DAY_MS, knowledge.about, (q) => [String(q.name).trim().toLowerCase(), q.lat.toFixed(2), q.lon.toFixed(2), q.lang], (v) => v?.found === true) : null;
-  // Attractions of a city from Wikipedia, kept for 30 days; an empty answer is not kept.
-  const attractionList = cityAttractions?.list ? keep.wrap("wikiat2", 30 * DAY_MS, cityAttractions.list, (q) => [q.lat.toFixed(2), q.lon.toFixed(2), q.radius, q.lang, String(q.title).toLowerCase()], (v) => v?.attractions?.length > 0) : null;
+  // Attractions of a city from Wikipedia, kept for 30 days under the lookup's version; a thin answer (under 5) is not kept.
+  const attractionList = cityAttractions?.list ? keep.wrap(`wikiat${cityAttractions.version || 2}`, 30 * DAY_MS, cityAttractions.list, (q) => [q.lat.toFixed(2), q.lon.toFixed(2), q.radius, q.lang, String(q.title).toLowerCase()], (v) => v?.attractions?.length >= 5) : null;
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
