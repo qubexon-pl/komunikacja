@@ -1,0 +1,64 @@
+/* iPhone-style drop-down lists (assets/app.select.js): a floating rounded list under the field, the page dimmed and
+   blurred behind it, the chosen option highlighted. Colours come from the app tokens, so light and dark follow. */
+.pv-sel-layer{
+  --pv-sel-bg:color-mix(in srgb,var(--on,#2878D0) 6%,var(--bg-alt,#fff));
+  --pv-sel-hover:color-mix(in srgb,var(--on,#2878D0) 10%,var(--pv-sel-bg));
+  --pv-sel-pick:color-mix(in srgb,var(--on,#2878D0) 17%,var(--pv-sel-bg));
+  position:fixed; inset:0; z-index:2100;
+  background:rgba(15,30,60,.18);
+  -webkit-backdrop-filter:blur(6px) saturate(1.1); backdrop-filter:blur(6px) saturate(1.1);
+  opacity:0; transition:opacity .16s ease;
+  -webkit-tap-highlight-color:transparent;
+}
+.pv-sel-layer.show{ opacity:1; }
+:root[data-theme="dark"] .pv-sel-layer{ background:rgba(0,0,0,.42); }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .pv-sel-layer{ background:rgba(0,0,0,.42); } }
+
+/* the field, shown sharp above the blur */
+.pv-sel-field{
+  position:fixed; display:flex; align-items:center; gap:8px; box-sizing:border-box; padding-right:14px; min-height:36px;
+  background:var(--bg-alt,#fff); color:var(--ink,#172B45); box-shadow:0 0 0 1.5px color-mix(in srgb,var(--on,#2878D0) 55%,transparent),0 6px 18px -10px rgba(15,30,60,.35);
+  pointer-events:none; overflow:hidden; white-space:nowrap;
+}
+.pv-sel-field span{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.pv-sel-field i{ flex:none; font-size:.72em; color:var(--ink-soft,#5A6B82); }
+
+/* the list */
+.pv-sel-list{
+  position:fixed; box-sizing:border-box; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+  padding:6px; border-radius:16px; background:var(--pv-sel-bg); color:var(--ink,#172B45);
+  border:1px solid color-mix(in srgb,var(--on,#2878D0) 12%,var(--line,#E2E9F2));
+  box-shadow:0 2px 6px rgba(15,30,60,.08),0 18px 44px -12px rgba(15,30,60,.38);
+  font-family:var(--font-body,system-ui,sans-serif); font-size:.95rem; line-height:1.3; outline:none;
+  transform-origin:top center; transform:translateY(-4px) scale(.97); transition:transform .18s cubic-bezier(.2,.9,.3,1.2);
+  scrollbar-width:thin;
+}
+.pv-sel-list.up{ transform-origin:bottom center; transform:translateY(4px) scale(.97); }
+.pv-sel-layer.show .pv-sel-list{ transform:none; }
+:root[data-theme="dark"] .pv-sel-list{ box-shadow:0 2px 6px rgba(0,0,0,.4),0 22px 50px -12px rgba(0,0,0,.85); }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .pv-sel-list{ box-shadow:0 2px 6px rgba(0,0,0,.4),0 22px 50px -12px rgba(0,0,0,.85); } }
+
+.pv-sel-opt{
+  display:flex; align-items:center; gap:10px; min-height:44px; padding:10px 12px 10px 14px; border-radius:10px;
+  cursor:pointer; user-select:none; -webkit-user-select:none;
+}
+.pv-sel-text{ flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+.pv-sel-check{ flex:none; font-size:.8em; color:var(--on,#2878D0); visibility:hidden; }
+.pv-sel-opt.is-active{ background:var(--pv-sel-hover); }
+.pv-sel-opt.is-sel{ background:var(--pv-sel-pick); font-weight:600; }
+.pv-sel-opt.is-sel .pv-sel-check{ visibility:visible; }
+.pv-sel-list.kb .pv-sel-opt.is-active{ box-shadow:inset 0 0 0 2px var(--on,#2878D0); }
+.pv-sel-opt.is-off{ opacity:.45; cursor:default; }
+.pv-sel-opt:active:not(.is-off){ background:var(--pv-sel-pick); }
+.pv-sel-group{
+  padding:10px 14px 4px; font-size:.72rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft,#5A6B82);
+}
+.pv-sel-group:first-child{ padding-top:4px; }
+
+/* the field while its list is open */
+select.pv-sel-open{ outline:none; }
+
+@media (prefers-reduced-motion:reduce){
+  .pv-sel-layer,.pv-sel-list{ transition:none; }
+  .pv-sel-list,.pv-sel-list.up{ transform:none; }
+}
