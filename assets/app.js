@@ -4727,8 +4727,12 @@ function exploreTip(list){
 function exploreBubble(list, at){
   const n=list.length, size=exploreBubbleSize(n), codes=list.map(d=>d.airport.code), sel=!!EXPLORE.sel && codes.includes(EXPLORE.sel);
   const label=n>1?`${n} ${L2(plural(n,'kierunek','kierunki','kierunków'),'destinations')}`:`${list[0].airport.city} (${list[0].airport.code})`;
+  // Kolor linii lotniczej: żółty Ryanair, fioletowy Wizz Air, a gdy latają obie — kółko podzielone w proporcji ich kierunków.
+  const ry=list.filter(d=>d.airlines.has('RYANAIR')).length, wz=list.filter(d=>d.airlines.has('WIZZ')).length;
+  const kind=ry&&wz?'both':wz?'wizz':'ryanair', share=ry&&wz?Math.round(ry/(ry+wz)*360):0;
+  const fill=kind==='both'?`;--ry-deg:${share}deg`:'';
   const icon=L.divIcon({className:'explore-bubble-wrap', iconSize:[size,size], iconAnchor:[size/2,size/2],
-    html:`<span class="explore-bubble${n===1?' one':''}${sel?' is-selected':''}" style="--bubble-size:${size}px" role="button" aria-label="${esc(label)}">${n>1?`<b>${n}</b>`:'<i class="oi oi-plane" aria-hidden="true"></i>'}</span>`});
+    html:`<span class="explore-bubble ${kind}${n===1?' one':''}${sel?' is-selected':''}" style="--bubble-size:${size}px${fill}" role="button" aria-label="${esc(label)}">${n>1?`<b>${n}</b>`:'<i class="oi oi-plane" aria-hidden="true"></i>'}</span>`});
   const mk=L.marker(at,{icon, keyboard:true, title:label, riseOnHover:true, bubblingMouseEvents:false})
     .bindTooltip(exploreTip(list),{className:'explore-tip', direction:'top', offset:[0,-size/2]})
     .on('click', ()=>{
@@ -4762,7 +4766,7 @@ function renderExploreList(shown){
   const n=shown.length, list=shown.sort((x,y)=>(x.price??1e9)-(y.price??1e9) || natSort(x.airport.city||'',y.airport.city||'')).slice(0,EXPLORE_LIST_MAX);
   box.classList.toggle('open', !!EXPLORE.sheet);
   box.innerHTML=`<button type="button" class="el-head" data-explore-sheet aria-expanded="${!!EXPLORE.sheet}"><span class="el-grip" aria-hidden="true"></span><span><b>${n}</b> ${esc(L2(plural(n,'kierunek','kierunki','kierunków'), n===1?'destination':'destinations'))} <small>${esc(L2('w widoku mapy','in the map view'))}</small></span><i class="fa-solid fa-chevron-up el-chev" aria-hidden="true"></i></button>
-    <div class="el-legend">${[...EXPLORE.airlines].map(x=>`<span><i style="background:${EXPLORE_COLORS[x]}" aria-hidden="true"></i>${esc(AIRLINES[x]?.name||x)}</span>`).join('')}<span><i style="background:#F5A524" aria-hidden="true"></i>${esc(L2('lotnisko wylotu','departure airport'))}</span></div>
+    <div class="el-legend">${[...EXPLORE.airlines].map(x=>`<span><i style="background:${EXPLORE_COLORS[x]}" aria-hidden="true"></i>${esc(AIRLINES[x]?.name||x)}</span>`).join('')}<span><i style="background:#24a690" aria-hidden="true"></i>${esc(L2('lotnisko wylotu','departure airport'))}</span></div>
     <ol class="el-items">${list.map(d=>`<li><button type="button" class="el-item ${EXPLORE.sel===d.airport.code?'on':''}" data-explore-dest="${esc(d.airport.code)}">
       <span class="el-dots" aria-hidden="true">${[...d.airlines].map(x=>`<i style="background:${EXPLORE_COLORS[x]}"></i>`).join('')}</span>
       <span class="el-name"><b>${esc(d.airport.city)}</b><small>${esc(d.airport.country||'')} · ${esc(L2('z','from'))} ${esc([...d.from].join(', '))}</small></span>
@@ -4779,6 +4783,9 @@ function ensureExploreMap(){
   L.control.scale({position:'bottomleft', metric:true, imperial:false, maxWidth:180}).addTo(m);
   const Center=L.Control.extend({options:{position:'topleft'}, onAdd(){ const b=L.DomUtil.create('div','leaflet-bar explore-center'); b.innerHTML=`<a href="#" role="button" title="${L2('Wyśrodkuj mapę','Centre the map')}" aria-label="${L2('Wyśrodkuj mapę','Centre the map')}"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i></a>`; L.DomEvent.disableClickPropagation(b); L.DomEvent.on(b,'click',e=>{ L.DomEvent.preventDefault(e); exploreFit(true); }); return b; }});
   new Center().addTo(m);
+  const Legend=L.Control.extend({options:{position:'topright'}, onAdd(){ const b=L.DomUtil.create('div','explore-map-legend'); b.setAttribute('aria-label',L2('Legenda','Legend'));
+    b.innerHTML=`<span><i class="lg ryanair" aria-hidden="true"></i>Ryanair</span><span><i class="lg wizz" aria-hidden="true"></i>Wizz Air</span><span><i class="lg both" aria-hidden="true"></i>${L2('obie linie','both')}</span><span><i class="lg origin" aria-hidden="true"></i>${L2('wylot','departure')}</span>`; L.DomEvent.disableClickPropagation(b); return b; }});
+  new Legend().addTo(m);
   m.setView([48,15],4);
   m.on('click', ()=>closeExploreCard());
   m.createPane('exploreRoutes').style.zIndex=390;
@@ -5228,10 +5235,15 @@ function savedPriceHtml(key, fl, stored){
   return `<div class="fav-price"><span>${stored?`zapisano za ${stored} zł · `:''}${now}${diff?` <b class="${diff<0?'txt-ok':'txt-red'}">${diff<0?'':'+'}${diff} zł</b>`:''}</span>
     <span class="fav-price-tools"><button class="btn-ghost" type="button" data-fav-refresh="${esc(key)}" ${p?.state==='asking'?'disabled':''}><i class="fa-solid fa-rotate" aria-hidden="true"></i> Odśwież cenę</button><button class="btn-ghost" type="button" data-fav-alert="${esc(key)}"><i class="fa-solid fa-bell" aria-hidden="true"></i> Powiadom o cenie</button></span></div>`;
 }
+// Nazwa podróży do alertów: własny tytuł, a bez niego miasta (bez ulicy i numeru domu z „Skąd?”).
+function placeShort(s){ const parts=String(s||'').split(',').map(x=>x.trim()).filter(Boolean); return parts.length>1 && /\d/.test(parts[0]) ? parts[1] : (parts[0]||''); }
+function tripName(f){ return f?.title || `${placeShort(f?.from)} → ${placeShort(f?.to)}`; }
+function alertTrip(a){ return FAV.items.find(f=>{ if(f.type!=='trip') return false; const fl=savedFlight(f); return fl && fl.from===a.from && fl.to===a.to && fl.day===a.day; }); }
+function alertName(a){ const t=alertTrip(a); return t ? tripName(t) : String(a.label||a.from+' → '+a.to).split(' → ').map(placeShort).join(' → '); }
 function alertCard(a){
-  const price=a.currentPrice!=null?`teraz ${a.currentPrice} zł`:'brak ceny';
+  const price=a.currentPrice!=null?`teraz ${Math.round(a.currentPrice)} zł`:'brak ceny';
   return `<div class="fav-card fav-alert ${a.reached?'reached':''}"><span class="fav-ico"><i class="fa-solid fa-bell" aria-hidden="true"></i></span>
-    <div class="fav-card-open"><b>${esc(a.label||a.from+' → '+a.to)}</b><small>${esc(a.from)} → ${esc(a.to)} · ${fmtDay(a.day)}${a.back?' – '+fmtDay(a.back):''} · do ${a.maxPrice} zł · ${ALERT_EVERY[a.everyHours]||''}</small>
+    <div class="fav-card-open"><b>${esc(alertName(a))}</b><small>${esc(a.from)} → ${esc(a.to)} · ${fmtDay(a.day)}${a.back?' – '+fmtDay(a.back):''} · do ${a.maxPrice} zł · ${ALERT_EVERY[a.everyHours]||''}</small>
       <small>${price}${a.reached?' · <span class="chip ok">Cena osiągnięta</span>':''}${a.notifiedAt?' · wysłano e-mail':''}</small></div>
     <button class="fav-card-remove" type="button" data-alert-remove="${esc(a.id)}" title="Usuń alert" aria-label="Usuń alert"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>`;
 }
@@ -5342,7 +5354,7 @@ document.getElementById('favPage').addEventListener('click', e=>{
   const rm=e.target.closest('[data-alert-remove]'); if(rm){ removeAlert(rm.dataset.alertRemove); return; }
   const item=key=>FAV.items.find(x=>favKey(x)===key);
   const rf=e.target.closest('[data-fav-refresh]'); if(rf){ const f=item(rf.dataset.favRefresh), fl=f&&savedFlight(f); if(fl) refreshSavedPrice(rf.dataset.favRefresh, fl); return; }
-  const fa=e.target.closest('[data-fav-alert]'); if(fa){ const f=item(fa.dataset.favAlert), fl=f&&savedFlight(f); if(fl) openAlertDialog({...fl, price:FAVP.get(fa.dataset.favAlert)?.price??f.flight?.price??null, label:`${f.from} → ${f.to}`}); }
+  const fa=e.target.closest('[data-fav-alert]'); if(fa){ const f=item(fa.dataset.favAlert), fl=f&&savedFlight(f); if(fl) openAlertDialog({...fl, price:FAVP.get(fa.dataset.favAlert)?.price??f.flight?.price??null, label:tripName(f)}); }
 });
 document.getElementById('favFilters').addEventListener('click', e=>{
   const b=e.target.closest('[data-fav-kind]'); if(!b) return;
@@ -6710,7 +6722,7 @@ document.getElementById('tripPage').addEventListener('click', e=>{
   const ha=e.target.closest('[data-tp-hotel-add]'); if(ha){ const st=HOT.get(tidOf(f)), h=st?.hotels?.find(x=>String(x.id)===ha.dataset.tpHotelAdd), q=hotelQuery(f.trip); if(h){ setTripHotel(f,{...h, checkin:q?.checkin||'', checkout:q?.checkout||''}); toast(`Dodano hotel: ${h.name}.`); } return; }
   if(e.target.closest('[data-tp-hotel-remove]')){ askConfirm(L2('Usunąć hotel z tej podróży?','Remove the hotel from this trip?'), {detail:f.trip?.hotel?.name||'', ok:L2('Usuń hotel','Remove hotel'), danger:true}).then(ok=>{ if(!ok) return; const {hotel, ...rest}=f.trip; f.trip=rest; saveFavorites().catch(err=>console.warn('Nie zapisano', err)); TRIPMAP.key=''; renderTripPage(); }); return; }
   const rf=e.target.closest('[data-fav-refresh]'); if(rf){ const fl=savedFlight(f); if(fl) refreshSavedPrice(rf.dataset.favRefresh, fl).then(()=>{ if(S.sub==='trip') renderTripPage(); }); return; }
-  const fa=e.target.closest('[data-fav-alert]'); if(fa){ const fl=savedFlight(f); if(fl) openAlertDialog({...fl, price:FAVP.get(fa.dataset.favAlert)?.price??f.flight?.price??null, label:`${f.from} → ${f.to}`}); }
+  const fa=e.target.closest('[data-fav-alert]'); if(fa){ const fl=savedFlight(f); if(fl) openAlertDialog({...fl, price:FAVP.get(fa.dataset.favAlert)?.price??f.flight?.price??null, label:tripName(f)}); }
 });
 // W okolicy: promień wyszukiwania (1–5 km), zapamiętany na tym urządzeniu.
 document.addEventListener('change', e=>{
@@ -8590,7 +8602,27 @@ weatherBoot();
   let apk=false, store=null; // the Android app: its Google Play page, or the APK on this server (checked once, below)
   let deferred=window.__installPrompt||null;
   const item=btn.closest('li')||btn;
-  const show=()=>{ item.hidden= native || !(store || apk || (!standalone() && (deferred || ios))); };
+  // Pasek „Zainstaluj aplikację” pojawia się sam, gdy przeglądarka pozwala zainstalować Podavo (jak w Podavo Clean):
+  // jedno stuknięcie otwiera okno instalacji przeglądarki. Zamknięty wraca po 14 dniach. Na iPhonie prowadzi do instrukcji.
+  const BANNER_KEY='podavo.install.dismissed', BANNER_DAYS=14;
+  const bannerOff=()=>{ try{ const t=+localStorage.getItem(BANNER_KEY)||0; return Date.now()-t<BANNER_DAYS*864e5; }catch{ return false; } };
+  const banner=()=>{
+    const want=!native && !standalone() && !bannerOff() && !!(deferred || (ios && /safari/i.test(navigator.userAgent) && !/crios|fxios/i.test(navigator.userAgent)));
+    let el=document.getElementById('installBanner');
+    if(!want){ el?.remove(); return; }
+    if(el) return;
+    el=document.createElement('div'); el.id='installBanner'; el.className='install-banner'; el.setAttribute('role','region'); el.setAttribute('aria-label',L2('Zainstaluj aplikację','Install the app'));
+    el.innerHTML=`<img src="/assets/onward/png/icon-192.png" alt="" width="40" height="40"><div class="ib-text"><b>${L2('Zainstaluj Podavo','Install Podavo')}</b><small>${L2('Na ekranie początkowym, z powiadomieniami push','On your home screen, with push notifications')}</small></div><button type="button" class="btn-grad ib-go">${L2('Zainstaluj','Install')}</button><button type="button" class="ib-x" aria-label="${L2('Nie teraz','Not now')}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
+    el.querySelector('.ib-x').addEventListener('click', ()=>{ try{ localStorage.setItem(BANNER_KEY, String(Date.now())); }catch{} el.remove(); });
+    el.querySelector('.ib-go').addEventListener('click', async ()=>{
+      if(!deferred){ bootstrap.Modal.getOrCreateInstance(document.getElementById('installModal')).show(); return; }
+      const e=deferred; deferred=null; window.__installPrompt=null; el.remove();
+      try{ await e.prompt(); const r=await e.userChoice; if(r?.outcome!=='accepted'){ try{ localStorage.setItem(BANNER_KEY, String(Date.now())); }catch{} } }catch(err){}
+      show();
+    });
+    document.body.appendChild(el);
+  };
+  const show=()=>{ item.hidden= native || !(store || apk || (!standalone() && (deferred || ios))); banner(); };
   window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferred=e; window.__installPrompt=e; show(); });
   window.addEventListener('appinstalled', ()=>{ deferred=null; window.__installPrompt=null; show(); });
   btn.addEventListener('click', async ()=>{

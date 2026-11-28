@@ -388,12 +388,20 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
   destination is a smaller bubble with a plane; the selected one turns coral; departure airports are sun-yellow bubbles.
   Clicking a bubble with several places zooms in to them; one place opens its card. The map now zooms to 9 so close
   airports separate.
+- **Airline colours.** Bubbles are Ryanair yellow or Wizz Air purple; where both fly, the bubble is split in proportion to
+  the destinations each serves. Departure airports are teal. A small legend sits in the map's top-right corner.
 - **Empty map on phones fixed.** The phone rule `img,svg,video,canvas{max-width:100%}` squeezed Leaflet's canvas (dots and
   routes) to 0 px; canvases and images inside `.leaflet-container` are now exempt.
 - **Planuj: no "Podmiejskie" chip.** "Autobus" covers city and suburban buses (`busModes()` adds `pks` whenever `bus` is
   ticked), on the single trip form and on every stage of a multi-stop trip. Saved choices with `pks` still tick Autobus.
 - **Price alert on the trip page.** Saved trips with a flight that has not passed show an "Alert cenowy" tile next to
   Koszt, Nocleg and Mapa; it shows the limit once an alert is set and opens the same alert dialog.
+- **Install bar (as in Podavo Clean).** When the browser can install Podavo (Chrome/Edge `beforeinstallprompt`, or Safari
+  on iPhone), a "Zainstaluj Podavo" bar appears above the tab bar; one tap opens the browser's install window. Closing it
+  hides it for 14 days (`podavo.install.dismissed`). Browsers only allow the install window after a tap, so this is as
+  automatic as it can be.
+- **Alert names.** Price alerts show the trip's name (its title, or the cities without the street address), and the card
+  wraps inside the Komunikaty window instead of running off the screen.
 - **Install from the browser on Android.** "Pobierz aplikację" on Android now opens a window with the browser install
   first (Chrome's install prompt, or the steps from the ⋮ menu when Chrome does not offer it), because only that version
   has Web Push; the APK stays below, marked as without push for now.
