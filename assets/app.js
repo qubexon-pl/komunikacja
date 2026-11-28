@@ -8606,6 +8606,19 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape' && WX.whyOpen){ se
 addEventListener('scroll', ()=>{ if(WX.whyOpen) setWxAlert(false); }, {passive:true});
 addEventListener('resize', ()=>{ if(WX.whyOpen) setWxAlert(true); });
 document.getElementById('wx')?.addEventListener('submit', e=>{ if(e.target.id!=='wxPick') return; e.preventDefault(); weatherPick(e.target.q.value); });
+// Na komputerze (od 1024 px) karta pogody stoi na dole lewego panelu, pod linkami; nagłówek planera jest wtedy niższy.
+// Poniżej wraca do nagłówka. Ten sam element, więc obsługa kliknięć i renderWeather() działają w obu miejscach.
+(function weatherPlace(){
+  const wx=document.getElementById('wx'), nav=document.getElementById('sideNav'), toggle=document.getElementById('sideToggle'), home=wx?.parentElement;
+  if(!wx || !nav || !toggle || !home) return;
+  const mq=matchMedia('(min-width:1024px)');
+  const place=()=>{
+    if(mq.matches){ if(wx.parentElement!==nav){ nav.insertBefore(wx, toggle); wx.setAttribute('role','region'); wx.setAttribute('aria-label', L2('Pogoda','Weather')); } }
+    else if(wx.parentElement!==home){ home.prepend(wx); wx.removeAttribute('role'); wx.removeAttribute('aria-label'); }
+    if(WX.whyOpen) setWxAlert(true);
+  };
+  mq.addEventListener?.('change', place); place();
+})();
 function weatherBoot(){ clearInterval(WX.timer); renderWeather(); if(CFG.weather===false) return; weatherTick(); WX.timer=setInterval(()=>{ if(!document.hidden) weatherTick(); }, 45*60*1000); }
 
 /* ============================================================
