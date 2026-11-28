@@ -188,7 +188,7 @@ function createPlanStore(pool) {
     async read(userId, tripId, city) {
       const r = await pool.request()
         .input("userId", sql.UniqueIdentifier, userId).input("tripId", sql.VarChar(24), tripId).input("city", sql.NVarChar(120), city)
-        .query("SELECT plan, created_at FROM dbo.TripAiPlan WHERE user_id = @userId AND trip_id = @tripId AND city = @city;");
+        .query("SELECT [plan], created_at FROM dbo.TripAiPlan WHERE user_id = @userId AND trip_id = @tripId AND city = @city;");
       const row = r.recordset[0];
       return row ? { ...JSON.parse(row.plan), createdAt: new Date(row.created_at).toISOString() } : null;
     },
@@ -197,10 +197,10 @@ function createPlanStore(pool) {
         .input("userId", sql.UniqueIdentifier, userId).input("tripId", sql.VarChar(24), tripId).input("city", sql.NVarChar(120), city)
         .input("plan", sql.NVarChar(sql.MAX), JSON.stringify(plan)).input("model", sql.VarChar(60), model)
         .query(`
-          UPDATE dbo.TripAiPlan WITH (UPDLOCK, SERIALIZABLE) SET plan = @plan, model = @model, created_at = SYSUTCDATETIME()
+          UPDATE dbo.TripAiPlan WITH (UPDLOCK, SERIALIZABLE) SET [plan] = @plan, model = @model, created_at = SYSUTCDATETIME()
             WHERE user_id = @userId AND trip_id = @tripId AND city = @city;
           IF @@ROWCOUNT = 0
-            INSERT INTO dbo.TripAiPlan (user_id, trip_id, city, plan, model) VALUES (@userId, @tripId, @city, @plan, @model);`);
+            INSERT INTO dbo.TripAiPlan (user_id, trip_id, city, [plan], model) VALUES (@userId, @tripId, @city, @plan, @model);`);
     },
   };
 }
