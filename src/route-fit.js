@@ -78,3 +78,53 @@ function fitDay(stops, { start = null } = {}) {
 }
 
 module.exports = { fitDay, bestOrder, pathKm, walkMinutes, walkKm, km };
+
+/* ---------- 8b: conflicts in a planned day ----------
+   Opening hours are read only in the common OSM forms ("Mo-Fr 09:00-17:00; Sa 10:00-14:00; Su off", "24/7",
+   "Tu-Su 10:00-18:00,19:00-21:00"); anything else (months, holidays, sunrise, "by appointment") makes the hours
+   unknown, and then nothing is claimed about the place being open or closed. */
+const DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+function parseHours(text) {
+  const src = String(text || "").trim();
+  if (!src) return null;
+  if (src === "24/7") return DAYS.map(() => [[0, 1440]]);
+  const week = DAYS.map(() => null);
+  for (const raw of src.split(";").map((x) => x.trim()).filter(Boolean)) {
+    if (/^PH\b/.test(raw)) continue; // public holidays: not known for a date here
+    const m = /^((?:(?:Mo|Tu|We|Th|Fr|Sa|Su)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?)(?:,(?:Mo|Tu|We|Th|Fr|Sa|Su)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?)*)?\s*(off|closed|(?:\d{2}:\d{2}-\d{2}:\d{2})(?:,\s*\d{2}:\d{2}-\d{2}:\d{2})*)$/.exec(raw);
+    if (!m) return null;
+    const days = new Set();
+    for (const part of (m[1] || "Mo-Su").split(",")) {
+      const [a, b] = part.split("-").map((d) => DAYS.indexOf(d));
+      for (let i = a, n = 0; n < 7; i = (i + 1) % 7, n++) { days.add(i); if (i === (b ?? a)) break; }
+    }
+    const ranges = /^(off|closed)$/.test(m[2]) ? [] : m[2].split(",").map((r) => r.trim().split("-").map(toMin)).map(([s, e]) => [s, e <= s ? e + 1440 : e]);
+    for (const d of days) week[d] = ranges;
+  }
+  // in OSM a weekday no rule mentions is closed
+  return week.some((x) => x) ? week.map((x) => x || []) : null;
+}
+const weekday = (day) => (new Date(`${day}T12:00:00Z`).getUTCDay() + 6) % 7;
+
+// [{index, kind: "overlap"|"closed"|"outside", minutes?, hours?}] for one day of stops, in their planned order.
+function checkDay(day) {
+  const stops = day?.stops || [], out = [];
+  stops.forEach((s, i) => {
+    const start = toMin(s.time), len = Number.isInteger(s.minutes) && s.minutes > 0 ? s.minutes : null;
+    const next = stops[i + 1], nextStart = toMin(next?.time);
+    if (start != null && len && nextStart != null) {
+      const over = start + len + (next.walkMin || 0) - nextStart;
+      if (over > 5) out.push({ index: i, kind: "overlap", minutes: over });
+    }
+    const week = parseHours(s.openingHours);
+    if (!week || start == null || !/^\d{4}-\d{2}-\d{2}$/.test(day.day || "")) return;
+    const today = week[weekday(day.day)];
+    if (!today.length) { out.push({ index: i, kind: "closed", hours: s.openingHours }); return; }
+    const end = start + (len || 30);
+    if (!today.some(([a, b]) => start >= a && end <= b)) out.push({ index: i, kind: "outside", hours: s.openingHours });
+  });
+  return out;
+}
+
+module.exports.parseHours = parseHours;
+module.exports.checkDay = checkDay;

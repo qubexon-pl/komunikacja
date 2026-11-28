@@ -8,7 +8,9 @@
 // Needs ANTHROPIC_API_KEY. Without it the feature reports itself as unavailable and the app works as before.
 
 const sql = require("mssql");
-const { fitDay } = require("./route-fit");
+const { fitDay, checkDay } = require("./route-fit");
+// 8b: conflicts are worked out on every read, never stored, so they follow the current order and hours.
+const withChecks = (plan) => (plan && Array.isArray(plan.days) ? { ...plan, days: plan.days.map((d) => ({ ...d, conflicts: checkDay(d) })) } : plan);
 
 const MODEL = process.env.AI_PLAN_MODEL || "claude-opus-5-5";
 const MAX_DAYS = 5;
@@ -228,7 +230,7 @@ function createAiPlanner({ client = null, store, getFavorites, getPreferences, s
     const name = text(city, 120);
     if (!name) throw bad("Podaj miasto.");
     await findTrip(userId, tid);
-    return store.read(userId, tid, name);
+    return withChecks(await store.read(userId, tid, name));
   }
 
   async function styleOf(userId) {
@@ -312,7 +314,7 @@ function createAiPlanner({ client = null, store, getFavorites, getPreferences, s
     const plan = { ...cleanPlan(raw, { centre, days, catalogue }), city, preferences: style, note: context.extraWish, source: catalogue ? "osm" : "model" };
     if (!plan.days.length) throw bad("AI nie zaproponowało żadnych miejsc. Spróbuj ponownie.", 502);
     await store.save(userId, trip.tid, city, plan, response.model || model);
-    return { ...plan, createdAt: new Date(now()).toISOString() };
+    return withChecks({ ...plan, createdAt: new Date(now()).toISOString() });
   }
 
   // 8a: one day of the saved plan in the order that walks the least from the stay; times move with the order.
@@ -325,9 +327,9 @@ function createAiPlanner({ client = null, store, getFavorites, getPreferences, s
     if (!d) throw bad("Nie ma planu na ten dzień.", 404);
     const { stops, walkKm, savedKm } = fitDay(d.stops, { start: point(body.start) });
     const { createdAt, ...kept } = plan;
-    const next = { ...kept, days: plan.days.map((x) => (x === d ? { ...x, stops, walkKm, fitted: true } : x)) };
+    const next = { ...kept, days: plan.days.map(({ conflicts, ...x }) => (x.day === d.day ? { ...x, stops, walkKm, fitted: true } : x)) };
     await store.save(userId, body.tid, name, next, "route-fit");
-    return { plan: { ...next, createdAt }, savedKm };
+    return { plan: withChecks({ ...next, createdAt }), savedKm };
   }
 
   return { enabled: () => !!client, saved, generate, fit, styleOf, saveStyle };
