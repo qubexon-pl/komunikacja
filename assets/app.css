@@ -1856,6 +1856,11 @@ body.explore-mode #exploreMap{height:clamp(420px,calc(100vh - 340px),760px)}
 /* Pasek dni: sprawdzanie cen dni bez ceny w bazie */
 .date-strip{position:relative}
 .date-strip.filling .ds-days{opacity:.6}
+/* while prices update the strips are frozen: no scrolling, no clicks, until the new prices are in */
+.date-strip.ds-frozen .ds-days{overflow-x:hidden; touch-action:none}
+.date-strip.ds-frozen button,.pl-go:disabled{cursor:progress}
+.date-strip.ds-frozen .ds-arrow{opacity:.45}
+.pl-go:disabled{opacity:.6}
 .ds-filling{position:absolute; z-index:3; top:-22px; right:12px; display:inline-flex; align-items:center; gap:6px; font-size:.76rem; color:var(--ink-soft)}
 
 /* Koszt lotów jako karta w prawej kolumnie */

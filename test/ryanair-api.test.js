@@ -113,3 +113,35 @@ test("with no flight on the chosen days, the fare calendar is read month by mont
   assert.deepEqual(merged[0].map((row) => [row.day, row.departure, row.flightNumber]), [["2027-03-09", "2027-03-09T06:10", "FR 3036"]]);
   assert.equal(r.findFirst([{ from: "RZE", to: "FCO" }], "2026-11-20"), "fresh"); // the same route is scanned once a day
 });
+
+test("a failed Ryanair request does not leave its days counted as checked, and every search asks again after 30 minutes", async () => {
+  let clock = Date.parse("2026-11-12T10:00:00Z"), fail = true, calls = 0;
+  const fetchSource = async (url) => {
+    calls += 1;
+    if (fail) return new Response("oops", { status: 500 });
+    return String(url).includes("timtbl") ? json({ days: [] }) : json({ outbound: { fares: [fare("2026-12-05", "10:00", 120)] } });
+  };
+  const r = createRyanairApi({ flights: { mergeRows: async (rows) => ({ stored: rows.length }) }, toPln: async (v) => v, fetchSource, now: () => clock, gapMs: 0, enabled: true });
+  assert.equal(r.searchRoutes([{ from: "KRK", to: "LIS" }], "2026-12-05", "2026-12-10"), "started");
+  while (calls < 1 || r.status().running) await new Promise((s) => setTimeout(s, 5));
+  assert.equal(r.status().ok, false);
+  fail = false;
+  assert.equal(r.searchRoutes([{ from: "KRK", to: "LIS" }], "2026-12-05", "2026-12-10"), "started"); // not "fresh": nothing was answered
+  while (r.status().running || r.status().ok !== true) await new Promise((s) => setTimeout(s, 5));
+  assert.equal(r.searchRoutes([{ from: "KRK", to: "LIS" }], "2026-12-05", "2026-12-10"), "fresh");
+  clock += 31 * 60 * 1000;
+  assert.equal(r.searchRoutes([{ from: "KRK", to: "LIS" }], "2026-12-05", "2026-12-10"), "started"); // the API each time after 30 minutes
+});
+
+test("a trip search asks for the return leg too when only the chosen days were checked before", async () => {
+  const asked = [];
+  const fetchSource = async (url) => { asked.push(String(url)); return String(url).includes("timtbl") ? json({ days: [] }) : json({ outbound: { fares: [] } }); };
+  const r = createRyanairApi({ flights: { mergeRows: async (rows) => ({ stored: rows.length }) }, toPln: async (v) => v, fetchSource, now: () => Date.parse("2026-11-12T10:00:00Z"), gapMs: 0, enabled: true });
+  // a single day priced on its own earlier (a scrolled strip) must not make the whole two weeks around it count as checked
+  assert.equal(r.fillRange([{ from: "KRK", to: "LIS", start: "2027-02-08", end: "2027-02-08" }]), "started");
+  while (r.status().running || asked.length < 2) await new Promise((s) => setTimeout(s, 5));
+  assert.equal(r.searchRoutes([{ from: "KRK", to: "LIS" }], "2027-02-08", "2027-02-13"), "started");
+  while (asked.length < 10 || r.status().running) await new Promise((s) => setTimeout(s, 5)); // out and home: January and February, fares and timetable
+  assert.ok(asked.some((u) => u.includes("/LIS/KRK/cheapestPerDay")), "the way home is asked");
+  assert.ok(asked.some((u) => u.includes("/KRK/LIS/cheapestPerDay?outboundMonthOfDate=2027-01-01")), "the two weeks before are asked");
+});

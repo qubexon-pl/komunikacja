@@ -2,7 +2,7 @@
 
 // Wizz Air timetable (be.wizzair.com …/Api/search/timetableV2), for the owner's personal, non-commercial testing.
 // Kept deliberately polite: the app's own User-Agent (no copied browser headers, no tokens), one request at a
-// time with a gap, each route and date range asked again only after some hours, and a pause of an hour after
+// time with a gap, each route and date range asked again only after 30 minutes, and a pause of an hour after
 // HTTP 429 or 403 without retrying. If Wizz Air refuses, the error is reported and nothing tries to get around it.
 
 const { parseWizzResponses } = require("./wizz-import");
@@ -10,7 +10,7 @@ const { parseWizzResponses } = require("./wizz-import");
 const DEFAULT_VERSION = "29.26.0"; // live on 2026-11-19; later versions are found automatically
 const GAP_MS = 4000;
 const PAUSE_MS = 60 * 60 * 1000;
-const FRESH_MS = 3 * 60 * 60 * 1000;
+const FRESH_MS = 30 * 60 * 1000; // a route and day is asked again after 30 minutes: each search and scrolled strip uses the API
 const TIME_FRESH_MS = 30 * 60 * 1000;
 const RANGE_DAYS = 14;
 const MAX_ROUTES = 3;

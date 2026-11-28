@@ -4,7 +4,8 @@
 // form as the Wizz Air timetable (wizz-timetable.js), so it runs anywhere — also on Azure — without the desktop tracker:
 //  - the app's own User-Agent, no copied browser headers, cookies or tokens;
 //  - one request at a time with a gap between them;
-//  - a route and day is asked again only after 3 hours (one departure time after 30 minutes);
+//  - a route and day is asked again after 30 minutes (each search and each scrolled date strip asks the API; only a
+//    repeat within that time is answered from what the last request stored);
 //  - on 403/409/429 a pause of one hour and no retry.
 // Only endpoints that answer such an honest request are used: the fare finder (the cheapest price of each day, with
 // that flight's time, and the price of one chosen departure) and the monthly timetable (every departure of a day).
@@ -16,7 +17,7 @@ const TIMETABLE_URL = "https://www.ryanair.com/api/timtbl/3/schedules";
 const USER_AGENT = "komunikacja-rzeszow/1.0 (personal trip planner test)";
 const GAP_MS = 4000;
 const PAUSE_MS = 60 * 60 * 1000;
-const FRESH_MS = 3 * 60 * 60 * 1000;
+const FRESH_MS = 30 * 60 * 1000;
 const TIME_FRESH_MS = 30 * 60 * 1000;
 const RANGE_DAYS = 14;
 const MAX_ROUTES = 3;
@@ -132,6 +133,10 @@ function createRyanairApi({ flights, toPln, fetchSource = fetch, enabled = proce
     for (let day = leg.start; day <= leg.end; day = addDays(day, 1)) covered.set(dayKey(leg.from, leg.to, day), now());
     if (covered.size > 50000) covered.clear();
   }
+  // A leg whose request failed was not answered: its days must be asked again next time, not count as checked.
+  function uncover(leg) {
+    for (let day = leg.start; day <= leg.end; day = addDays(day, 1)) covered.delete(dayKey(leg.from, leg.to, day));
+  }
 
   // Every day two weeks either side of the chosen days, for each route Ryanair flies (at most MAX_ROUTES).
   function searchRoutes(pairs, date, back = "") {
@@ -142,8 +147,10 @@ function createRyanairApi({ flights, toPln, fetchSource = fetch, enabled = proce
     for (const pair of pairs.filter((p) => IATA.test(p.from) && IATA.test(p.to)).slice(0, MAX_ROUTES)) {
       const out = { from: pair.from, to: pair.to, start: from(addDays(date, -RANGE_DAYS)), end: addDays(date, RANGE_DAYS) };
       const home = back ? { from: pair.to, to: pair.from, start: from(addDays(back, -RANGE_DAYS)), end: addDays(back, RANGE_DAYS) } : null;
-      if (!isFresh(out.from, out.to, date)) legs.push(out);
-      if (home && !isFresh(home.from, home.to, back)) legs.push(home);
+      // A leg is asked again unless every one of its days was answered lately (not only the chosen day).
+      const stale = (leg) => { for (let day = leg.start; day <= leg.end; day = addDays(day, 1)) if (!isFresh(leg.from, leg.to, day)) return true; return false; };
+      if (stale(out)) legs.push(out);
+      if (home && stale(home)) legs.push(home);
     }
     if (!legs.length) return "fresh";
     return fetchLegs(legs);
@@ -151,19 +158,25 @@ function createRyanairApi({ flights, toPln, fetchSource = fetch, enabled = proce
   function fetchLegs(legs) {
     legs.forEach(cover);
     plan(legs.reduce((sum, leg) => sum + monthsOf(leg.start, leg.end).length * 2, 0));
+    let answered = 0;
     run(async () => {
       let stored = 0;
       for (const leg of legs) {
         const { rows, empty } = await fetchLeg(leg);
         const result = await flights.mergeRows(await priced(rows), { clear: empty.map((day) => ({ airline: "RYANAIR", from: leg.from, to: leg.to, day })) });
         stored += result.stored;
+        answered += 1;
       }
       return { stored };
-    }).catch((error) => console.error("Ryanair:", error.message));
+    }).catch((error) => {
+      legs.slice(answered).forEach(uncover);
+      console.error("Ryanair:", error.message);
+    });
     return "started";
   }
 
-  // Days of a scrolled date strip that have no stored price: only those are asked for (a stored price stays as it is).
+  // Days of a scrolled date strip: every day not answered in the last 30 minutes is asked for again, also a day with a
+  // stored price (that price may be hours old); hasDay can narrow it to days with nothing stored.
   function fillRange(legs, hasDay = () => false) {
     if (!enabled || now() < pausedUntil) return "unavailable";
     const today = new Date(now()).toISOString().slice(0, 10);

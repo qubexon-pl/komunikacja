@@ -3568,7 +3568,8 @@ function bestText(best, P, R){
     // Łączny koszt = lot (+ powrót) + szacunek dojazdu na lotnisko; pokazujemy, z czego się składa, żeby nie mylił się z ceną lotu.
     const f=P.flights.options.reduce((x,y)=>y.totalPln<x.totalPln?y:x), n=nearbyCheaper(P);
     const flight=Math.round((f.pricePln||0)+(f.ret?.pricePln||0)), ground=Math.max(0, f.totalPln-flight);
-    return `Najtaniej łącznie z dojazdem na lotnisko: ${airlineOf(f).name} z ${f.fromLabel}, ${fmtDay(f.day)}: lot ${flight} zł + dojazd ok. ${ground} zł = ok. ${f.totalPln} zł${f.ret?' w obie strony':''}.`+(n?` W dniach ±2 tańszy lot: ${fmtDay(n.day)}, od ${n.cheapest} zł.`:'');
+    const who=f.ret && f.ret.airline!==f.airline ? `${airlineOf(f).name} + ${airlineOf(f.ret).name} (powrót)` : airlineOf(f).name;
+    return `Najtaniej łącznie z dojazdem na lotnisko: ${who} z ${f.fromLabel}, ${fmtDay(f.day)}: lot ${flight} zł + dojazd ok. ${ground} zł = ok. ${f.totalPln} zł${f.ret?' w obie strony':''}.`+(n?` W dniach ±2 tańszy lot: ${fmtDay(n.day)}, od ${n.cheapest} zł.`:'');
   }
   return 'Brak połączeń komunikacją. Najlepiej dojechać samochodem.';
 }
@@ -4388,7 +4389,13 @@ function countText(n){ return n===1?'1 wynik':n%10>=2&&n%10<=4&&(n%100<10||n%100
 const STRIP_DAYS=56;
 // Przewijanie paska dni (tydzień po tygodniu): dni bez ceny w bazie są sprawdzane u przewoźników; dni z ceną pokazują
 // zapisaną cenę bez pytania. Aktualne ceny sprawdzamy tylko dla wybranego na początku okresu.
-const STRIPFILL={plan:false, back:false}, FILLED=new Set();
+const STRIPFILL={plan:false, back:false}, FILLED=new Map(), FILL_AGAIN_MS=30*60*1000;
+// Podczas aktualizacji cen paski dni i przycisk „Szukaj” są zablokowane, aż ceny się zaktualizują.
+const stripsFrozen=()=>STRIPFILL.plan||STRIPFILL.back;
+function freezeStrips(on){
+  document.querySelectorAll('#planResults .date-strip').forEach(s=>{ s.classList.toggle('ds-frozen',on); s.querySelectorAll('button').forEach(b=>{ b.disabled=on; }); });
+  document.querySelectorAll('#planForm .pl-go').forEach(b=>{ b.disabled=on; });
+}
 let stripQuiet=0;
 function wireStrips(){
   stripQuiet=Date.now()+900; // przewinięcie przy odświeżeniu strony to nie ruch użytkownika
@@ -4401,12 +4408,15 @@ async function fillStrip(strip){
   const kind=strip.dataset.strip==='back'?'back':'plan', box=strip.querySelector('.ds-days'), P=S.plan?.stages.find(x=>wantsFlights(x) && x.flights);
   if(!P || STRIPFILL[kind] || ASK_NOTES[P.fetch]) return;
   const left=box.scrollLeft, right=left+box.clientWidth, today=ymdOf(0);
-  const missing=[...box.querySelectorAll('.ds-day')].filter(b=>b.offsetLeft-box.offsetLeft+b.offsetWidth>left && b.offsetLeft-box.offsetLeft<right && b.dataset.priced==='0' && b.dataset.day>=today).map(b=>b.dataset.day);
+  // Każdy widoczny dzień idzie do API przewoźników (także dzień z ceną tylko jednej linii albo ze starą ceną);
+  // serwer pomija tylko to, o co pytał w ostatnich 30 minutach.
+  const missing=[...box.querySelectorAll('.ds-day')].filter(b=>b.offsetLeft-box.offsetLeft+b.offsetWidth>left && b.offsetLeft-box.offsetLeft<right && b.dataset.day>=today).map(b=>b.dataset.day);
   if(!missing.length) return;
   const start=missing[0], end=missing.at(-1), key=[kind,pointParam(P.origin.points[0]),pointParam(P.dest.points[0]),start,end].join('|');
-  if(FILLED.has(key)) return; FILLED.add(key);
+  if(Date.now()-(FILLED.get(key)||0)<FILL_AGAIN_MS) return; FILLED.set(key, Date.now());
   STRIPFILL[kind]=true; STRIPFILL[kind+'Range']={start, end}; strip.classList.add('filling'); strip.insertAdjacentHTML('afterbegin', stripNote(kind));
-  box.querySelectorAll('.ds-day').forEach(b=>{ if(b.dataset.priced==='0' && b.dataset.day>=start && b.dataset.day<=end) b.classList.add('ds-updating'); });
+  freezeStrips(true);
+  box.querySelectorAll('.ds-day').forEach(b=>{ if(b.dataset.day>=start && b.dataset.day<=end) b.classList.add('ds-updating'); });
   let started=false;
   try{
     const r=await fetch('/api/flights/fill',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({origin:pointParam(P.origin.points[0]), dest:pointParam(P.dest.points[0]), start, end, dir:kind==='back'?'back':'out', prefer:preferredAirport(), radius:flightRadius()})});
@@ -4414,6 +4424,7 @@ async function fillStrip(strip){
   }catch(e){ console.warn('Ceny dni', e); }
   if(started){ for(let i=0;i<90;i++){ await new Promise(res=>setTimeout(res,2000)); const st=await fetch('/api/flights/status').then(x=>x.json()).catch(()=>null); if(!st?.running) break; } }
   STRIPFILL[kind]=false; STRIPFILL[kind+'Range']=null; STRIPFILL[kind+'Done']=Date.now();
+  freezeStrips(stripsFrozen());
   if(inPlan(P)) loadTripFlights(P); else document.querySelectorAll('.ds-filling').forEach(x=>x.remove());
 }
 // Komunikat na pasku dni: „Aktualizuję ceny…” w trakcie, a po skończeniu na chwilę „Ceny zaktualizowane”.
@@ -4428,9 +4439,9 @@ function dateStrip(kind, selected, prices, label='', min='', byAirline=null, fro
   else for(let i=-STRIP_DAYS;i<=STRIP_DAYS;i++){ const d=addDays(selected,i); if(d>=first && d<=last) days.push(d); }
   const known=prices?days.map(d=>prices.get(d)).filter(p=>p!=null):[], cheapest=known.length?Math.min(...known):null;
   const name=d=>new Date(d+'T12:00:00Z').toLocaleDateString(document.documentElement.lang==='en'?'en-GB':'pl-PL',{weekday:'short', timeZone:'UTC'});
-  return `${label?`<div class="ds-label">${esc(label)}</div>`:''}<div class="date-strip ${STRIPFILL[kind]?'filling':''}" data-strip="${kind}">${stripNote(kind)}<button type="button" class="ds-arrow" data-shift="-1" aria-label="Wcześniejsze dni">‹</button><div class="ds-days">${days.map(d=>{ const p=prices?.get(d), cheap=p!=null&&p===cheapest;
-    const upd=STRIPFILL[kind+'Range'] && p==null && d>=STRIPFILL[kind+'Range'].start && d<=STRIPFILL[kind+'Range'].end;
-    return `<button type="button" class="ds-day ${d===selected?'on':''} ${cheap?'cheap':''}${upd?' ds-updating':''}" data-day="${d}" data-priced="${p!=null?1:0}">${cheap?'<em>Najtaniej</em>':''}<span>${esc(name(d))}</span><b>${fmtDay(d)}</b>${prices?(byAirline?airlineDayRows(byAirline.get(d)):`<small>${p!=null?Math.round(p)+' zł':'—'}</small>`):''}</button>`; }).join('')}</div><button type="button" class="ds-arrow" data-shift="1" aria-label="Późniejsze dni">›</button></div>`;
+  return `${label?`<div class="ds-label">${esc(label)}</div>`:''}<div class="date-strip ${STRIPFILL[kind]?'filling':''}${stripsFrozen()?' ds-frozen':''}" data-strip="${kind}">${stripNote(kind)}<button type="button" class="ds-arrow" data-shift="-1" aria-label="Wcześniejsze dni"${stripsFrozen()?' disabled':''}>‹</button><div class="ds-days">${days.map(d=>{ const p=prices?.get(d), cheap=p!=null&&p===cheapest;
+    const upd=STRIPFILL[kind+'Range'] && d>=STRIPFILL[kind+'Range'].start && d<=STRIPFILL[kind+'Range'].end;
+    return `<button type="button" class="ds-day ${d===selected?'on':''} ${cheap?'cheap':''}${upd?' ds-updating':''}" data-day="${d}" data-priced="${p!=null?1:0}"${stripsFrozen()?' disabled':''}>${cheap?'<em>Najtaniej</em>':''}<span>${esc(name(d))}</span><b>${fmtDay(d)}</b>${prices?(byAirline?airlineDayRows(byAirline.get(d)):`<small>${p!=null?Math.round(p)+' zł':'—'}</small>`):''}</button>`; }).join('')}</div><button type="button" class="ds-arrow" data-shift="1" aria-label="Późniejsze dni"${stripsFrozen()?' disabled':''}>›</button></div>`;
 }
 const AIRLINE_PLANE={RYANAIR:'#F1C933', WIZZ:'#7B2D8E'};
 function airlineDayRows(prices){
@@ -4537,9 +4548,12 @@ async function loadTripFlights(P){
     const prefer=preferredAirport(); P.prefer=prefer;
 
   }catch(e){ console.warn('Loty', e); P.flights=null; }
-  // Najpierw ceny zapisane w bazie. Przewoźników pytamy sami tylko wtedy, gdy na te dni nie ma żadnych lotów;
-  // aktualną cenę lotu sprawdza przycisk „Odśwież cenę”, a wszystkich lotów — „Sprawdź aktualne ceny”.
-  if(P.flights && !P.flights.options.length && !P.asked && inPlan(P)){ if(document.body.classList.contains('guest')){ P.asked=true; P.fetch='login'; } else { askAirlines(P); return; } }
+  // Najpierw ceny zapisane w bazie, a potem przy każdym wyszukiwaniu pytamy API Ryanair i Wizz Air o te dni
+  // (także gdy coś już jest zapisane: zapisana cena może być stara albo tylko jednej linii, np. sam Wizz bez Ryanaira).
+  if(P.flights && !P.asked && inPlan(P)){
+    if(!document.body.classList.contains('guest')){ askAirlines(P); return; }
+    if(!P.flights.options.length){ P.asked=true; P.fetch='login'; }
+  }
   if(scanYear(P)) return;
   if(inPlan(P)) runPlan(false);
 }
