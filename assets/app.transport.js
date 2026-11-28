@@ -171,7 +171,13 @@
       :live?`<span class="ctx-st live">${x.delayMin>0?`+${x.delayMin} min`:x.delayMin<0?`${x.delayMin} min`:esc(t('na czas','on time'))}</span>`:'';
     const where=x.mode==='rail'?(x.platform?` <small>${esc(t('peron','platform'))} ${esc(x.platform)}${x.track?` · ${esc(t('tor','track'))} ${esc(x.track)}`:''}</small>`:'')
       :x.platform?` <small>${esc(t('stan.','stand'))} ${esc(x.platform)}</small>`:'';
-    return `<li class="${x.cancelled?'cancelled':''}"><span class="ctx-when">${when}<small>${mins<=0?esc(t('teraz','now')):mins<60?`${mins} min`:''}</small></span>${chip({kind:x.mode, line:x.line, color:x.color, textColor:x.textColor})}<span class="ctx-head-sign">${esc(x.headsign)}${where}</span>${state}</li>`;
+    const past=x.at<now-60000, cells=`<span class="ctx-when">${when}<small>${past?'':mins<=0?esc(t('teraz','now')):mins<60?`${mins} min`:''}</small></span>${chip({kind:x.mode, line:x.line, color:x.color, textColor:x.textColor})}<span class="ctx-head-sign">${esc(x.headsign)}${where}</span>${state}`;
+    const cls=[x.cancelled?'cancelled':'', past?'past':''].filter(Boolean).join(' ');
+    // o.open(x) → [attribute, value]: the row opens something (e.g. the line); o.after(x) → HTML beside it (a star).
+    const open=o.open?o.open(x):null, after=o.after?o.after(x):'';
+    if(!open && !after) return `<li class="${cls}">${cells}</li>`;
+    const inner=open?`<button type="button" class="ctx-dep-open" ${esc(open[0])}="${esc(open[1])}">${cells}</button>`:`<span class="ctx-dep-open">${cells}</span>`;
+    return `<li class="${cls} has-open">${inner}${after}</li>`;
   }
   function departureBoard(list, o={}){
     const t=o.t||PL, rows=(list||[]).filter(x=>!o.line||x.line===o.line).map(x=>departureRow(x,o)).join('');

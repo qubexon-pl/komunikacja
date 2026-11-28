@@ -133,6 +133,24 @@ test("departure board: delays only for live departures, platforms for trains, ca
   assert.match(PVT.departureBoard([dep({ headsign: "<b>x</b>" })], { now }), /&lt;b&gt;x&lt;\/b&gt;/);
 });
 
+test("a board row can open something and carry a star; past rows are dimmed without a countdown", () => {
+  const PVT = loadPVT(), now = Date.parse("2026-12-01T08:00:00Z");
+  const dep = (o) => ({ line: "18", headsign: "Dworzec", mode: "bus", scheduled: "0000-00-00T09:10", expected: "0000-00-00T09:10", at: now + 10 * 60000, realtime: "scheduled", color: "#C41E3A", textColor: "#fff", route: "r18", ...o });
+  const board = PVT.departureBoard([dep({ at: now - 5 * 60000 }), dep({})], { now, t: EN, open: (x) => ["data-route", x.route], after: () => '<button class="star">*</button>' });
+  const rows = board.split("<li").slice(1);
+  assert.match(rows[0], /class="past has-open"/);
+  assert.doesNotMatch(rows[0], /now|min</);
+  assert.match(rows[1], /<button type="button" class="ctx-dep-open" data-route="r18">/);
+  assert.match(rows[1], /10 min/);
+  assert.match(rows[1], /<\/button><button class="star">\*<\/button><\/li>/);
+  assert.doesNotMatch(PVT.departureBoard([dep({})], { now }), /has-open/); // without options the row stays as before
+});
+
+test("the Rzeszów stop board draws the shared board from the browser timetable", () => {
+  assert.match(app, /PVT\.departureBoard\(deps, \{t:L2, now:TT\.day===0\?now\*1000:0, open:x=>\['data-route',x\.route\], after:x=>lineStar\(x\.route\)\}\)/);
+  assert.match(app, /realtime:'scheduled'/);
+});
+
 test("the city stop board reads the shared departures endpoint and draws the shared board", () => {
   assert.match(app, /fetch\('\/api\/transport\/departures\?'\+new URLSearchParams\(\{\.\.\.q, limit:'50'\}\)\)/);
   assert.match(app, /const q=\{provider:'transitous', stop:stop\.id\}/);

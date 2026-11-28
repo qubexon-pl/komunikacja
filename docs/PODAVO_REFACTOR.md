@@ -374,4 +374,5 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
 - In Rzeszów, Autobusy has a "Miejskie / Podmiejskie" switch under the same city header the other cities use (name, kinds of transport, operators, live badge). The views and URLs underneath are unchanged (`/buses`, `/suburban`).
 - The line list lives only in the "Linie" tab, as in other cities, instead of also appearing under the Rzeszów search.
 - `/suburban` in a city without suburban buses opens that city's transport (or trains) instead of Rzeszów's suburban data.
-- Still open (4d): the Rzeszów stop board and the train board draw their own layouts rather than `PVT.departureBoard`.
+- 4d, stop board: the Rzeszów stop board (Rozkład jazdy) now draws `PVT.departureBoard`, the same rows as other cities. Its departures come from the GTFS timetable in the browser and are marked `scheduled`, so no delay is shown. `departureRow` gained two options: `open(x)` makes the row a button (here it opens the line), and `after(x)` adds HTML beside it (the line star). Past rows are dimmed and have no countdown.
+- The train board keeps its own layout. It is the same in every city, and it shows the carrier, arrivals, platform and track, and a "Na mapie" button that the shared row doesn't have.
