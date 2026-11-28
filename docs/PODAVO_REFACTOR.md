@@ -283,3 +283,13 @@ and never stored:
 Opening hours are read only in the common OSM forms (weekday ranges, several time ranges, `off`, `24/7`, past
 midnight). Anything else (months, holidays, sunrise, free text) makes the hours unknown, and then nothing is said. The
 plan marks such stops in amber with a short note "(według OSM)". Service worker onward-v44.
+
+## 9a/9b: next trip on Moje podróże
+
+- The "Upcoming" tab opens with a "Najbliższa podróż" card for the earliest booked or shared trip that has not ended.
+- `tripPhase(day, back, today)` gives the phase: `before` (days to go), `travel` (leaving today), `during` (day N of M), `after` or `undated`.
+- The actions follow the phase:
+  - before: open the trip, add a stay (own trips without a hotel only), plan sightseeing;
+  - travel: the journey step first;
+  - during: nearby places and "O miejscu" for the destination.
+- The weather chip uses the existing forecast endpoint. When no forecast exists yet it shows the "forecast from" date and never an invented one.

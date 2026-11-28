@@ -324,3 +324,18 @@
 .ai-warn{display:block; grid-column:1 / -1; color:#8A5A00; font-size:.78rem; font-weight:700}
 @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .ai-warn{color:#F2B84B} }
 :root[data-theme="dark"] .ai-warn{color:#F2B84B}
+
+/* 9a/9b: next trip on "Moje podróże" */
+.next-trip{margin:0 0 18px; padding:16px 18px; border-radius:20px; color:#fff; background:radial-gradient(900px 300px at 10% -20%, rgba(40,120,208,.45), transparent 60%), linear-gradient(150deg,#173B70,#0F2A52); box-shadow:var(--shadow-soft)}
+.nt-head{display:flex; align-items:center; justify-content:space-between; gap:8px}
+.nt-head small{text-transform:uppercase; letter-spacing:.06em; font-weight:700; font-size:.72rem; color:rgba(255,255,255,.75)}
+.nt-when{padding:4px 12px; border-radius:999px; background:#F2B84B; color:#173B70; font-weight:800; font-size:.82rem}
+.next-trip.phase-during .nt-when,.next-trip.phase-travel .nt-when{background:#20A995; color:#fff}
+.next-trip h3{margin:8px 0 6px; font-size:1.3rem; font-weight:800; color:#fff}
+.next-trip h3 .txt-red{color:#F2B84B}
+.nt-meta{display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; font-size:.88rem; color:rgba(255,255,255,.9)}
+.nt-meta .wx-chip{color:#fff; background:rgba(255,255,255,.14)} .nt-meta .wx-chip small{color:rgba(255,255,255,.8)}
+.nt-acts{display:flex; flex-wrap:wrap; gap:8px; margin-top:14px}
+.nt-acts button{min-height:44px; display:inline-flex; align-items:center; gap:8px}
+.nt-acts .btn-ghost{color:#fff; border-color:rgba(255,255,255,.55); background:transparent}
+@media (max-width:767px){ .nt-acts button{flex:1 1 calc(50% - 8px); justify-content:center} }

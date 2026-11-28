@@ -5233,6 +5233,47 @@ document.getElementById('myTripsPage')?.addEventListener('click', e=>{
   const sh=e.target.closest('[data-trip-share]'); if(sh){ e.preventDefault(); e.stopPropagation(); openTrip(sh.dataset.tripShare, {invite:true}); return; }
   const to=e.target.closest('[data-trip-open]'); if(to){ e.preventDefault(); openTrip(to.dataset.tripOpen); }
 });
+/* ---------- 9a/9b: najbliższa podróż na górze „Moich podróży”, z działaniami zależnymi od etapu ----------
+   przed wyjazdem: odliczanie, pogoda u celu (gdy jest prognoza), co jeszcze warto dodać; w dniu wyjazdu: przebieg
+   podróży; w trakcie: dzień pobytu, miejsca w okolicy i opis miasta. Nic nie jest liczone poza tym, co już zapisano. */
+function tripPhase(day, back, today=ymdOf(0)){
+  if(!day) return {phase:'undated'};
+  const diff=Math.round((Date.parse(day)-Date.parse(today))/864e5);
+  if(diff>0) return {phase:'before', days:diff};
+  if(diff===0) return {phase:'travel'};
+  const end=back||day;
+  if(today<=end) return {phase:'during', dayN:1-diff, of:Math.round((Date.parse(end)-Date.parse(day))/864e5)+1};
+  return {phase:'after'};
+}
+function nextTripCard(all){
+  const today=ymdOf(0);
+  const dated=all.filter(f=>!tripIsPast(f)).map(f=>{ const fl=savedFlight(f)||groundDates(f); return {f, day:fl?.day||'', back:fl?.back||''}; }).filter(x=>x.day).sort((a,b)=>a.day.localeCompare(b.day));
+  const x=dated[0]; if(!x) return '';
+  const {f, day, back}=x, T=f.trip||{}, ph=tripPhase(day, back, today), tid=tidOf(f);
+  const city=T.airport||T.ground||T.multi?tripCities(T,f)[0]:null, hotel=T.hotel?.name||'', points=T?allLocalItems(T).length:0;
+  const when=ph.phase==='before'?(ph.days===1?L2('jutro','tomorrow'):L2(`za ${ph.days} dni`,`in ${ph.days} days`))
+    :ph.phase==='travel'?L2('dziś wyjazd','leaving today'):ph.phase==='during'?L2(`dzień ${ph.dayN} z ${ph.of}`,`day ${ph.dayN} of ${ph.of}`):'';
+  const btn=(sheet,icon,label,primary)=>`<button type="button" class="${primary?'btn-grad':'btn-ghost'}" data-next-open="${esc(tid)}" data-next-sheet="${esc(sheet)}"><i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${label}</button>`;
+  const acts=[];
+  if(ph.phase==='travel') acts.push(btn('step:go','route',L2('Przebieg podróży','Journey'),true));
+  if(ph.phase==='during'&&city) acts.push(btn('city','compass',L2('W okolicy','Nearby'),true));
+  if(ph.phase!=='during') acts.push(btn('','suitcase-rolling',L2('Otwórz podróż','Open trip'),ph.phase!=='travel'));
+  if(ph.phase==='before'&&!hotel&&!f.shared) acts.push(btn('hotel','bed',L2('Dodaj nocleg','Add a stay')));
+  if(city&&ph.phase!=='during') acts.push(btn('city','map-location-dot',points?L2(`Plan zwiedzania (${points})`,`Sightseeing plan (${points})`):L2('Zaplanuj zwiedzanie','Plan sightseeing')));
+  if(city&&ph.phase==='during') acts.push(`<button type="button" class="btn-ghost" data-next-about="${esc(tid)}"><i class="fa-solid fa-landmark" aria-hidden="true"></i> ${L2('O miejscu','About')}</button>`);
+  const wx=city?.centre?wxChip([city.centre.lat, city.centre.lon], ph.phase==='during'?today:day):'';
+  return `<section class="next-trip phase-${ph.phase}" aria-label="${L2('Najbliższa podróż','Next trip')}">
+    <div class="nt-head"><small>${L2('Najbliższa podróż','Next trip')}</small>${when?`<span class="nt-when">${esc(when)}</span>`:''}</div>
+    <h3>${f.title?esc(f.title):`${esc(f.from)} <span class="txt-red">→</span> ${esc(f.to)}`}</h3>
+    <div class="nt-meta"><span><i class="fa-regular fa-calendar" aria-hidden="true"></i> ${esc(longDay(day,{weekday:'short', day:'numeric', month:'short'}))}${back?` – ${esc(longDay(back,{weekday:'short', day:'numeric', month:'short'}))}`:''}</span>${hotel?`<span><i class="fa-solid fa-bed" aria-hidden="true"></i> ${esc(hotel)}</span>`:''}${wx?`<span class="nt-wx">${wx}</span>`:''}</div>
+    <div class="nt-acts">${acts.join('')}</div></section>`;
+}
+document.getElementById('myTripsPage')?.addEventListener('click', e=>{
+  const b=e.target.closest('[data-next-open]');
+  if(b){ const sheet=b.dataset.nextSheet; openTrip(b.dataset.nextOpen); if(sheet) setTimeout(()=>openTripSheet(sheet),0); return; }
+  const a=e.target.closest('[data-next-about]');
+  if(a){ const f=findTrip(a.dataset.nextAbout), c=f?.trip?tripCities(f.trip,f)[0]:null; if(c?.centre) openAbout({name:c.label, lat:c.centre.lat, lon:c.centre.lon}); }
+});
 function renderMyTrips(){
   const page=document.getElementById('myTripsPage'); if(!page) return;
   const list=FAV.items.filter(f=>f.type==='trip' && f.status==='booked');
@@ -5246,7 +5287,7 @@ function renderMyTrips(){
   if(!all.length) body=`<div class="empty-note">${stateIll(assetPaths.noTrips)}Nie masz jeszcze zapisanych podróży. Zaplanuj lot, a na ostatnim kroku „Z lotniska do centrum” kliknij „Zapisz moją podróż”. Plany, których nie jesteś pewien, zapisuj w ulubionych.</div>`;
   else if(archive) body=past.length?`<p class="mytrips-note">${L2('Podróże, które już się skończyły. Otwórz podróż, aby zobaczyć jej plan i dodać zdjęcia.','Trips that have already ended. Open a trip to see its plan and add photos.')}</p>${tripTimeline(past,{booked:true, only:'past'})}`
     :`<div class="empty-note">${L2('Archiwum jest puste. Podróże trafiają tu same, gdy minie dzień powrotu.','The archive is empty. Trips move here on their own once the return day has passed.')}</div>`;
-  else body=next?tripTimeline(all,{booked:true, only:'upcoming'})
+  else body=next?nextTripCard(all)+tripTimeline(all,{booked:true, only:'upcoming'})
     :`<div class="empty-note">${stateIll(assetPaths.noTrips)}${L2('Nie masz nadchodzących podróży. Minione znajdziesz w zakładce „Archiwum”.','You have no upcoming trips. Past ones are in the “Archive” tab.')}</div>`;
   page.innerHTML=tabs+body;
 }
