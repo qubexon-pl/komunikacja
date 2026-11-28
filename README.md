@@ -152,6 +152,17 @@ To enable it:
 
 A plan uses roughly 3–6k input and 2–4k output tokens, about $0.05–0.10 at Opus 5.5 prices.
 
+### City sightseeing route, Wikipedia attractions and "Zapytaj AI"
+
+The **Plan zwiedzania** window of a trip shows, for each city:
+
+- **About the city** from Wikipedia and Wikidata (`/api/places/about`): summary, picture, population, country, elevation, time zone, website.
+- **Attractions from Wikipedia** (`GET /api/places/attractions?name=&lat=&lon=&lang=`, `src/attractions.js`): articles with coordinates within 10 km of the centre (MediaWiki geosearch), kept when Wikidata says they are a museum, church, castle, monument, park, square or notable building, or a listed heritage site. Each has its short description, the first sentences of the article, a picture and a link; they are ranked by Wikipedia page views of the last 30 days, or by distance. Answers are kept for 30 days in `StoredAnswer`. Only the city name and coordinates leave the server.
+- **My sightseeing route**: attractions added with one click and places added by hand (with address suggestions; a place not found on the map is kept without a distance). The order is changed with the arrows or with **Ułóż najkrócej** (nearest neighbour + 2-opt from the stay). Between consecutive places and in total it shows the straight-line distance and an estimated walking time (1.25 × the straight line at 4.8 km/h), plus **Dojazd** (city transport planner) and a walking route in Google Maps. The route is saved in the trip as `explore: [{city, items}]`, up to 20 places per city.
+- **Zapytaj AI** (`POST /api/ai/ask`, `src/city-ask.js`): a question about the city, its attractions or the route, answered from the Wikipedia data and the route; recommended attractions can be added to the route. 20 questions per user per hour.
+
+The model is set up exactly as in Podavo Clean (`src/llm.js`, a port of Clean's `llm.ts`): each setting is read under a `VOYAGE_*` name, or under the `TIDY_*` name Clean uses, so Clean's App Service settings can be copied as they are. Order: Claude in Microsoft Foundry (`*_FOUNDRY_RESOURCE` or `*_FOUNDRY_BASE_URL`, `*_FOUNDRY_DEPLOYMENT`, optional `*_FOUNDRY_API_KEY`, else managed identity), Azure OpenAI (`*_AZURE_OPENAI_ENDPOINT`, `*_AZURE_OPENAI_DEPLOYMENT`, optional key), the OpenAI API (`*_OPENAI_API_KEY`, `*_OPENAI_MODEL`), the Claude API (`*_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY`). With none of them the box is hidden.
+
 ## Local checks
 
 ```powershell
