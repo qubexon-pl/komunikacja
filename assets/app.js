@@ -1398,6 +1398,11 @@ const LOCAL_TRANSIT=new Set(['Rzeszów']);
 const TXC={list:(window.PL_CITIES||[]).map(({id,name,centre,modes,live,operator})=>({id,name,centre,modes,live,operator:operator||''}))};
 TXC.byName=new Map(TXC.list.map(c=>[c.name,c]));
 const RZ_CITY={id:'rzeszow', name:'Rzeszów', centre:[50.0413,21.9990]};
+// „Szukaj połączenia” w Rzeszowie to ta sama strona co w Warszawie i innych miastach (planer Transitous z mapą pojazdów):
+// Transitous ma rozkłady i dane na żywo ZTM Rzeszów i PKS Rzeszów, więc planer łączy autobusy miejskie i podmiejskie.
+// Rozkład jazdy i Linie zostają na danych GTFS importowanych przez serwer.
+const RZ_TX={...RZ_CITY, modes:['bus'], live:true, operator:'ZTM Rzeszów · PKS Rzeszów'};
+const searchTxCity=()=>txCity()||(LOCAL_TRANSIT.has(TCITY.name)?RZ_TX:null);
 const txCity=(name=TCITY.name)=>LOCAL_TRANSIT.has(name)?null:TXC.byName.get(name)||null;
 const TX_MODE_NAMES={metro:['metro','metro'], tram:['tramwaje','trams'], bus:['autobusy','buses'], trolleybus:['trolejbusy','trolleybuses'], rail:['SKM','city rail']};
 const txModes=c=>c.modes.map(m=>L2(...(TX_MODE_NAMES[m]||[m,m]))).join(' · ');
@@ -1529,10 +1534,11 @@ function renderTransitTabs(current){
   const subs=[['', current==='pks'?L2('Dokąd dojedziesz','Where you can go'):L2('Szukaj połączenia','Find a connection'), 'fa-solid fa-magnifying-glass'], ['rozklad', L2('Rozkład jazdy','Timetable'), 'fa-regular fa-clock'], ['linie', L2('Linie','Lines'), 'fa-solid fa-list-ol']];
   // Autobusy podmiejskie są częścią „Autobusów” (przełącznik Miejskie / Podmiejskie w Rzeszowie), nie osobną sekcją.
   const bus=current==='ztm'||current==='pks';
-  const modes=TRANSIT_MODES.filter(([v])=>v!=='pks').map(([v,icon,pl,en])=>{ const on=v==='kolej'?current==='kolej':bus; const soon=v==='ztm'&&!local&&!tx; if(v==='ztm'){ [pl,en]=tx?['Komunikacja miejska','City transport']:['Autobusy','Buses']; } return `<button type="button" class="tx-mode ${on?'on':''} ${soon?'soon':''}" data-transit-go="${v}" aria-pressed="${on}" ${soon?`title="${esc(L2(`${TCITY.name}: wkrótce — na razie pociągi`,`${TCITY.name}: coming soon — trains for now`))}" aria-disabled="true"`:''}><i class="oi oi-${icon}" aria-hidden="true"></i> ${L2(pl,en)}</button>`; }).join('');
-  const kinds=local&&bus?`<div class="tx-kinds" role="group" aria-label="${L2('Rodzaj autobusów','Kind of buses')}">${[['ztm',L2('Miejskie','City')],['pks',L2('Podmiejskie','Suburban')]].map(([v,label])=>`<button type="button" class="tx-kind ${v===current?'on':''}" data-transit-go="${v}" aria-pressed="${v===current}">${label}</button>`).join('')}</div>`:'';
+  const modes=TRANSIT_MODES.filter(([v])=>v!=='pks').map(([v,icon,pl,en])=>{ const on=v==='kolej'?current==='kolej':bus; const soon=v==='ztm'&&!local&&!tx; if(v==='ztm'){ [pl,en]=tx||local?['Komunikacja miejska','City transport']:['Autobusy','Buses']; } return `<button type="button" class="tx-mode ${on?'on':''} ${soon?'soon':''}" data-transit-go="${v}" aria-pressed="${on}" ${soon?`title="${esc(L2(`${TCITY.name}: wkrótce — na razie pociągi`,`${TCITY.name}: coming soon — trains for now`))}" aria-disabled="true"`:''}><i class="oi oi-${icon}" aria-hidden="true"></i> ${L2(pl,en)}</button>`; }).join('');
+  const searchTab=current==='ztm'&&S.sub==='';
+  const kinds=local&&bus&&!searchTab?`<div class="tx-kinds" role="group" aria-label="${L2('Rodzaj autobusów','Kind of buses')}">${[['ztm',L2('Miejskie','City')],['pks',L2('Podmiejskie','Suburban')]].map(([v,label])=>`<button type="button" class="tx-kind ${v===current?'on':''}" data-transit-go="${v}" aria-pressed="${v===current}">${label}</button>`).join('')}</div>`:'';
   // Rzeszów: ten sam nagłówek miasta co w innych miastach (nazwa, rodzaje komunikacji, znaczek „na żywo”).
-  const head=local&&bus?`<div class="ctx-head tx-city-head"><div><h3><i class="fa-solid fa-bus" aria-hidden="true"></i> ${esc(TCITY.name)}</h3><small>${L2('autobusy miejskie · podmiejskie · ZTM Rzeszów, PKS Rzeszów','city buses · suburban buses · ZTM Rzeszów, PKS Rzeszów')}</small></div>
+  const head=local&&bus&&!searchTab?`<div class="ctx-head tx-city-head"><div><h3><i class="fa-solid fa-bus" aria-hidden="true"></i> ${esc(TCITY.name)}</h3><small>${L2('autobusy miejskie · podmiejskie · ZTM Rzeszów, PKS Rzeszów','city buses · suburban buses · ZTM Rzeszów, PKS Rzeszów')}</small></div>
     <span class="ctx-badge live"><i class="fa-solid fa-tower-broadcast" aria-hidden="true"></i> ${L2('Pozycje na żywo','Live positions')}</span></div>`:'';
   el.innerHTML=`${cityPickerHtml()}<div class="tx-modes" role="group" aria-label="${L2('Rodzaj komunikacji','Kind of transport')}">${modes}</div>
     <div class="tx-subs" role="group" aria-label="${L2('Widok','View')}">${subs.map(([v,label,icon])=>`<button type="button" class="tx-sub ${(fav?'ulubione':S.sub)===v?'on':''}" data-transit-sub="${v}" aria-pressed="${(fav?'ulubione':S.sub)===v}"><i class="${icon}" aria-hidden="true"></i> ${label}</button>`).join('')}</div>${head}${kinds}`;
@@ -1544,7 +1550,8 @@ document.getElementById('transitTabs')?.addEventListener('click', e=>{
   if(e.target.closest('[data-city-open]')){ toggleCityPicker(); return; }
   const pick=e.target.closest('[data-city-pick]'); if(pick){ selectCity(pick.dataset.cityPick); return; }
   if(m){ if(m.getAttribute('aria-disabled')==='true'){ toast(txCity()?L2(`${TCITY.name}: autobusy podmiejskie dodamy wkrótce. Komunikacja miejska i pociągi już działają.`,`${TCITY.name}: suburban buses are coming soon. City transport and trains work now.`):L2(`${TCITY.name}: autobusy miejskie i podmiejskie dodamy wkrótce. Na razie pociągi.`,`${TCITY.name}: city and suburban buses are coming soon. Trains for now.`)); return; } const next=S.sub==='ulubione'?'ulubione':S.sub; const go=m.classList.contains('tx-mode')&&m.dataset.transitGo==='ztm'&&cur==='pks'?'pks':m.dataset.transitGo; goPage(go, next, next==='ulubione'?go:'all'); return; }
-  if(sub){ const v=sub.dataset.transitSub; goPage(TRANSIT.includes(cur)?cur:'ztm', v, v==='ulubione'?(TRANSIT.includes(cur)?cur:'ztm'):'all'); }
+  // „Szukaj połączenia” to zawsze planer miasta (w Rzeszowie obejmuje też autobusy podmiejskie).
+  if(sub){ const v=sub.dataset.transitSub, to=v===''&&cur==='pks'?'ztm':cur; goPage(TRANSIT.includes(to)?to:'ztm', v, v==='ulubione'?(TRANSIT.includes(to)?to:'ztm'):'all'); }
 });
 function syncNav(){
   const fav=S.sub==='ulubione', current=fav?(FAVF.kind==='all'?'':FAVF.kind):S.agency, tab=S.sub==='kierunki'?'kierunki':TRANSIT.includes(current)?'transit':current;
@@ -3982,7 +3989,7 @@ document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && CITY.
    albo odjazdy z przystanku. Rzeszów ma własne, pełniejsze strony. */
 const CTX={on:false, city:null, sub:null, stop:null, stops:[], q:'', timer:null, reqQ:0, reqD:0, data:null, err:'', day:'', at:'', line:'', lines:null, linesErr:''};
 function syncCityTx(){
-  const tx=S.agency==='ztm' && ['','rozklad','linie'].includes(S.sub) ? txCity() : null;
+  const tx=S.agency==='ztm' && S.sub==='' ? searchTxCity() : S.agency==='ztm' && ['rozklad','linie'].includes(S.sub) ? txCity() : null;
   const page=document.getElementById('cityTxPage'); if(!page) return;
   document.body.classList.toggle('citytx-mode', !!tx);
   if(!tx){
@@ -4022,7 +4029,7 @@ function syncCityTx(){
   CITY.want={code:`pl:${tx.id}`, fromHint:`np. ulica i numer albo ${TX_EXAMPLE[tx.id]||'Dworzec'}`, toHint:'np. adres, przystanek, muzeum', city:tx.name, local:null, canSave:false, zone:'Europe/Warsaw', centre:{lat:tx.centre[0], lon:tx.centre[1]}, airport:null, home:null, day:today, back:null};
   mountCity(page.querySelector('.ctx-slot'));
 }
-const TX_EXAMPLE={warszawa:'Centrum', krakow:'Rondo Mogilskie', lodz:'Piotrkowska Centrum', wroclaw:'Rynek', poznan:'Rondo Kaponiera', gdansk:'Brama Wyżynna', gdynia:'Gdynia Główna', szczecin:'Plac Rodła', katowice:'Katowice Rondo', lublin:'Plac Litewski', bialystok:'Rynek Kościuszki', bydgoszcz:'Rondo Jagiellonów', torun:'Plac Rapackiego'};
+const TX_EXAMPLE={rzeszow:'Dworzec Główny', warszawa:'Centrum', krakow:'Rondo Mogilskie', lodz:'Piotrkowska Centrum', wroclaw:'Rynek', poznan:'Rondo Kaponiera', gdansk:'Brama Wyżynna', gdynia:'Gdynia Główna', szczecin:'Plac Rodła', katowice:'Katowice Rondo', lublin:'Plac Litewski', bialystok:'Rynek Kościuszki', bydgoszcz:'Rondo Jagiellonów', torun:'Plac Rapackiego'};
 function renderCtxStops(){
   const ul=document.getElementById('ctxStops'); if(!ul) return;
   ul.innerHTML=CTX.stops.map(st=>`<li><button type="button" data-ctx-stop="${esc(st.id)}" class="${CTX.stop?.id===st.id?'on':''}"><b>${esc(st.name)}</b><small>${st.km} km ${L2('od centrum','from the centre')}</small></button></li>`).join('');

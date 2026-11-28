@@ -154,3 +154,13 @@ test("a plan's stops can be moved, removed and added by hand", () => {
   assert.match(app, /data-ai-fit="\$\{di\}"/);
   assert.match(app, /data-ai-style/);
 });
+
+test("Rzeszów's \"Szukaj połączenia\" is the same city planner page as Warszawa's", () => {
+  const app = read("assets/app.js");
+  // Transitous carries ZTM Rzeszów and PKS Rzeszów, so the search tab uses the shared city page for Rzeszów too.
+  assert.match(app, /const searchTxCity=\(\)=>txCity\(\)\|\|\(LOCAL_TRANSIT\.has\(TCITY\.name\)\?RZ_TX:null\)/);
+  assert.match(app, /S\.agency==='ztm' && S\.sub==='' \? searchTxCity\(\)/);
+  // no separate Rzeszów header or Miejskie/Podmiejskie switch on the search tab
+  assert.match(app, /const kinds=local&&bus&&!searchTab\?/);
+  assert.match(app, /const head=local&&bus&&!searchTab\?/);
+});
