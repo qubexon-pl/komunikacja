@@ -6798,10 +6798,11 @@ function renderTimetable(){
   const estimate=estimatedAgencies(dayInfo(TT.day)).filter(agency=>agency===S.agency), note=estimate.length?estimateNote(estimate,dayInfo(TT.day)):'';
   if(!rows.length){ el.innerHTML=head+note+'<div class="empty-note">'+stateIll(assetPaths.noDepartures)+'Brak odjazdów w tym dniu.</div>'; return; }
   const p=paginate(rows, TT.page??(TT.day===0?pageOfNow(rows,TT_PAGE,d=>d.dep,now):1), TT_PAGE);
-  el.innerHTML=head+note+'<div class="board">'+p.rows.map(d=>{ const r=routeById(d.t.route), last=GT.stopGroupOf.get(d.st[d.st.length-1].stop)||'';
-    return `<button class="tt-row ${d.dep<now?'tt-past':''}" type="button" data-route="${esc(r.id)}"><b class="tt-time">${fmtClock(d.dep)}</b>
-      <span class="leg-line" style="background:${lineColor(r.short,r.color,r.agency)}">${esc(r.short)}</span>
-      <span class="tt-dir">→ ${esc(d.t.headsign||last)}</span><small class="text-soft">${TT.day===0&&d.dep>=now?inMin(d.dep):''}</small>${lineStar(d.t.route)}</button>`; }).join('')+'</div>'+pagerHtml(p, TT.day===0);
+  // 4d: ta sama tablica odjazdów co w innych miastach (PVT.departureBoard, model Departure), z rozkładu GTFS w przeglądarce.
+  // Rozkład jest planowy, więc wiersze nie pokazują opóźnień; wiersz otwiera linię, gwiazdka ją zapisuje.
+  const deps=p.rows.map(d=>{ const r=routeById(d.t.route), last=GT.stopGroupOf.get(d.st[d.st.length-1].stop)||'', clock=`0000-00-00T${fmtClock(d.dep)}`;
+    return {line:r.short, headsign:d.t.headsign||last, mode:'bus', scheduled:clock, expected:clock, at:d.dep*1000, realtime:'scheduled', color:lineColor(r.short,r.color,r.agency), textColor:'#fff', route:r.id}; });
+  el.innerHTML=head+note+PVT.departureBoard(deps, {t:L2, now:TT.day===0?now*1000:0, open:x=>['data-route',x.route], after:x=>lineStar(x.route)})+pagerHtml(p, TT.day===0);
 }
 function setTimetableStop(name){ TT.stop=name; TT.page=null; TT.line=''; document.getElementById('ttStop').value=name; store('rzbus.tt.'+S.agency, name); renderTimetable(); }
 document.getElementById('ttDay').innerHTML=[0,1,2,3,4,5,6].map(i=>`<option value="${i}">${esc(dayLabel(i))}</option>`).join('');

@@ -2826,6 +2826,11 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 .ctx-deps li{display:grid; grid-template-columns:78px auto minmax(0,1fr) auto; align-items:center; gap:10px; padding:9px 12px; border-top:1px solid var(--line, #E3EAF3)}
 .ctx-deps li:first-child{border-top:0}
 .ctx-deps li.cancelled{opacity:.6}
+.ctx-deps li.past{opacity:.55}
+.ctx-deps li.has-open{display:flex; align-items:center; gap:4px; padding:0 8px 0 0}
+.ctx-dep-open{flex:1 1 auto; min-width:0; display:grid; grid-template-columns:78px auto minmax(0,1fr) auto; align-items:center; gap:10px; padding:9px 12px; border:0; background:transparent; color:inherit; font:inherit; text-align:left}
+button.ctx-dep-open:hover{background:var(--bg-alt, #F3F6FA)}
+button.ctx-dep-open:focus-visible{outline:2px solid var(--btn, #2472C8); outline-offset:-2px}
 .ctx-when{display:flex; flex-direction:column; line-height:1.15; font-variant-numeric:tabular-nums}
 .ctx-when b{font-size:1rem} .ctx-when s{font-size:.75rem; opacity:.65} .ctx-when small{font-size:.7rem; color:var(--ink-soft, #6B7A90)}
 .ctx-head-sign{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600}
@@ -2834,7 +2839,7 @@ body.citytx-mode main.shell > :not(.citytx-part):not(#transitTabs):not(#attribut
 .ctx-st.live{background:#E7F6EE; color:#1a7f4b}
 .ctx-st.cancel{background:#FDECEC; color:#b42318}
 @media (max-width:560px){
-  .ctx-deps li{grid-template-columns:64px minmax(0,1fr) auto; grid-template-areas:"when line st" "when sign sign"; row-gap:2px}
+  .ctx-deps li:not(.has-open),.ctx-dep-open{grid-template-columns:64px minmax(0,1fr) auto; grid-template-areas:"when line st" "when sign sign"; row-gap:2px}
   .ctx-deps .ctx-when{grid-area:when} .ctx-deps .cs-chip{grid-area:line; justify-self:start} .ctx-deps .ctx-head-sign{grid-area:sign; white-space:normal} .ctx-deps .ctx-st{grid-area:st}
 }
 [data-theme="dark"] .ctx-stops button:hover,[data-theme="dark"] .ctx-stops button.on{background:rgba(40,120,208,.2); color:inherit}
