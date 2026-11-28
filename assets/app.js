@@ -1514,15 +1514,22 @@ function renderTransitTabs(current){
   const txOn=tx&&current==='ztm';
   // Ulubione mają własną stronę (gwiazdka w górnym pasku), więc tu trzecia zakładka to linie wybranego miasta.
   const subs=[['', current==='pks'?L2('Dokąd dojedziesz','Where you can go'):L2('Szukaj połączenia','Find a connection'), 'fa-solid fa-magnifying-glass'], ['rozklad', L2('Rozkład jazdy','Timetable'), 'fa-regular fa-clock'], ['linie', L2('Linie','Lines'), 'fa-solid fa-list-ol']];
-  el.innerHTML=`${cityPickerHtml()}<div class="tx-modes" role="group" aria-label="${L2('Rodzaj komunikacji','Kind of transport')}">${TRANSIT_MODES.map(([v,icon,pl,en])=>{ const soon=!local&&v!=='kolej'&&!(tx&&v==='ztm'); if(tx&&v==='ztm'){ pl='Komunikacja miejska'; en='City transport'; } return `<button type="button" class="tx-mode ${v===current?'on':''} ${soon?'soon':''}" data-transit-go="${v}" aria-pressed="${v===current}" ${soon?`title="${esc(L2(`${TCITY.name}: wkrótce — na razie pociągi`,`${TCITY.name}: coming soon — trains for now`))}" aria-disabled="true"`:''}><i class="oi oi-${icon}" aria-hidden="true"></i> ${L2(pl,en)}</button>`; }).join('')}</div>
-    <div class="tx-subs" role="group" aria-label="${L2('Widok','View')}">${subs.map(([v,label,icon])=>`<button type="button" class="tx-sub ${(fav?'ulubione':S.sub)===v?'on':''}" data-transit-sub="${v}" aria-pressed="${(fav?'ulubione':S.sub)===v}"><i class="${icon}" aria-hidden="true"></i> ${label}</button>`).join('')}</div>`;
+  // Autobusy podmiejskie są częścią „Autobusów” (przełącznik Miejskie / Podmiejskie w Rzeszowie), nie osobną sekcją.
+  const bus=current==='ztm'||current==='pks';
+  const modes=TRANSIT_MODES.filter(([v])=>v!=='pks').map(([v,icon,pl,en])=>{ const on=v==='kolej'?current==='kolej':bus; const soon=v==='ztm'&&!local&&!tx; if(v==='ztm'){ [pl,en]=tx?['Komunikacja miejska','City transport']:['Autobusy','Buses']; } return `<button type="button" class="tx-mode ${on?'on':''} ${soon?'soon':''}" data-transit-go="${v}" aria-pressed="${on}" ${soon?`title="${esc(L2(`${TCITY.name}: wkrótce — na razie pociągi`,`${TCITY.name}: coming soon — trains for now`))}" aria-disabled="true"`:''}><i class="oi oi-${icon}" aria-hidden="true"></i> ${L2(pl,en)}</button>`; }).join('');
+  const kinds=local&&bus?`<div class="tx-kinds" role="group" aria-label="${L2('Rodzaj autobusów','Kind of buses')}">${[['ztm',L2('Miejskie','City')],['pks',L2('Podmiejskie','Suburban')]].map(([v,label])=>`<button type="button" class="tx-kind ${v===current?'on':''}" data-transit-go="${v}" aria-pressed="${v===current}">${label}</button>`).join('')}</div>`:'';
+  // Rzeszów: ten sam nagłówek miasta co w innych miastach (nazwa, rodzaje komunikacji, znaczek „na żywo”).
+  const head=local&&bus?`<div class="ctx-head tx-city-head"><div><h3><i class="fa-solid fa-bus" aria-hidden="true"></i> ${esc(TCITY.name)}</h3><small>${L2('autobusy miejskie · podmiejskie · ZTM Rzeszów, PKS Rzeszów','city buses · suburban buses · ZTM Rzeszów, PKS Rzeszów')}</small></div>
+    <span class="ctx-badge live"><i class="fa-solid fa-tower-broadcast" aria-hidden="true"></i> ${L2('Pozycje na żywo','Live positions')}</span></div>`:'';
+  el.innerHTML=`${cityPickerHtml()}<div class="tx-modes" role="group" aria-label="${L2('Rodzaj komunikacji','Kind of transport')}">${modes}</div>
+    <div class="tx-subs" role="group" aria-label="${L2('Widok','View')}">${subs.map(([v,label,icon])=>`<button type="button" class="tx-sub ${(fav?'ulubione':S.sub)===v?'on':''}" data-transit-sub="${v}" aria-pressed="${(fav?'ulubione':S.sub)===v}"><i class="${icon}" aria-hidden="true"></i> ${label}</button>`).join('')}</div>${head}${kinds}`;
 }
 document.getElementById('transitTabs')?.addEventListener('click', e=>{
   const m=e.target.closest('[data-transit-go]'), sub=e.target.closest('[data-transit-sub]');
   const cur=S.sub==='ulubione'?FAVF.kind:S.agency;
   if(e.target.closest('[data-city-open]')){ toggleCityPicker(); return; }
   const pick=e.target.closest('[data-city-pick]'); if(pick){ selectCity(pick.dataset.cityPick); return; }
-  if(m){ if(m.getAttribute('aria-disabled')==='true'){ toast(txCity()?L2(`${TCITY.name}: autobusy podmiejskie dodamy wkrótce. Komunikacja miejska i pociągi już działają.`,`${TCITY.name}: suburban buses are coming soon. City transport and trains work now.`):L2(`${TCITY.name}: autobusy miejskie i podmiejskie dodamy wkrótce. Na razie pociągi.`,`${TCITY.name}: city and suburban buses are coming soon. Trains for now.`)); return; } const next=S.sub==='ulubione'?'ulubione':S.sub; goPage(m.dataset.transitGo, next, next==='ulubione'?m.dataset.transitGo:'all'); return; }
+  if(m){ if(m.getAttribute('aria-disabled')==='true'){ toast(txCity()?L2(`${TCITY.name}: autobusy podmiejskie dodamy wkrótce. Komunikacja miejska i pociągi już działają.`,`${TCITY.name}: suburban buses are coming soon. City transport and trains work now.`):L2(`${TCITY.name}: autobusy miejskie i podmiejskie dodamy wkrótce. Na razie pociągi.`,`${TCITY.name}: city and suburban buses are coming soon. Trains for now.`)); return; } const next=S.sub==='ulubione'?'ulubione':S.sub; const go=m.classList.contains('tx-mode')&&m.dataset.transitGo==='ztm'&&cur==='pks'?'pks':m.dataset.transitGo; goPage(go, next, next==='ulubione'?go:'all'); return; }
   if(sub){ const v=sub.dataset.transitSub; goPage(TRANSIT.includes(cur)?cur:'ztm', v, v==='ulubione'?(TRANSIT.includes(cur)?cur:'ztm'):'all'); }
 });
 function syncNav(){
@@ -1902,7 +1909,11 @@ document.querySelectorAll('.view-tab:not(.dropdown-toggle):not([data-go]), [data
   e.preventDefault();
   goPage(a.dataset.view||'podroz');
 }));
-function openPage(page, push){ setView(page.view, push, page.sub, page.kind); }
+// Autobusy podmiejskie mamy tylko w Rzeszowie: w innym mieście /suburban otwiera jego komunikację (albo pociągi).
+function openPage(page, push){
+  if(page.view==='pks' && page.sub!=='ulubione' && !LOCAL_TRANSIT.has(TCITY.name)){ page={...page, view:txCity()?'ztm':'kolej'}; if(!push) history.replaceState(null,'',pageUrl(page.view, page.sub, page.kind)); }
+  setView(page.view, push, page.sub, page.kind);
+}
 window.addEventListener('popstate', ()=>openPage(pageFromLocation(), false));
 function setFilter(f){ S.filter=f; document.querySelectorAll('.pill-btn[data-filter]').forEach(b=>{ b.classList.toggle('active', b.dataset.filter===f); b.classList.toggle('late', b.dataset.filter==='late'); }); renderMarkers(); renderLateList(); }
 document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click', ()=>setFilter(b.dataset.filter)));

@@ -366,3 +366,12 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
   - A flight trip went from about 1,300px to under 600px.
 - **"O miejscu".** A place named after its airport ("Rzym Fiumicino") is looked up as the full name, then with trailing words dropped ("Rzym"). The sheet title shows the article found.
 - **"W okolicy".** Overpass servers are tried in order: overpass-api.de, kumi.systems, private.coffee, each with a 15 s limit. If all are slow, the user sees a Polish message with "Spróbuj ponownie" instead of a raw "operation was aborted" error.
+- **"W okolicy" controls.** The hide/show button is a round arrow (up when open, down when closed). A picker next to it sets the search radius: 1, 2, 3 or 5 km. The choice is kept on the device (`podavo.near.radius`) and is part of the cache key.
+
+## Komunikacja: suburban inside Autobusy, Rzeszów like other cities
+
+- The mode row has two choices in every city: "Autobusy" (or "Komunikacja miejska" where Transitous has trams or metro) and "Pociągi". "Podmiejskie" is no longer a separate section.
+- In Rzeszów, Autobusy has a "Miejskie / Podmiejskie" switch under the same city header the other cities use (name, kinds of transport, operators, live badge). The views and URLs underneath are unchanged (`/buses`, `/suburban`).
+- The line list lives only in the "Linie" tab, as in other cities, instead of also appearing under the Rzeszów search.
+- `/suburban` in a city without suburban buses opens that city's transport (or trains) instead of Rzeszów's suburban data.
+- Still open (4d): the Rzeszów stop board and the train board draw their own layouts rather than `PVT.departureBoard`.
