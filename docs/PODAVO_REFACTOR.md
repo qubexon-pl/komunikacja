@@ -293,3 +293,15 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
   - travel: the journey step first;
   - during: nearby places and "O miejscu" for the destination.
 - The weather chip uses the existing forecast endpoint. When no forecast exists yet it shows the "forecast from" date and never an invented one.
+
+## Kierunki map: lazy routes, viewport markers, list and bottom sheet
+
+- **Routes on demand.** No route is drawn until a destination is picked, from the list or the map. Then only its routes appear. Clicking a departure airport draws only that airport's routes. The pulsing, glowing and dashed animations are removed.
+- **Viewport markers.** Destination dots are created only once they come into the visible area (plus a 25% margin). They are drawn on one canvas (`preferCanvas`), and routes sit in their own pane under the dots.
+- **On-demand details.** The destination card loads today's weather (`/api/weather`, cached 3 h on the server) and a short description (`/api/places/about`, cached 30 days) only when it opens. "Więcej o miejscu" opens the full "O miejscu" sheet. Prices are the lowest fares stored in the database and are labelled that way.
+- **Caching.** The route network is refreshed weekly and stored in the database (as before). `/api/flights/network` now sends an ETag and `Cache-Control: public, max-age=3600`, so browsers reuse it and get a 304 when nothing changed.
+- **Layout.**
+  - Desktop (992px and up): a list of the destinations in view on the left, sorted by stored price, with a large map on the right.
+  - Smaller screens: the map with a bottom sheet that expands into the same list. The destination card opens as a sheet over the map.
+  - The statistics panel is replaced by the list count and an airline legend.
+- **MapLibre GL.** Not adopted yet. With routes drawn on demand and markers limited to the view, Leaflet with a canvas renderer stays fast at the current size (hundreds of destinations). MapLibre would add about 800 KB and needs a vector tile provider. Worth revisiting if the map grows to thousands of points or needs custom vector styling.

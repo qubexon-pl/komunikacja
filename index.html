@@ -180,16 +180,19 @@
     </div>
     <div class="explore-from" id="exploreFrom" role="group" aria-label="Lotniska wylotu"></div>
     <div class="explore-map-wrap">
-      <div id="exploreMap" aria-label="Mapa kierunków lotów"></div>
+      <div class="explore-stage">
+        <aside class="explore-list" id="exploreList" aria-label="Kierunki w widoku mapy"></aside>
+        <div id="exploreMap" aria-label="Mapa kierunków lotów"></div>
+        <aside class="explore-card" id="exploreCard" aria-live="polite" hidden></aside>
+        <div class="explore-hint" id="exploreHint">Kliknij kierunek, aby zobaczyć jego trasy i szczegóły.</div>
+      </div>
       <aside class="explore-stats" id="exploreStats" aria-label="Podsumowanie mapy"></aside>
-      <aside class="explore-card" id="exploreCard" aria-live="polite" hidden></aside>
       <div class="explore-style" role="group" aria-label="Styl mapy">
         <i class="oi oi-map" aria-hidden="true"></i><span>Styl mapy:</span>
         <button type="button" data-explore-style="dark" aria-pressed="true">Ciemna</button>
         <button type="button" data-explore-style="light" aria-pressed="false">Jasna</button>
         <button type="button" data-explore-style="satellite" aria-pressed="false">Satelita</button>
       </div>
-      <div class="explore-hint" id="exploreHint">Kliknij kierunek albo lotnisko wylotu: wybierz je lub usuń z mapy.</div>
     </div>
   </section>
   <datalist id="stopNames"></datalist>

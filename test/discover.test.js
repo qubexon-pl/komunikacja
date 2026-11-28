@@ -84,3 +84,24 @@ test("GET /api/discover validates its input and answers from the store", async (
     server.close();
   }
 });
+
+test("GET /api/flights/network can be kept by the browser and answers 304 when unchanged", async () => {
+  const network = { airports: [], routes: [{ from: "RZE", to: "STN", airlines: ["RYANAIR"] }], updatedAt: "2026-11-01T00:00:00Z" };
+  const server = createServer({ database: {}, auth: { resolveSession: async () => null }, flights: { network: () => network } });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const url = `http://127.0.0.1:${server.address().port}/api/flights/network`;
+  try {
+    const first = await fetch(url);
+    assert.equal(first.status, 200);
+    const etag = first.headers.get("etag");
+    assert.ok(etag);
+    assert.match(first.headers.get("cache-control"), /max-age=3600/);
+    assert.equal((await first.json()).routes.length, 1);
+    assert.equal((await fetch(url, { headers: { "If-None-Match": etag } })).status, 304);
+    network.routes.push({ from: "RZE", to: "LTN", airlines: ["WIZZ"] });
+    assert.equal((await fetch(url, { headers: { "If-None-Match": etag } })).status, 200, "a changed network is sent again");
+  } finally {
+    server.close();
+  }
+});
