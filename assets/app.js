@@ -6147,17 +6147,29 @@ function cityExploreBox(f, T){
 /* ---------- Trasa zwiedzania: o mieście z Wikipedii, atrakcje z Wikipedii z opisami, własna trasa (atrakcje i miejsca
    dodane ręcznie) w wybranej kolejności z odległościami, i pytania do AI. HTML w app.explore.js (PVX). Trasa jest
    zapisana w podróży jako lista {city, items} pod „explore”, tak jak przejazdy po mieście pod „local”. ---------- */
-const XP={tab:'', info:new Map(), data:new Map(), err:new Map(), busy:new Set(), kind:'', sort:'popular', limit:20, open:new Set(), adding:false, chats:new Map(), asking:'', askErr:'', draft:'', addDraft:'', focus:''};
+const XP={tab:'', info:new Map(), data:new Map(), err:new Map(), busy:new Set(), kind:'', sort:'popular', limit:20, open:new Set(), adding:false, chats:new Map(), asking:'', askErr:'', draft:'', addDraft:'', focus:'', fromEdit:'', sugg:null};
 const XP_MAX=20; // punktów trasy w jednym mieście (limit długości list przy zapisie)
 const xpLang=()=>isEn()?'en':'pl';
 const xpKey=c=>`${(+c.centre.lat).toFixed(2)},${(+c.centre.lon).toFixed(2)}|${xpLang()}`;
 function xpGroups(T){ return Array.isArray(T?.explore)?T.explore.filter(x=>x?.city&&Array.isArray(x.items)):[]; }
 function xpItems(T, key){ return (xpGroups(T).find(x=>x.city===key)?.items||[]).slice(); }
-function xpSave(f, key, items){
-  const groups=xpGroups(f.trip).filter(x=>x.city!==key); if(items.length) groups.push({city:key, items:items.slice(0,XP_MAX)});
+function xpSave(f, key, items, extra){
+  const was=xpGroups(f.trip).find(x=>x.city===key), start=extra?.start||was?.start;
+  const groups=xpGroups(f.trip).filter(x=>x.city!==key); if(items.length||start) groups.push({city:key, items:items.slice(0,XP_MAX), ...(start?{start}:{})});
   f.trip={...f.trip, explore:groups}; saveFavorites().catch(e=>console.warn('Nie zapisano trasy zwiedzania', e)); renderTripPage();
 }
 const xpStart=c=>c.home?.lat!=null?{lat:c.home.lat, lon:c.home.lon, label:c.home.label||L2('nocleg','your stay')}:null;
+// Kontekst trasy: nocleg i centrum miasta (współrzędne artykułu z Wikipedii, a nie lotniska, od którego liczy się podróż).
+function xpCtx(c){
+  const d=XP.data.get(xpKey(c))?.centre, centre=d?.lat!=null?{lat:+d.lat, lon:+d.lon}:{lat:+c.centre.lat, lon:+c.centre.lon};
+  return {home:xpStart(c), centre:{...centre, label:L2(`centrum: ${xpCityName(c)}`,`${xpCityName(c)} centre`)}};
+}
+const xpStartTime=(f,c)=>{ const v=xpGroups(f.trip).find(x=>x.city===localKey(c))?.start; return /^\d\d:\d\d$/.test(v||'')?v:'09:00'; };
+// Propozycja trasy na wybrany czas z atrakcji Wikipedii (bez tych, które już są w planie).
+function xpSuggest(f, c, budget){
+  const items=xpItems(f.trip,localKey(c)), have=items.map(x=>x.wiki).filter(Boolean);
+  XP.sugg={budget, list:PVX.suggest(XP.data.get(xpKey(c))?.attractions||[], {ctx:xpCtx(c), budget, max:XP_MAX, have})};
+}
 const xpId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,5);
 async function xpLoad(c){
   const key=xpKey(c); if(XP.busy.has(key)) return;
@@ -6184,10 +6196,10 @@ function exploreBox(f, c, more){
   if(!XP.tab || (XP.tab==='ask'&&!ask)) XP.tab=items.length?'plan':'attr';
   if(TRIPV.city) XP.tab='more';
   const inPlan=new Set(items.map(x=>x.wiki).filter(Boolean)), byId=new Map((data?.attractions||[]).map(a=>[a.id,a]));
-  const panel=XP.tab==='plan'?PVX.planHtml({items, start:xpStart(c), edit, t:L2, adding:XP.adding})
+  const panel=XP.tab==='plan'?PVX.planHtml({items, ctx:xpCtx(c), edit, t:L2, adding:XP.adding, startTime:xpStartTime(f,c), fromEdit:XP.fromEdit, sugg:edit?XP.sugg:null})
     :XP.tab==='ask'?PVX.askHtml({thread:XP.chats.get(`${f.tid}|${localKey(c)}`)||[], busy:XP.asking===`${f.tid}|${localKey(c)}`, err:XP.askErr, byId, inPlan, edit, t:L2, city:xpCityName(c)})
     :XP.tab==='more'?more()
-    :PVX.attrListHtml({data, kind:XP.kind, limit:XP.limit, inPlan, edit, err:XP.err.get(key)||'', t:L2});
+    :PVX.attrListHtml({data, kind:XP.kind, limit:XP.limit, inPlan, edit, err:XP.err.get(key)||'', t:L2})+(edit&&data?.attractions?.length?`<button type="button" class="btn-grad xa-suggbtn" data-xp-sugg-open><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${esc(L2('Zaproponuj trasę na mój czas','Suggest a route for my time'))}</button>`:'');
   return `<div class="xa">${PVX.headHtml(xpCityName(c), XP.info.get(key), L2)}${PVX.tabsHtml(XP.tab, {attr:data?.attractions?.length||0, plan:items.length, ask}, L2)}<div class="xa-panel" role="tabpanel">${panel}</div></div>`;
 }
 // Okno ze szczegółami atrakcji (id z Wikipedii) albo punktu planu (planId).
@@ -6196,11 +6208,13 @@ function xaOpen(f, {id='', planId=''}={}){
   const key=localKey(c), items=xpItems(f.trip,key), item=planId?items.find(x=>x.id===planId):items.find(x=>x.wiki===id);
   const a=(id||item?.wiki)&&xpAttraction(f, id||item.wiki);
   const d=a?{...a, planId:item?.id||''}:item?{id:'', planId:item.id, title:item.name, note:item.note, lat:item.lat, lon:item.lon, url:item.url, kind:item.kind}:null; if(!d) return;
-  const st=xpStart(c), from=st||{...c.centre, label:xpCityName(c)};
-  const html=()=>{ const now=xpItems(findTrip(TRIPV.id)?.trip,key), inp=d.planId?now.some(x=>x.id===d.planId):now.some(x=>x.wiki===d.id);
-    return PVX.detailHtml(d, {inPlan:inp, edit:!f.shared, fromKm:d.lat!=null?PVX.km(from,d):null, fromLabel:st?L2('noclegu','your stay'):L2('centrum','the centre'), t:L2}); };
+  const ctx=xpCtx(c), st=ctx.home;
+  const html=()=>{ const now=xpItems(findTrip(TRIPV.id)?.trip,key), i=d.planId?now.findIndex(x=>x.id===d.planId):now.findIndex(x=>x.wiki===d.id), inp=i>=0;
+    const o=inp?PVX.originOf(now,i,ctx):st, item=inp?now[i]:null;
+    return PVX.detailHtml({...d, min:item?.min}, {inPlan:inp, edit:!f.shared, fromKm:d.lat!=null&&o?PVX.km(o,d):null, fromLabel:o?(o.kind==='prev'?o.label:o.kind==='centre'?'':o.label||L2('noclegu','your stay')):'', centre:ctx.centre, t:L2}); };
   XP.modal=PVUI.sheet.open({title:d.title, html:html(), size:'md', onClose:()=>{ XP.modal=null; }});
-  XP.modal.refresh=()=>{ if(!d.planId){ const x=xpItems(findTrip(TRIPV.id)?.trip,key).find(y=>y.wiki===d.id); if(x) d.planId=x.id; } XP.modal?.setContent(html()); };
+  XP.modal.refresh=()=>{ if(!d.planId){ const x=xpItems(findTrip(TRIPV.id)?.trip,key).find(y=>y.wiki===d.id); if(x) d.planId=x.id; } XP.modal?.setContent(html()); setTimeout(xpMiniMap,0); };
+  setTimeout(xpMiniMap,0);
   XP.modal.data=d;
 }
 document.addEventListener('click', e=>{
@@ -6209,8 +6223,29 @@ document.addEventListener('click', e=>{
   const key=localKey(c), kind=b.dataset.xaM;
   if(kind==='add'){ const a=xpAttraction(f,d.id); if(a) xpAddAttraction(f,a); XP.modal.refresh(); }
   if(kind==='remove'){ xpSave(f, key, xpItems(f.trip,key).filter(x=>!(d.planId?x.id===d.planId:x.wiki===d.id))); d.planId=d.id?'':d.planId; XP.modal.refresh(); if(!d.id) XP.modal.close(); }
-  if(kind==='route'){ XP.modal.close(); if(d.planId) xpRoute(f, d.planId); else { const from=xpStart(c)||{lat:c.centre.lat, lon:c.centre.lon, label:xpCityName(c)}; xpRouteTo(f, from, d); } }
+  if(kind==='route'){ XP.modal.close(); if(d.planId) xpRoute(f, d.planId); else { const x=xpCtx(c), from=x.home||x.centre; xpRouteTo(f, from, d); } }
 });
+// Mała mapa w oknie szczegółów i mapa planu z numerami punktów oraz linią trasy.
+const XPMAP={};
+function xpMiniMap(){
+  const el=document.querySelector('[data-xa-minimap]'); if(!el || el.dataset.on || !window.L) return; el.dataset.on='1';
+  const at=[+el.dataset.lat, +el.dataset.lon], m=L.map(el,{zoomControl:false, attributionControl:true, dragging:false, scrollWheelZoom:false, doubleClickZoom:false, touchZoom:false, keyboard:false}).setView(at,16);
+  m.attributionControl.setPrefix(false); pickBaseLayer(m, {base:[]}); L.circleMarker(at,{radius:9, color:'#fff', weight:3, fillColor:'#e8590c', fillOpacity:1}).addTo(m);
+}
+function xpPlanMap(){
+  const el=document.getElementById('xpPlanMap'); if(!el || !window.L) return;
+  const f=findTrip(TRIPV.id), c=f&&aiCity(f); if(!c?.centre) return;
+  const ctx=xpCtx(c), items=xpItems(f.trip,localKey(c)), T=PVX.totals(items, ctx);
+  if(XPMAP.el!==el){ XPMAP.map?.remove(); XPMAP.el=el; XPMAP.base=[]; XPMAP.baseKey=''; XPMAP.map=L.map(el,{zoomControl:true, maxZoom:18, scrollWheelZoom:false}); XPMAP.map.attributionControl.setPrefix(false); XPMAP.layer=L.layerGroup().addTo(XPMAP.map); }
+  pickBaseLayer(XPMAP.map, XPMAP); XPMAP.layer.clearLayers();
+  const pts=[];
+  items.forEach((x,i)=>{ const o=T.origins[i];
+    if(o && x.lat!=null){ L.polyline([[o.lat,o.lon],[x.lat,x.lon]],{color:'#2b8a3e', weight:3, opacity:.8, dashArray:o.kind==='prev'?null:'6 6'}).addTo(XPMAP.layer); if(o.kind!=='prev'){ L.circleMarker([o.lat,o.lon],{radius:6, color:'#fff', weight:2, fillColor:'#495057', fillOpacity:1}).bindTooltip(o.label||'').addTo(XPMAP.layer); pts.push([o.lat,o.lon]); } }
+    if(x.lat!=null){ L.marker([x.lat,x.lon],{icon:L.divIcon({className:'xa-pin', html:`<span>${i+1}</span>`, iconSize:[26,26], iconAnchor:[13,13]}), title:x.name, keyboard:false}).addTo(XPMAP.layer); pts.push([x.lat,x.lon]); }
+  });
+  if(pts.length) XPMAP.map.fitBounds(L.latLngBounds(pts).pad(.15), {maxZoom:16}); else XPMAP.map.setView([ctx.centre.lat, ctx.centre.lon], 14);
+  setTimeout(()=>XPMAP.map?.invalidateSize(),0);
+}
 // Po każdym odświeżeniu strony: podpowiedzi miejsc w polu „Dodaj własne miejsce”, wpisany tekst i kursor wracają.
 function xpMount(){
   const ask=document.getElementById('xpAskQ'); if(ask && XP.draft && !ask.value) ask.value=XP.draft;
@@ -6219,29 +6254,45 @@ function xpMount(){
     add.dataset.sugg='1'; if(XP.addDraft) add.value=XP.addDraft;
     attachSuggest(add, {streets:true, local:()=>[], near:()=>{ const f=findTrip(TRIPV.id), c=f&&aiCity(f); return c?.centre?[c.centre.lat,c.centre.lon]:null; }, onPick:it=>{ XP.pick=it.point?{label:it.label, point:it.point}:null; XP.addDraft=it.label; }});
   }
+  const from=document.getElementById('xpFromName');
+  if(from && !from.dataset.sugg){ from.dataset.sugg='1'; attachSuggest(from, {streets:true, local:()=>[], near:()=>{ const f=findTrip(TRIPV.id), c=f&&aiCity(f); return c?.centre?[c.centre.lat,c.centre.lon]:null; }, onPick:it=>{ XP.fromPick=it.point?{label:it.label, point:it.point}:null; }}); }
+  xpPlanMap();
   const el=XP.focus&&document.getElementById(XP.focus); if(el && document.activeElement!==el){ el.focus({preventScroll:true}); try{ el.setSelectionRange(el.value.length, el.value.length); }catch(e){} }
 }
 document.addEventListener('input', e=>{ if(e.target.id==='xpAskQ') XP.draft=e.target.value; if(e.target.id==='xpAddName'){ XP.addDraft=e.target.value; XP.pick=null; } });
-document.addEventListener('focusin', e=>{ XP.focus=['xpAskQ','xpAddName'].includes(e.target.id)?e.target.id:''; });
+document.addEventListener('focusin', e=>{ XP.focus=['xpAskQ','xpAddName','xpFromName'].includes(e.target.id)?e.target.id:''; });
 function xpAttraction(f, id){ const c=aiCity(f); return c&&XP.data.get(xpKey(c))?.attractions?.find(a=>a.id===id); }
 function xpAddAttraction(f, a){
   const c=aiCity(f), key=localKey(c), items=xpItems(f.trip,key);
   if(items.some(x=>x.wiki===a.id)) return;
   if(items.length>=XP_MAX){ toast(L2(`W trasie jednego miasta mieści się ${XP_MAX} miejsc.`,`A city route holds up to ${XP_MAX} places.`)); return; }
-  xpSave(f, key, [...items, {id:xpId(), wiki:a.id, name:a.title, note:String(a.description||'').slice(0,160), lat:a.lat, lon:a.lon, url:a.url, kind:a.kind}]);
+  xpSave(f, key, [...items, {id:xpId(), wiki:a.id, name:a.title, note:String(a.description||'').slice(0,160), lat:a.lat, lon:a.lon, url:a.url, kind:a.kind, min:PVX.visitMin(a)}]);
   toast(L2(`Dodano do planu: ${a.title}`,`Added to plan: ${a.title}`));
+}
+// Miejsce wpisane przez podróżnego: z podpowiedzi ma położenie od razu, wpisane ręcznie szukamy w mieście podróży.
+async function xpGeocode(c, name, pick){
+  if(pick && pick.label===name) return pick.point;
+  const city=xpCityName(c), q=name.toLowerCase().includes(city.toLowerCase())?name:`${name}, ${city}`, ctr=xpCtx(c).centre;
+  const r=await fetch('/api/geocode?'+new URLSearchParams({q, scope:'world'})).then(x=>x.ok?x.json():null).catch(()=>null);
+  const p=r?.places?.[0]?.points?.[0]; return p && PVX.km(ctr,{lat:p[0],lon:p[1]})<60?p:null;
+}
+// Punkt startu do jednego miejsca planu: poprzedni punkt, nocleg, centrum albo własne miejsce.
+function xpSetFrom(f, id, from, extra={}){
+  const c=aiCity(f), key=localKey(c), items=xpItems(f.trip,key).map(x=>{ if(x.id!==id) return x; const {fromName, fromLat, fromLon, ...rest}=x; return {...rest, from, ...extra}; });
+  xpSave(f, key, items);
+}
+async function xpFromCustom(f, id, form){
+  const c=aiCity(f), name=form.name.value.trim(); if(!c || !name) return;
+  const at=await xpGeocode(c, name, XP.fromPick); XP.fromEdit=''; XP.fromPick=null;
+  if(!at){ toast(L2(`Nie znaleźliśmy na mapie: ${name}`,`Not found on the map: ${name}`)); renderTripPage(); return; }
+  xpSetFrom(f, id, 'custom', {fromName:name.slice(0,120), fromLat:+(+at[0]).toFixed(5), fromLon:+(+at[1]).toFixed(5)});
 }
 // Własne miejsce: wybrane z podpowiedzi ma położenie od razu, wpisane ręcznie szukamy w mieście podróży.
 async function xpAddManual(f, form){
   const c=aiCity(f), key=localKey(c), name=form.name.value.trim(), note=form.note.value.trim(); if(!name || !c) return;
   const items=xpItems(f.trip,key);
   if(items.length>=XP_MAX){ toast(L2(`W trasie jednego miasta mieści się ${XP_MAX} miejsc.`,`A city route holds up to ${XP_MAX} places.`)); return; }
-  let at=XP.pick&&XP.pick.label===name?XP.pick.point:null;
-  if(!at){
-    const city=String(c.label).split(',')[0], q=name.toLowerCase().includes(city.toLowerCase())?name:`${name}, ${city}`;
-    const r=await fetch('/api/geocode?'+new URLSearchParams({q, scope:'world'})).then(x=>x.ok?x.json():null).catch(()=>null);
-    const p=r?.places?.[0]?.points?.[0]; if(p && PVX.km(c.centre,{lat:p[0],lon:p[1]})<60) at=p;
-  }
+  const at=await xpGeocode(c, name, XP.pick);
   XP.adding=false; XP.addDraft=''; XP.pick=null; XP.focus='';
   xpSave(f, key, [...items, {id:xpId(), name:name.slice(0,120), note:note.slice(0,160), lat:at?+(+at[0]).toFixed(5):null, lon:at?+(+at[1]).toFixed(5):null, manual:true}]);
   XP.tab='plan'; toast(at?L2(`Dodano do planu: ${name}`,`Added to plan: ${name}`):L2(`Dodano: ${name} (nie znaleźliśmy go na mapie, więc bez odległości)`,`Added: ${name} (not found on the map, so no distance)`));
@@ -6253,8 +6304,8 @@ function xpMove(f, id, dir){
 }
 function xpRoute(f, id){
   const c=aiCity(f), list=xpItems(f.trip,localKey(c)), i=list.findIndex(x=>x.id===id), x=list[i]; if(!x || x.lat==null) return;
-  const prev=list.slice(0,i).reverse().find(y=>y.lat!=null), home=xpStart(c);
-  xpRouteTo(f, prev?{lat:prev.lat, lon:prev.lon, label:prev.name}:home||{lat:c.centre.lat, lon:c.centre.lon, label:xpCityName(c)}, {lat:x.lat, lon:x.lon, title:x.name});
+  const ctx=xpCtx(c), o=PVX.originOf(list,i,ctx)||ctx.home||ctx.centre;
+  xpRouteTo(f, {lat:o.lat, lon:o.lon, label:o.label||o.name}, {lat:x.lat, lon:x.lon, title:x.name});
 }
 function xpRouteTo(f, from, to){
   XP.tab='more'; TRIPV.city=true; renderTripPage();
@@ -6264,7 +6315,7 @@ function xpRouteTo(f, from, to){
 }
 async function xpAsk(f, question){
   const c=aiCity(f), q=String(question||'').trim(), ck=`${f.tid}|${localKey(c)}`; if(!c || q.length<3 || XP.asking) return;
-  const key=xpKey(c), items=xpItems(f.trip,localKey(c)), tot=PVX.totals(items, xpStart(c)), chat=XP.chats.get(ck)||[];
+  const key=xpKey(c), items=xpItems(f.trip,localKey(c)), tot=PVX.totals(items, xpCtx(c)), chat=XP.chats.get(ck)||[];
   const T=f.trip, day=T?.out?.day||(T?.ground||T?.multi?groundDates(f)?.day:'')||savedFlight(f)?.day||'', back=T?.ret?.day||(T?.ground||T?.multi?groundDates(f)?.back:'')||savedFlight(f)?.back||'';
   XP.asking=ck; XP.askErr=''; XP.draft=''; renderTripPage();
   try{
@@ -6293,8 +6344,14 @@ function xpClick(e, f){
   if((b=g('[data-xp-remove]'))){ const key=localKey(c); xpSave(f, key, xpItems(f.trip,key).filter(x=>x.id!==b.dataset.xpRemove)); return true; }
   if((b=g('[data-xp-move]'))){ xpMove(f, b.dataset.xpMove, +b.dataset.dir); return true; }
   if((b=g('[data-xp-route]'))){ xpRoute(f, b.dataset.xpRoute); return true; }
-  if(g('[data-xp-shortest]')){ const key=localKey(c), before=xpItems(f.trip,key), st=xpStart(c), next=PVX.shortest(before, st), was=PVX.totals(before,st).km, now=PVX.totals(next,st).km;
+  if(g('[data-xp-shortest]')){ const key=localKey(c), before=xpItems(f.trip,key), ctx=xpCtx(c), st=before.length?PVX.originOf(before,0,ctx):null, next=PVX.shortest(before, st), was=PVX.totals(before,ctx).km, now=PVX.totals(next,ctx).km;
     xpSave(f, key, next); toast(was-now>0.05?L2(`Ułożono trasę: ${PVX.fmtKm(was-now,L2)} krócej.`,`Route ordered: ${PVX.fmtKm(was-now,L2)} shorter.`):L2('Ta kolejność była już najkrótsza.','This order was already the shortest.')); return true; }
+  if(g('[data-xp-sugg-open]')){ if(!XP.data.get(xpKey(c))?.attractions?.length){ toast(L2('Najpierw wczytuję atrakcje z Wikipedii…','Loading attractions from Wikipedia first…')); return true; } XP.tab='plan'; xpSuggest(f, c, XP.sugg?.budget||240); renderTripPage(); return true; }
+  if((b=g('[data-xp-budget]'))){ xpSuggest(f, c, +b.dataset.xpBudget); renderTripPage(); return true; }
+  if(g('[data-xp-sugg-close]')){ XP.sugg=null; renderTripPage(); return true; }
+  if((b=g('[data-xp-sugg-use]'))){ const key=localKey(c), now=xpItems(f.trip,key), list=(XP.sugg?.list||[]).map(a=>({id:xpId(), wiki:a.id, name:a.title, note:String(a.description||'').slice(0,160), lat:a.lat, lon:a.lon, url:a.url, kind:a.kind, min:a.min}));
+    const next=b.dataset.xpSuggUse==='append'?[...now, ...list].slice(0,XP_MAX):list; XP.sugg=null; xpSave(f, key, next); toast(L2(`Plan gotowy: ${next.length} ${next.length===1?"miejsce":next.length%10>=2&&next.length%10<=4&&(next.length%100<12||next.length%100>14)?"miejsca":"miejsc"}.`,`Plan ready: ${next.length} places.`)); return true; }
+  if(g('[data-xp-from-cancel]')){ XP.fromEdit=''; renderTripPage(); return true; }
   if((b=g('[data-xa-tab]'))){ XP.tab=b.dataset.xaTab; if(XP.tab!=='more' && TRIPV.city){ TRIPV.city=false; } renderTripPage(); return true; }
   if((b=g('[data-xa-open]'))){ xaOpen(f,{id:b.dataset.xaOpen}); return true; }
   if((b=g('[data-xa-plan]'))){ xaOpen(f,{planId:b.dataset.xaPlan}); return true; }
@@ -7016,12 +7073,18 @@ document.getElementById('tripPage').addEventListener('click', e=>{
 });
 // W okolicy: promień wyszukiwania (1–5 km), zapamiętany na tym urządzeniu.
 document.addEventListener('change', e=>{
+  const xf=e.target.closest('[data-xp-from],[data-xp-min],[data-xp-time]');
+  if(xf){ const f=findTrip(TRIPV.id), c=f&&aiCity(f); if(!c || f.shared) return; const key=localKey(c);
+    if(xf.dataset.xpFrom){ if(xf.value==='custom'){ XP.fromEdit=xf.dataset.xpFrom; XP.focus='xpFromName'; renderTripPage(); } else { XP.fromEdit=''; xpSetFrom(f, xf.dataset.xpFrom, xf.value); } return; }
+    if(xf.dataset.xpMin){ const m=+xf.value; if(m>0&&m<=600) xpSave(f, key, xpItems(f.trip,key).map(x=>x.id===xf.dataset.xpMin?{...x, min:m}:x)); return; }
+    if(/^\d\d:\d\d$/.test(xf.value)) xpSave(f, key, xpItems(f.trip,key), {start:xf.value}); return; }
   const xs=e.target.closest('[data-xp-sort]'); if(xs){ XP.sort=xs.value==='near'?'near':'popular'; XP.limit=12; renderTripPage(); return; }
   const t=e.target.closest('[data-near-radius]'); if(!t) return;
   const r=+t.value; if(!NEAR_RADII.includes(r)) return;
   NEAR.radius=r; NEAR.limit=12; store('podavo.near.radius', r); renderTripPage();
 });
 document.getElementById('tripPage').addEventListener('submit', async e=>{
+  if(e.target.closest('[data-xp-from-form]')){ e.preventDefault(); const f=findTrip(TRIPV.id), form=e.target.closest('form'); if(f) xpFromCustom(f, form.dataset.xpFromForm, form); return; }
   if(e.target.closest('[data-xp-add-form]')){ e.preventDefault(); const f=findTrip(TRIPV.id); if(f) xpAddManual(f, e.target.closest('form')); return; }
   if(e.target.closest('[data-xp-ask-form]')){ e.preventDefault(); const f=findTrip(TRIPV.id); if(f) xpAsk(f, e.target.closest('form').q.value); return; }
   const form=e.target.closest('[data-tp-hotel-form]'); if(!form) return;

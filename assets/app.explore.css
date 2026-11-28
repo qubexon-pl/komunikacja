@@ -72,3 +72,28 @@
   .xa-open img,.xa-ic{width:48px; height:48px}
   .xa-addform{grid-template-columns:1fr}
 }
+
+/* Położenie, mapy, punkt startu każdego odcinka, godziny i propozycja trasy */
+.xa-where{display:flex; align-items:baseline; gap:5px; color:var(--ink-soft); font-size:.76rem} .xa-where i{color:#e8590c; font-size:.72rem}
+.xa-detail-where{margin:0 0 8px; font-size:.84rem}
+.xa-minimap{height:170px; margin:0 0 10px; border-radius:12px; overflow:hidden; border:1px solid var(--card-border, #dbe3ee)}
+.xa-planhead{display:grid; gap:8px; margin-bottom:10px}
+.xa-start{display:inline-flex; align-items:center; gap:8px; font-size:.86rem; font-weight:600}
+.xa-start input{min-height:40px; padding:4px 8px; border:1px solid var(--card-border, #dbe3ee); border-radius:10px; background:var(--bg, #fff); color:inherit; font:inherit}
+.xa-planmap{height:240px; border-radius:12px; overflow:hidden; border:1px solid var(--card-border, #dbe3ee)}
+.xa-pin span{display:grid; place-items:center; width:26px; height:26px; border-radius:50%; background:var(--navy, #1e3a6e); color:#fff; font-weight:800; font-size:.8rem; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.xa-leg{flex-wrap:wrap}
+.xa-leg-d{display:inline-flex; align-items:center; gap:5px}
+.xa-from select,.xa-min select{min-height:36px; max-width:100%; padding:3px 6px; border:1px solid var(--card-border, #dbe3ee); border-radius:9px; background:var(--bg, #fff); color:inherit; font:inherit; font-size:.8rem}
+.xa-fromform{flex:1 1 100%; display:grid; gap:8px; padding:8px 0}
+.xa-item-main{flex:1 1 auto; min-width:0; display:grid; gap:4px}
+.xa-time{display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:.78rem; color:var(--ink-soft)}
+.xa-note{display:block; margin-top:6px; color:var(--ink-soft); font-size:.74rem}
+.xa-planbtns{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
+.xa-suggbtn{margin-top:12px; width:100%}
+.xa-sugg{margin-bottom:14px; padding:12px; border:1px solid #b9d4f5; border-radius:14px; background:color-mix(in srgb, #2878D0 6%, var(--bg, #fff))}
+.xa-sugg-head{display:flex; align-items:center; justify-content:space-between; gap:8px} .xa-sugg-head h5{margin:0; font-size:1rem}
+.xa-sugg-tx,.xa-sugg-sum{margin:6px 0; font-size:.84rem; color:var(--ink-soft)} .xa-sugg-sum{color:inherit; font-weight:600}
+.xa-sugg-list{list-style:none; margin:8px 0; padding:0; display:grid; gap:6px}
+.xa-sugg-list li{display:flex; align-items:center; gap:10px} .xa-sugg-list li>span:last-child{display:grid; min-width:0} .xa-sugg-list small{color:var(--ink-soft); font-size:.76rem}
+@media (max-width:767px){ .xa-planmap{height:200px} .xa-leg{margin-left:13px; padding-left:14px} }
