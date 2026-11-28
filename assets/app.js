@@ -192,11 +192,11 @@ const SHARED_KEY='voyage.shared';
 function settingsFrom(shared){
   const cfg=Object.assign({}, DEFAULTS, shared||{});
   if(cfg.proxy!=='custom') cfg.proxy='auto';
-  if(!TILE_KEYS_OK(cfg.tiles)) cfg.tiles='esri';
+  if(!TILE_KEYS_OK(cfg.tiles)) cfg.tiles='podavo';
   return cfg;
 }
 let CFG = settingsFrom(store(SHARED_KEY));
-function TILE_KEYS_OK(k){ return ['esri','osm','hot','sat','carto','google'].includes(k); }
+function TILE_KEYS_OK(k){ return ['podavo','esri','osm','hot','sat','carto','google'].includes(k); }
 
 /* ============================================================
    Narzędzia czasu (strefa Europe/Warsaw)
@@ -785,7 +785,7 @@ const SmartTiles = L.TileLayer.extend({
       return img;
     }
     img.onload=()=>{ TILE.ok++; done(null,img); };
-    img.onerror=e=>{ TILE.err++; if(TILE.ok===0 && TILE.err>=4 && TILE.mode==='img'){ TILE.mode='blob'; setTimeout(()=>tileLayers.forEach(t=>t.redraw()),0); } done(e,img); };
+    img.onerror=e=>{ TILE.err++; if(TILE.ok===0 && TILE.err>=4 && TILE.mode==='img'){ TILE.mode='blob'; setTimeout(()=>tileLayers.forEach(t=>t.redraw?.()),0); } done(e,img); };
     img.src=url; return img;
   }
 });
@@ -840,6 +840,13 @@ function setTiles(){
       g.addTo(map); tileLayers=[g]; tiles=g;
       if(CFG.traffic) g.addGoogleLayer('TrafficLayer');
     }).catch(e=>{ if(my===tilesToken) googleFailed('Nie udało się wczytać Google Maps.'); });
+    return;
+  }
+  // Styl Podavo (jak mapa Podavo Clean, assets/app.mapstyle.js); w ciemnym motywie i przy błędzie — dawny podkład Esri.
+  if(CFG.tiles==='podavo' && !isDark()){
+    document.getElementById('map').classList.remove('dim-tiles');
+    PODAVO_MAP.podavoLayer().then(l=>{ if(my!==tilesToken) return; l.addTo(map); tileLayers=[l]; tiles=l; })
+      .catch(()=>{ if(my!==tilesToken) return; CFG.tiles='esri'; setTiles(); CFG.tiles='podavo'; });
     return;
   }
   const prov = TILE_PROVIDERS[CFG.tiles] || TILE_PROVIDERS.esri;
@@ -1424,7 +1431,7 @@ function cityPickerHtml(){
     const row=c=>`<li><button type="button" role="option" data-city-pick="${esc(c.city)}" aria-selected="${c.city===TCITY.name}" class="${c.city===TCITY.name?'on':''}"><b>${esc(c.city)}</b><small>${sub(c)}</small></button></li>`;
     const head=t=>`<li class="tx-city-head" role="presentation">${t}</li>`;
     const top=withCity.map(n=>rail.get(n)||{city:n, main:n==='Rzeszów'?'Rzeszów Główny':n, stations:0});
-    list=`<div class="tx-city-pop" role="dialog" aria-label="${L2('Wybierz miasto','Choose a city')}"><input type="search" id="cityQuery" value="${esc(TCITY.q)}" placeholder="${L2('Szukaj miasta…','Search a city…')}" autocomplete="off">
+    list=`<div class="tx-city-scrim" data-city-close aria-hidden="true"></div><div class="tx-city-pop" role="dialog" aria-label="${L2('Wybierz miasto','Choose a city')}"><div class="ios-sheet-head"><span class="ios-grab" aria-hidden="true"></span><b>${L2('Wybierz miasto','Choose a city')}</b><button type="button" class="ios-done" data-city-close>${L2('Gotowe','Done')}</button></div><input type="search" id="cityQuery" value="${esc(TCITY.q)}" placeholder="${L2('Szukaj miasta…','Search a city…')}" autocomplete="off">
       <ul role="listbox">${top.length?head(L2('Komunikacja miejska i pociągi','City transport and trains'))+top.map(row).join(''):''}${others.length?head(L2('Pociągi','Trains'))+others.map(row).join(''):''}${top.length||others.length?'':`<li class="tx-city-none">${L2('Brak miasta o tej nazwie.','No city of that name.')}</li>`}</ul>
       <small class="tx-city-note">${L2(`Komunikacja miejska w ${TXC.list.length+LOCAL_TRANSIT.size} miastach · pociągi w ${all.length} miejscowościach ze stacjami.`,`City transport in ${TXC.list.length+LOCAL_TRANSIT.size} cities · trains in ${all.length} towns with stations.`)}</small></div>`;
   }
@@ -1530,6 +1537,7 @@ function renderTransitTabs(current){
 document.getElementById('transitTabs')?.addEventListener('click', e=>{
   const m=e.target.closest('[data-transit-go]'), sub=e.target.closest('[data-transit-sub]');
   const cur=S.sub==='ulubione'?FAVF.kind:S.agency;
+  if(e.target.closest('[data-city-close]')){ toggleCityPicker(false); return; }
   if(e.target.closest('[data-city-open]')){ toggleCityPicker(); return; }
   const pick=e.target.closest('[data-city-pick]'); if(pick){ selectCity(pick.dataset.cityPick); return; }
   if(m){ if(m.getAttribute('aria-disabled')==='true'){ toast(txCity()?L2(`${TCITY.name}: autobusy podmiejskie dodamy wkrótce. Komunikacja miejska i pociągi już działają.`,`${TCITY.name}: suburban buses are coming soon. City transport and trains work now.`):L2(`${TCITY.name}: autobusy miejskie i podmiejskie dodamy wkrótce. Na razie pociągi.`,`${TCITY.name}: city and suburban buses are coming soon. Trains for now.`)); return; } const next=S.sub==='ulubione'?'ulubione':S.sub; const go=m.classList.contains('tx-mode')&&m.dataset.transitGo==='ztm'&&cur==='pks'?'pks':m.dataset.transitGo; goPage(go, next, next==='ulubione'?go:'all'); return; }
@@ -1560,6 +1568,8 @@ function transitHead(agency, sub, city, tx){
     :[`Komunikacja: ${city}`, `${modes[0].toUpperCase()+modes.slice(1)} — połączenia po mieście, rozkłady i pojazdy na mapie.`];
 }
 function setSubpage(sub){
+  // Pełnoekranowa mapa komunikacji nie może zostać nad inną stroną (ani blokować przewijania).
+  try{ if(CITY.el?.classList.contains('map-full')) setCityMap(false); }catch(e){} // CITY jeszcze nie istnieje przy pierwszym ustawieniu strony
   if((sub==='rozklad'||sub==='linie') && S.agency==='podroz') sub='';
   if(sub==='kierunki' && S.agency!=='podroz') sub='';
   if((sub==='moje'||sub==='trip') && S.agency!=='podroz') sub='';
@@ -3728,7 +3738,7 @@ function cityPanel(){
         <div class="cp-results" aria-live="polite"></div>
       </aside>
       <div class="cp-map-wrap"><div class="cp-map"></div>
-        <button type="button" class="cp-map-close" data-cp-map-close><i class="fa-solid fa-list" aria-hidden="true"></i> ${L2('Lista','List')}</button>
+        <button type="button" class="cp-map-close" data-cp-map-close aria-label="${L2('Zamknij mapę i wróć do listy','Close the map and go back to the list')}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> ${L2('Zamknij mapę','Close map')}</button>
         <div class="cp-summary" aria-live="polite" hidden></div>
         <div class="cp-legend">${[['metro','Metro'],['rail','Kolej'],['tram','Tramwaj'],['bus','Autobus'],['ferry','Prom']].map(([k,l])=>`<span><b class="cp-veh-l" style="background:${VCOLORS[k]}"><i class="fa-solid fa-${XMODE[k][0]}" aria-hidden="true"></i></b>${l}</span>`).join('')}<span><b class="cp-veh-l live" style="background:#888"><i class="fa-solid fa-bus" aria-hidden="true"></i></b>${L2('na żywo','live')}</span></div></div>
     </div>
@@ -3764,6 +3774,7 @@ function setCityMap(on){
   if(full && !el.classList.contains('map-full')) CITY.listScroll=window.scrollY;
   const leaving=!full && el.classList.contains('map-full');
   el.classList.toggle('map-hidden', !on);
+  if(full) fitCityMapToBars();
   el.classList.toggle('map-full', full);
   document.body.classList.toggle('cp-map-open', full);
   if(leaving && CITY.listScroll!=null){ const y=CITY.listScroll; CITY.listScroll=null; setTimeout(()=>window.scrollTo(0,y),0); }
@@ -3773,6 +3784,15 @@ function setCityMap(on){
   if(!on){ setCityStatus(''); return; }
   setTimeout(()=>{ if(!CITY.map) return; CITY.map.invalidateSize(); if(CITY.route) CITY.map.fitBounds(CITY.route.getBounds(),{padding:[30,30], maxZoom:16}); loadVehicles(true); },0);
 }
+// Pełnoekranowa mapa zajmuje dokładnie miejsce między górnym a dolnym paskiem (ich wysokość zależy od telefonu i aplikacji).
+function fitCityMapToBars(){
+  const top=document.querySelector('.topbar')?.getBoundingClientRect().bottom||56;
+  const nav=document.querySelector('.bottom-nav'), navTop=nav&&getComputedStyle(nav).display!=='none'?nav.getBoundingClientRect().top:window.innerHeight;
+  CITY.el.style.setProperty('--cp-top', Math.max(0,Math.round(top))+'px');
+  CITY.el.style.setProperty('--cp-bottom', Math.max(0,Math.round(window.innerHeight-navTop))+'px');
+}
+// Esc zamyka pełnoekranową mapę.
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && CITY.el?.classList.contains('map-full')) setCityMap(false); });
 // Wybór trasy: zaznacza kartę, rysuje trasę na mapie i odświeża podsumowanie na mapie (jedno źródło stanu: CITY.sel).
 function selectCityTrip(i){
   const t=CITY.trips?.[i]; if(!t) return;
@@ -3805,7 +3825,7 @@ function cityHere(){
   {enableHighAccuracy:true, timeout:15000, maximumAge:60000});
 }
 // Obrót telefonu albo zmiana szerokości okna: pełnoekranowa mapa tylko na wąskim ekranie.
-window.addEventListener('resize', ()=>{ const el=CITY.el; if(el?.classList.contains('map-full') && !phoneWidth()) setCityMap(true); });
+window.addEventListener('resize', ()=>{ const el=CITY.el; if(!el?.classList.contains('map-full')) return; if(!phoneWidth()) setCityMap(true); else fitCityMapToBars(); });
 const cityMapShown=()=>!!CITY.map && !CITY.el?.classList.contains('map-hidden');
 function setCityStatus(text){ const s=CITY.el?.querySelector('.cp-status'); if(s) s.textContent=text; }
 function localNow(zone){ try{ return new Date().toLocaleString('sv-SE',{timeZone:zone}).slice(0,16).replace(' ','T'); }catch{ return ''; } }
@@ -7627,13 +7647,17 @@ function pickBaseLayer(m, B=PK){
   B.baseKey=key; for(const l of B.base) m.removeLayer(l); B.base=[];
   const addProvider=(provKey)=>{ const prov=TILE_PROVIDERS[provKey]||TILE_PROVIDERS.esri; const defs=(isDark()&&prov.dark)?prov.dark:prov.light;
     defs.forEach((d,i)=>{ const layer=new SmartTiles(d.url,{maxZoom:19, maxNativeZoom:d.maxNative||19, subdomains:d.sub||'abc', attribution:i===0?prov.attr:''}); layer.addTo(m); layer.bringToBack(); B.base.push(layer); }); };
+  if(CFG.tiles==='podavo' && !isDark()){
+    PODAVO_MAP.podavoLayer().then(l=>{ if(B.baseKey!==key) return; l.addTo(m); B.base.push(l); }).catch(()=>{ if(B.baseKey===key) addProvider('esri'); });
+    return;
+  }
   if(CFG.tiles==='google' && CFG.gkey && !gmFailed){
     ensureGoogle(CFG.gkey).then(()=>{
       if(B.baseKey!==key) return;
       const g=L.gridLayer.googleMutant({type:'roadmap', maxZoom:20, styles: isDark()?GM_DARK:[{featureType:'poi',stylers:[{visibility:'off'}]}]});
       g.addTo(m); if(CFG.traffic) g.addGoogleLayer('TrafficLayer'); B.base.push(g);
     }).catch(()=>{ if(B.baseKey===key) addProvider('esri'); });
-  } else addProvider(CFG.tiles==='google' ? 'esri' : CFG.tiles);
+  } else addProvider(CFG.tiles==='google'||CFG.tiles==='podavo' ? 'esri' : CFG.tiles);
 }
 function pickStyle(name){
   const isFrom = plFrom.value===name, isTo = plTo.value===name, isSel = PK.sel===name;

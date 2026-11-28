@@ -7,7 +7,7 @@ const sql = require("mssql");
 const SHARED_SETTINGS_KEY = "app_settings";
 const SETTINGS_MAX_CHARS = 4000; // dbo.AppSetting.setting_value
 const SETTINGS_CACHE_MS = 60 * 1000;
-const TILES = new Set(["esri", "osm", "hot", "sat", "carto", "google"]);
+const TILES = new Set(["podavo", "esri", "osm", "hot", "sat", "carto", "google"]);
 const URL_LISTS = ["rtUrls", "staticUrls", "pksRtUrls", "pksStaticUrls"];
 const SWITCHES = ["demo", "traffic", "pks", "trains", "weather"];
 // Desktop sign-out after this many minutes without activity; 0 turns it off.
