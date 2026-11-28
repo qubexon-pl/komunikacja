@@ -287,6 +287,13 @@ function authRedirect(res, pathname, search = "") {
   res.end();
 }
 
+// The Podavo group page (podavo.pl, in the Podavo Clean app): one sign-in for every Podavo app and a card per app.
+// With PODAVO_GROUP_URL set, visitors who are not signed in start there, and the account menu links back to it.
+function podavoGroupUrl(env = process.env) {
+  const value = String(env.PODAVO_GROUP_URL || "").trim().replace(/\/+$/, "");
+  return /^https?:\/\/[^/\s]+$/i.test(value) ? value : "";
+}
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SCAN_DAYS = 90;
 // Trips, single prices and alerts can be planned a year ahead; an admin scan still covers at most 90 days at once.
@@ -702,7 +709,7 @@ function serveStatic(res, pathname, root, search = "") {
     res.end();
     return;
   }
-  const isLoginPage = pathname === "/login";
+  const isLoginPage = pathname === "/login" || pathname === "/sso"; // /sso: a sign-in ticket from the Podavo group page
   // Welcome page for visitors who are not signed in (also at "/" for them, see the request handler).
   const isWelcomePage = pathname === "/welcome";
   const isAdminPage = pathname === "/admin"; // only reached through the admin check in the request handler
@@ -899,6 +906,7 @@ async function handleAuth(req, res, url, auth) {
       emailEnabled: isEmailConfigured(),
       codeLogin: true,
       family: "podavo",
+      groupUrl: podavoGroupUrl() || null,
     });
     return true;
   }
@@ -967,6 +975,26 @@ async function handleAuth(req, res, url, auth) {
     await auth.revokeSession(readCookie(req, SESSION_COOKIE));
     clearSessionCookie(res);
     json(res, 200, { signedOut: true });
+    return true;
+  }
+  // Single sign-on from the Podavo group page: /sso (the login page) posts the ticket it got in the URL fragment.
+  if (route === "/api/auth/sso" && req.method === "POST") {
+    requireSameOrigin(req);
+    if (!attempt()) return true;
+    const { token } = await readJson(req, MAX_AUTH_BODY_BYTES);
+    signedIn(await auth.acceptHandoff(token));
+    return true;
+  }
+  // The way back to the group page (and Podavo Clean), signed in: a single-use ticket in the fragment, never in logs.
+  if (route === "/api/auth/sso/clean" && req.method === "GET") {
+    const group = podavoGroupUrl();
+    if (!group) { json(res, 404, { error: "Strona Podavo nie jest skonfigurowana." }); return true; }
+    const raw = url.searchParams.get("dalej") || "/";
+    const next = raw.startsWith("/") && !raw.startsWith("//") && !raw.includes("\\") ? raw : "/";
+    const user = await me().catch(() => null);
+    if (!user) { authRedirect(res, `${group}${next}`); return true; }
+    const ticket = await auth.createHandoff(user, "clean");
+    authRedirect(res, `${group}/sso#${new URLSearchParams({ t: ticket, dalej: next })}`);
     return true;
   }
   if (route === "/api/auth/google" && req.method === "GET") {
@@ -1771,6 +1799,13 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
       // Visitors who are not signed in start on the welcome page; signed-in users go straight to the app.
       if (url.pathname === "/") {
         const user = await auth.resolveSession(readCookie(req, SESSION_COOKIE)).catch(() => null);
+        // The Podavo group page is the start: sign in there once, then pick podavo.voyage (it comes back through /sso).
+        const group = podavoGroupUrl();
+        if (!user && group) {
+          res.writeHead(302, { Location: `${group}/`, "Cache-Control": "no-store", Vary: "Cookie" });
+          res.end();
+          return;
+        }
         // A server package without welcome.html (it was once left out of the deploy zip) shows the app, not a 404.
         const hasWelcome = !user && fs.existsSync(path.join(root, "welcome.html"));
         serveStatic(res, hasWelcome ? "/welcome" : "/", root, url.search);

@@ -50,6 +50,16 @@ The planner's last step, before saving, has a Nocleg section for the destination
 
 Visitors who are not signed in land on a welcome page (`welcome.html`, served at `/` for them and always at `/welcome`); signed-in users get the app at `/` as before, and `/plan` always opens the app. The guided tour (`assets/app.tour.js`, same walk-through as in Podavo Clean) is offered once per device on the first visit, and can be reopened from the `?` button in the top bar, from the Konto menu, or with `/plan?tour=1`.
 
+## Podavo group page and single sign-on
+
+The Podavo group page is `podavo.pl`, served by the Podavo Clean app (`qubexon-pl/tidy`): one sign-in for every Podavo app (the shared `podavo-mdm` accounts) and a card per app. Set `PODAVO_GROUP_URL=https://podavo.pl` here to make it the start of podavo.voyage:
+
+- Visitors who are not signed in are sent from `/` to the group page. `/welcome`, `/login` and `/plan` still open directly, and the Android/iOS apps are unchanged.
+- The group page's podavo.voyage card opens `/sso#t=<ticket>&dalej=<path>`. The ticket is an `mdm.Session` row for app `voyage` that lives two minutes. `POST /api/auth/sso` takes it once (the row is deleted; a normal 30-day session token is refused) and starts a normal Voyage session.
+- The way back: "Aplikacje Podavo" in the account menu, and "Wszystkie aplikacje Podavo" on the login page, open `GET /api/auth/sso/clean`, which writes a ticket for app `clean` and opens `podavo.pl/sso#t=…`, so the person stays signed in.
+
+On the Podavo Clean side set `TIDY_VOYAGE_URL` to this app's address (for example `https://voyage.podavo.pl`), which makes the voyage card live. Without `PODAVO_GROUP_URL` nothing changes: `/` shows the welcome page.
+
 ## Admin page and shared settings
 
 Administrators open `/admin` (also from the Admin menu in the app). Everyone else is sent back to the app, and visitors who are not signed in to the login page. A person is an administrator when `dbo.AppUser.is_admin` is set or their e-mail is in `ADMIN_EMAILS`; the page lets an administrator grant or remove the first (not their own, and not for addresses in `ADMIN_EMAILS`).

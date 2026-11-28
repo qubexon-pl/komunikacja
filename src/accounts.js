@@ -17,6 +17,10 @@ const CODE_ATTEMPTS = 5;
 const RESEND_SECONDS = 60;
 const STATE_MINUTES = 10;
 const PASSWORD_MIN = 8;
+// Single sign-on between Podavo apps (podavo.pl ⇄ voyage.podavo.pl): a handoff ticket is an mdm.Session row for the
+// target app that lives two minutes. It is told apart from a normal 30-day session by its short lifetime.
+const HANDOFF_SECONDS = 120;
+const HANDOFF_APPS = new Set(["clean"]); // the apps this one can hand a signed-in user over to (mdm.App codes)
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }; // the same in every Podavo app
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const GOOGLE_KEYS = "https://www.googleapis.com/oauth2/v3/certs";
@@ -149,6 +153,34 @@ function createAccounts({ mdm, local, deliver, codePepper = process.env.AUTH_COD
   async function revokeSession(token) {
     if (typeof token !== "string" || !token) return;
     await (await m()).request().input("h", sql.Binary(32), sha256(token)).query("DELETE FROM mdm.Session WHERE TokenHash = @h");
+  }
+
+  // ---- single sign-on with the other Podavo apps (the same mechanism as Podavo Clean, server/auth.ts) ----
+  // The Podavo group page (podavo.pl) writes a ticket for app "voyage" and sends the browser to /sso#t=…; this takes it
+  // once (the row is deleted) and starts a normal Voyage session. A normal session token is refused.
+  async function acceptHandoff(token) {
+    const gone = new AuthError("Link logowania wygasł albo został już użyty. Zaloguj się ponownie.", 400);
+    if (typeof token !== "string" || token.length < 20 || token.length > 100) throw gone;
+    const account = await inTransaction(async (tx) => {
+      const r = await new sql.Request(tx).input("h", sql.Binary(32), sha256(token)).input("app", sql.VarChar(16), APP).input("max", sql.Int, HANDOFF_SECONDS + 60)
+        .query(`DELETE FROM mdm.Session OUTPUT deleted.AccountId
+                WHERE TokenHash = @h AND AppCode = @app AND ExpiresAt > SYSUTCDATETIME() AND DATEDIFF(second, CreatedAt, ExpiresAt) <= @max`);
+      const id = r.recordset[0]?.AccountId;
+      if (!id) return null;
+      const a = await new sql.Request(tx).input("id", sql.VarChar(40), id).query(`SELECT ${ACCOUNT_COLUMNS} FROM mdm.Account a WHERE a.AccountId = @id`);
+      return a.recordset[0] || null;
+    });
+    if (!account) throw gone;
+    return createSession(account);
+  }
+  // The way back: a ticket for another Podavo app (Podavo Clean, code "clean"), accepted there at /sso.
+  async function createHandoff(user, app) {
+    if (!HANDOFF_APPS.has(app)) throw new AuthError("Nieznana aplikacja Podavo.", 404);
+    const token = newToken();
+    await (await m()).request().input("h", sql.Binary(32), sha256(token)).input("id", sql.VarChar(40), user.accountId).input("app", sql.VarChar(16), app)
+      .input("s", sql.Int, HANDOFF_SECONDS)
+      .query("INSERT INTO mdm.Session (TokenHash, AccountId, AppCode, CreatedAt, ExpiresAt) VALUES (@h, @id, @app, SYSUTCDATETIME(), DATEADD(second, @s, SYSUTCDATETIME()))");
+    return token;
   }
 
   // ---- e-mail code (the main way in) ----
@@ -292,8 +324,8 @@ function createAccounts({ mdm, local, deliver, codePepper = process.env.AUTH_COD
               IF NOT EXISTS (SELECT 1 FROM mdm.AccountApp WHERE AccountId = @id) DELETE FROM mdm.Account WHERE AccountId = @id;`);
   }
 
-  return { createSession, resolveSession, revokeSession, startEmailLogin, verifyEmailLogin, loginWithPassword, passwordStatus, setPassword, removePassword,
+  return { createSession, resolveSession, revokeSession, acceptHandoff, createHandoff, startEmailLogin, verifyEmailLogin, loginWithPassword, passwordStatus, setPassword, removePassword,
     saveOAuthState, consumeOAuthState, signInWithGoogle, signInWithGoogleToken, startAccountDeletion, confirmAccountDeletion };
 }
 
-module.exports = { APP, AuthError, PASSWORD_MIN, SESSION_TTL_SECONDS, createAccounts, mdmConfig, normalizeEmail, verifyGoogleIdToken };
+module.exports = { APP, AuthError, HANDOFF_SECONDS, PASSWORD_MIN, SESSION_TTL_SECONDS, createAccounts, mdmConfig, normalizeEmail, verifyGoogleIdToken };

@@ -24,6 +24,9 @@ async function initializeUserMenu(){
       if(!configResponse.ok) throw new Error('Nie udało się sprawdzić konfiguracji poczty.');
       const config=await configResponse.json();
       deleteAccountBtn.disabled=!config.emailEnabled;
+      // The Podavo group page (podavo.pl): back to every Podavo app, still signed in (single sign-on through /api/auth/sso/clean).
+      const groupItem=document.querySelector('.group-item');
+      if(groupItem&&config.groupUrl&&!window.ONWARD?.native) groupItem.hidden=false;
       if(!config.emailEnabled) deleteAccountBtn.title='Usuwanie konta wymaga skonfigurowanej usługi e-mail.';
     })
     .catch(error=>console.error('Błąd konfiguracji usuwania konta',error));

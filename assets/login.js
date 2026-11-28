@@ -169,6 +169,8 @@ fetch("/api/auth/config")
     googleNote.hidden = googleEnabled;
     if (googleEnabled) googleButton.dataset.href = `/api/auth/google?returnTo=${encodeURIComponent(safeReturnTo(returnTo))}`;
     emailNote.hidden = Boolean(config.emailEnabled);
+    const groupLink = document.getElementById("groupLink");
+    if (groupLink && config.groupUrl && !nativeApp) { groupLink.href = `${config.groupUrl}/`; groupLink.hidden = false; }
   })
   .catch((error) => {
     googleButton.disabled = true;
@@ -182,9 +184,30 @@ if (params.get("error") === "google_signin_failed") {
   showMessage("Wylogowaliśmy Cię po godzinie bez aktywności. Zaloguj się ponownie.", "success");
 }
 
-fetch("/api/auth/me")
-  .then((response) => (response.ok ? response.json() : null))
-  .then((result) => {
-    if (result?.user) location.replace(nativeApp ? window.ONWARD.homeUrl() : safeReturnTo(returnTo));
-  })
-  .catch(() => {});
+// /sso#t=…&dalej=…: the Podavo group page (podavo.pl) signed the user in and sent a single-use ticket for this app.
+// The fragment never reaches the server's logs; it is taken off the address at once, then the ticket starts a session.
+const ssoTicket = (() => {
+  if (location.pathname !== "/sso") return null;
+  const q = new URLSearchParams(location.hash.replace(/^#/, ""));
+  history.replaceState(null, "", "/login");
+  return q.get("t") ? { token: q.get("t"), next: q.get("dalej") } : null;
+})();
+
+if (ssoTicket) {
+  showMessage("Logujemy Cię kontem Podavo…", "success");
+  postJson("/api/auth/sso", { token: ssoTicket.token })
+    .then(() => afterSsoSignIn(ssoTicket.next))
+    .catch((error) => showMessage(error.message || "Nie udało się zalogować kontem Podavo. Zaloguj się tutaj."));
+} else {
+  fetch("/api/auth/me")
+    .then((response) => (response.ok ? response.json() : null))
+    .then((result) => {
+      if (result?.user) location.replace(nativeApp ? window.ONWARD.homeUrl() : safeReturnTo(returnTo));
+    })
+    .catch(() => {});
+}
+
+function afterSsoSignIn(next) {
+  try { localStorage.removeItem("podavo-voyage-last-activity"); } catch {}
+  location.replace(safeReturnTo(next));
+}
