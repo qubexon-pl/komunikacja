@@ -299,6 +299,14 @@
 .near-head{display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap}
 .near-head h5{margin:0; font-size:1rem; font-weight:800}
 .near-head h5 small{font-weight:500; color:var(--ink-soft); font-size:.78rem; margin-left:4px}
+.near-tools{display:flex; align-items:center; gap:6px; margin-left:auto}
+.near-range{display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 4px 0 10px; border:1px solid var(--card-border); border-radius:999px; background:var(--bg); color:var(--ink-soft); font-size:.85rem}
+.near-range select{border:0; background:transparent; color:var(--ink); font-weight:700; font-size:.85rem; padding:0 4px; cursor:pointer}
+.near-range select:focus{outline:none}
+.near-range:focus-within{outline:2px solid var(--btn); outline-offset:2px}
+.near-toggle{width:36px; height:36px; display:inline-grid; place-items:center; border:1px solid var(--card-border); border-radius:50%; background:var(--bg); color:var(--ink); cursor:pointer}
+.near-toggle:hover{background:var(--bg-alt)}
+.near-toggle:focus-visible{outline:2px solid var(--btn); outline-offset:2px}
 .near-cats{display:flex; gap:6px; overflow-x:auto; padding:10px 0 4px; scrollbar-width:none}
 .near-cat{flex:0 0 auto; min-height:40px; padding:6px 12px; border:1.5px solid var(--card-border); border-radius:999px; background:transparent; color:var(--ink); font-weight:700; font-size:.82rem}
 .near-cat.on{border-color:var(--navy); background:var(--navy); color:#fff}
