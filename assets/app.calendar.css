@@ -1,0 +1,118 @@
+/* Trip calendar (assets/app.calendar.js), "Moje podróże" → "Kalendarz". Same layout as the Podavo Clean calendar:
+   month grid with chips, the chosen day on the right, the private "Twój czas" form under it. Phones show dots. */
+:root{
+  --cal-trip:#20A995; --cal-trip-ink:#FFFFFF;
+  --cal-plan:#FFF3D6; --cal-plan-ink:#8A5A00; --cal-plan-dot:#F2B84B;
+  --cal-off:#E3F1FF; --cal-off-ink:#1F63B3; --cal-off-dot:#2878D0;
+  --cal-busy-a:#E3E8EE; --cal-busy-b:#D7DEE6; --cal-busy-ink:#3B4A5F; --cal-busy-dot:#6B7A8F;
+  --cal-day:#FFFFFF; --cal-outside:#F7F9FA; --cal-outside-ink:#8592A3; --cal-pick:#EAF3FD;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --cal-trip:#1C9884; --cal-plan:#3A2F14; --cal-plan-ink:#F5C467; --cal-off:#16304F; --cal-off-ink:#8EC2FF; --cal-off-dot:#4A92E6;
+  --cal-busy-a:#22324A; --cal-busy-b:#1B2A3F; --cal-busy-ink:#C3CEDD; --cal-busy-dot:#8C9AB0;
+  --cal-day:#15233A; --cal-outside:#111D30; --cal-outside-ink:#6F7E95; --cal-pick:#1B3354;
+} }
+:root[data-theme="dark"]{
+  --cal-trip:#1C9884; --cal-plan:#3A2F14; --cal-plan-ink:#F5C467; --cal-off:#16304F; --cal-off-ink:#8EC2FF; --cal-off-dot:#4A92E6;
+  --cal-busy-a:#22324A; --cal-busy-b:#1B2A3F; --cal-busy-ink:#C3CEDD; --cal-busy-dot:#8C9AB0;
+  --cal-day:#15233A; --cal-outside:#111D30; --cal-outside-ink:#6F7E95; --cal-pick:#1B3354;
+}
+
+.tcal{display:flex; flex-direction:column; gap:14px}
+.tcal-summary{display:flex; flex-wrap:wrap; gap:8px 18px; font-size:.9rem; color:var(--ink-soft)}
+.tcal-summary b{color:var(--ink); font-weight:800}
+.tcal-loading{display:inline-flex; align-items:center; gap:6px}
+.tcal-layout{display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:18px; align-items:start}
+.tcal-card{border:1px solid var(--line); border-radius:18px; background:var(--bg-alt); box-shadow:var(--shadow-soft); padding:16px; min-width:0}
+
+.tcal-head{display:flex; align-items:center; gap:8px; margin-bottom:10px}
+.tcal-head h3{flex:1; min-width:0; margin:0; text-align:center; font-size:1.2rem; font-weight:800; text-transform:capitalize; color:var(--ink)}
+.tcal-head .icon-btn{width:40px; height:40px; border-radius:12px; border:1px solid var(--line); background:var(--bg-alt); color:var(--ink); display:grid; place-items:center}
+.tcal-today{padding:8px 14px; border-radius:12px}
+
+.tcal-grid{display:grid; gap:4px}
+.tcal-row{display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px}
+.tcal-weekday{text-align:center; font-size:.75rem; font-weight:800; color:var(--ink-soft); padding:4px 0}
+.tcal-day{min-height:92px; display:flex; flex-direction:column; align-items:stretch; gap:4px; padding:6px; border-radius:10px;
+  border:1px solid var(--line); background:var(--cal-day); color:var(--ink); text-align:left; min-width:0; font:inherit; cursor:pointer}
+.tcal-day:hover{border-color:var(--ink-soft)}
+.tcal-day:focus-visible{outline:3px solid var(--on); outline-offset:1px}
+.tcal-day.is-outside{background:var(--cal-outside); color:var(--cal-outside-ink)}
+.tcal-day.is-off:not(.is-outside){background:linear-gradient(var(--cal-off),var(--cal-off)) top/100% 4px no-repeat, var(--cal-day)}
+.tcal-day[aria-selected="true"]{border:2px solid var(--on); padding:5px; background:var(--cal-pick)}
+.tcal-num{align-self:flex-start; font-size:.82rem; font-weight:800; min-width:24px; height:24px; border-radius:999px; display:grid; place-items:center}
+.tcal-day.is-today .tcal-num{background:var(--navy); color:#fff}
+.tcal-events{display:grid; gap:3px; min-width:0}
+/* A trip of several days is one bar across the week: rounded only at its first and last day. */
+.tcal-chip{display:block; font-size:.7rem; font-weight:700; padding:2px 6px; border-radius:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:0 -7px}
+.tcal-chip.is-start{border-top-left-radius:6px; border-bottom-left-radius:6px; margin-left:0}
+.tcal-chip.is-end{border-top-right-radius:6px; border-bottom-right-radius:6px; margin-right:0}
+.tcal-chip--trip{background:var(--cal-trip); color:var(--cal-trip-ink)}
+.tcal-chip--plan{background:var(--cal-plan); color:var(--cal-plan-ink)}
+.tcal-chip--off{background:var(--cal-off); color:var(--cal-off-ink)}
+.tcal-chip--busy{color:var(--cal-busy-ink); background:repeating-linear-gradient(135deg,var(--cal-busy-a) 0 6px,var(--cal-busy-b) 6px 12px)}
+.tcal-more{font-size:.7rem; font-weight:800; color:var(--ink-soft)}
+.tcal-dots{display:none; gap:3px; flex-wrap:wrap}
+.tcal-dot{display:inline-block; width:10px; height:10px; border-radius:999px; flex-shrink:0}
+.tcal-dot--trip{background:var(--cal-trip)}
+.tcal-dot--plan{background:var(--cal-plan-dot)}
+.tcal-dot--off{background:var(--cal-off-dot)}
+.tcal-dot--busy{background:var(--cal-busy-dot)}
+.tcal-legend{list-style:none; display:flex; flex-wrap:wrap; gap:6px 16px; margin:12px 0 0; padding:0; font-size:.78rem; color:var(--ink)}
+.tcal-legend li{display:inline-flex; align-items:center; gap:6px}
+
+.tcal-side h3{margin:0 0 12px; font-size:1.05rem; font-weight:800; color:var(--ink)}
+.tcal-side h3::first-letter{text-transform:uppercase}
+.tcal-side h4{font-size:.95rem; font-weight:800; margin:0 0 10px; color:var(--ink)}
+.tcal-empty{color:var(--ink-soft); margin:0}
+.tcal-list{list-style:none; margin:0; padding:0; display:grid; gap:8px}
+.tcal-item{display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; background:var(--soft)}
+.tcal-ico{width:34px; height:34px; flex-shrink:0; border-radius:10px; display:grid; place-items:center; background:var(--bg-alt); color:var(--ink)}
+.tcal-item--trip .tcal-ico{background:var(--cal-trip); color:#fff}
+.tcal-item--plan .tcal-ico{background:var(--cal-plan); color:var(--cal-plan-ink)}
+.tcal-item--off .tcal-ico{background:var(--cal-off); color:var(--cal-off-ink)}
+.tcal-item--busy .tcal-ico{color:var(--cal-busy-ink); background:repeating-linear-gradient(135deg,var(--cal-busy-a) 0 6px,var(--cal-busy-b) 6px 12px)}
+.tcal-item-text{flex:1; min-width:0; display:grid; gap:2px}
+.tcal-item-text b{font-weight:800; color:var(--ink); overflow-wrap:anywhere}
+.tcal-row-open{border:0; background:none; padding:0; text-align:left; font:inherit; color:inherit; cursor:pointer}
+.tcal-row-open:hover b{text-decoration:underline}
+.tcal-item-meta{display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px}
+.tcal-item-meta small{font-size:.75rem; color:var(--ink-soft)}
+.tcal-status{font-size:.68rem; font-weight:800; padding:1px 7px; border-radius:999px; background:var(--bg-alt); color:var(--ink)}
+.tcal-status--trip{background:var(--cal-trip); color:#fff}
+.tcal-status--plan{background:var(--cal-plan); color:var(--cal-plan-ink)}
+.tcal-status--off{background:var(--cal-off); color:var(--cal-off-ink)}
+.tcal-item .icon-btn{width:36px; height:36px; border-radius:10px; border:0; background:transparent; color:var(--ink-soft); display:grid; place-items:center; flex-shrink:0}
+.tcal-item .icon-btn:hover{background:var(--bg-alt); color:var(--ink)}
+
+.tcal-block{border-top:1px solid var(--line); margin-top:16px; padding-top:14px}
+.tcal-add{width:100%; justify-content:center}
+.tcal-private{display:flex; align-items:flex-start; gap:6px; margin:10px 0 0; font-size:.78rem; color:var(--ink-soft)}
+.tcal-private i{margin-top:2px}
+.tcal-form{display:grid; gap:10px; min-width:0}
+.tcal-form *{box-sizing:border-box; min-width:0}
+.tcal-form label small{display:block; font-size:.75rem; font-weight:700; color:var(--ink-soft); margin-bottom:3px}
+.tcal-form input[type="date"],.tcal-form input:not([type]){width:100%; min-height:42px; padding:8px 10px; border-radius:10px; border:1px solid var(--line); background:var(--bg-alt); color:var(--ink); font:inherit}
+.tcal-dates{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.tcal-kinds{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.tcal-kind{display:flex; align-items:center; gap:6px; min-height:42px; padding:8px 10px; border-radius:10px; border:1px solid var(--line); cursor:pointer; font-size:.85rem; font-weight:700; color:var(--ink)}
+.tcal-kind input{accent-color:var(--on)}
+.tcal-kind:has(input:checked){border:2px solid var(--on); padding:7px 9px}
+.tcal-kind--off:has(input:checked){background:var(--cal-off); color:var(--cal-off-ink)}
+.tcal-kind--busy:has(input:checked){background:var(--cal-busy-a); color:var(--cal-busy-ink)}
+.tcal-error{margin:0; color:var(--error); font-size:.82rem; font-weight:700}
+.tcal-conflict{margin:0; font-size:.78rem; color:var(--warn)}
+.tcal-form-acts{display:flex; gap:8px; justify-content:flex-end}
+
+@media (max-width:980px){ .tcal-layout{grid-template-columns:1fr} }
+@media (max-width:700px){
+  .tcal-card{padding:12px}
+  .tcal-day{min-height:52px; padding:4px}
+  .tcal-day[aria-selected="true"]{padding:3px}
+  .tcal-chip,.tcal-more{display:none}
+  .tcal-dots{display:flex}
+  .tcal-dots .tcal-dot{width:7px; height:7px}
+  .tcal-head h3{font-size:1.05rem}
+  /* Three tabs of Moje podróże (Nadchodzące, Archiwum, Kalendarz) fit a phone without scrolling sideways. */
+  .mytrips-tabs .fav-filter{min-width:0; padding:8px 6px; gap:5px; font-size:.82rem; white-space:nowrap}
+}
