@@ -305,3 +305,27 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
   - Smaller screens: the map with a bottom sheet that expands into the same list. The destination card opens as a sheet over the map.
   - The statistics panel is replaced by the list count and an airline legend.
 - **MapLibre GL.** Not adopted yet. With routes drawn on demand and markers limited to the view, Leaflet with a canvas renderer stays fast at the current size (hundreds of destinations). MapLibre would add about 800 KB and needs a vector tile provider. Worth revisiting if the map grows to thousands of points or needs custom vector styling.
+
+## 9c: push notifications (Web Push, as in Tidy)
+
+- The same mechanism as Tidy: VAPID keys on the server and the browser's own push service. No Firebase project is needed.
+- **Server (`src/push.js`).**
+  - Routes: `GET /api/push/key`, `POST /api/push/subscribe`, `/unsubscribe` and `/test`. All need a signed-in user, and the writes are same-origin only.
+  - Subscriptions live in `dbo.PushSubscription`: at most 10 per user, deleted with the account. Dead subscriptions (404/410 or a key mismatch) are removed when a send fails.
+- **What is sent.**
+  - A price alert that reaches its price, sent next to the email. Either one counts as the user being told.
+  - At 8:00 Polish time, once a day (claimed in `dbo.AppSetting` across restarts): a booked trip leaving tomorrow, or coming back tomorrow.
+  - Payloads hold only the user's own route, dates and limit. There are no other participants' names and no addresses.
+- **Client.**
+  - `assets/app.push.js` (`window.PVPUSH`) backs a "Powiadomienia na tym urządzeniu" card at the top of the Komunikaty panel: turn on, send a test, turn off.
+  - Signing out removes this device's subscription. Signing in refreshes it.
+  - The service worker shows the notification and opens its page, same-origin only.
+- **Setup.**
+  1. Run `npm run push:keys`.
+  2. Set `PODAVO_VAPID_PUBLIC_KEY`, `PODAVO_VAPID_PRIVATE_KEY` and `PODAVO_VAPID_SUBJECT` in the App Service settings.
+  3. Run `npm run db:migrate`.
+  - Without the keys, push stays off and the card is hidden.
+- **Where it works.**
+  - The installed web app on Android and desktop.
+  - iPhone and iPad from iOS 16.4, once Podavo is added to the Home Screen.
+  - Not in the Capacitor store app: its web view has no Web Push, so the card explains how to install the web app instead. Native push in the store app would need FCM/APNs (`@capacitor/push-notifications`) and is left for later.

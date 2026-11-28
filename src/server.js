@@ -30,6 +30,7 @@ const { parseWizzMap, readNetwork } = require("./flight-network");
 const { createFlightStore } = require("./flights");
 const { createDuffelApi } = require("./duffel-api");
 const { createAlertDatabase, createPriceAlerts } = require("./price-alerts");
+const { createPush, createPushDatabase } = require("./push");
 const { createWizzTimetable } = require("./wizz-timetable");
 const { createRyanairApi } = require("./ryanair-api");
 const { createHotels } = require("./hotels");
@@ -481,6 +482,34 @@ function fuelPrices(env = process.env) {
 }
 
 // Price alerts of the signed-in user: list, add, remove.
+// Web Push (src/push.js): the browser asks for the public key, then registers or removes this device.
+async function servePush(req, res, push, action) {
+  if (action === "key" && req.method === "GET") {
+    json(res, 200, { publicKey: push ? push.publicKey() : null });
+    return;
+  }
+  if (req.method !== "POST" || !["subscribe", "unsubscribe", "test"].includes(action)) {
+    res.setHeader("Allow", action === "key" ? "GET" : "POST");
+    json(res, 405, { error: "Method not allowed." });
+    return;
+  }
+  requireSameOrigin(req);
+  if (!push || !push.enabled()) {
+    if (action === "unsubscribe") json(res, 200, { ok: true });
+    else json(res, 503, { error: "Powiadomienia push nie są jeszcze włączone na serwerze." });
+    return;
+  }
+  const body = await readJson(req);
+  try {
+    if (action === "subscribe") await push.subscribe(req.user.id, body);
+    if (action === "unsubscribe") await push.unsubscribe(req.user.id, body?.endpoint);
+    json(res, 200, action === "test" ? await push.test(req.user.id) : { ok: true });
+  } catch (error) {
+    if (error.status && error.status < 500) json(res, error.status, { error: error.message });
+    else throw error;
+  }
+}
+
 async function serveAlerts(req, res, alerts, segments) {
   if (!alerts) {
     json(res, 503, { error: "Alerty cenowe są niedostępne na tym serwerze." });
@@ -1172,7 +1201,7 @@ async function forwardToApi(req, res, url, fetchSource = fetch, maxBody = 64 * 1
   res.end(bytes);
 }
 
-function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, duffel = null, hotels = createHotels({ fetchSource }), aiPlanner = null, knowledge = createKnowledge({ fetchSource }), nearbyPlaces = createNearby({ fetchSource }), sharedSettings = null, adminUsers = null, staticRoot = ROOT }) {
+function createServer({ database, auth, fetchSource = fetch, geocode = createGeocoder({ fetchSource }), suggestStreets = createStreetSuggester({ fetchSource }), timetables = null, snapshots = null, plk = null, flights = null, collector = null, drive = createDrivingRouter({ fetchSource }), findPath = createPathRouter({ fetchSource }), walkDistances = createWalkTable({ fetchSource }), alerts = null, fareRates = createRates({ fetchSource }), wizz = null, pksFares = createPksFares({ fetchSource }), tripWeather = createTripWeather({ fetchSource }), transfers = null, cityTransit = null, ryanair = null, duffel = null, hotels = createHotels({ fetchSource }), aiPlanner = null, push = null, knowledge = createKnowledge({ fetchSource }), nearbyPlaces = createNearby({ fetchSource }), sharedSettings = null, adminUsers = null, staticRoot = ROOT }) {
   // Database first: geocoding, driving routes, paths, walking times, weather, hotel and PKS prices are read from the
   // stored answers and only asked from the outside service when nothing fresh is stored.
   const keep = createStoredAnswers(snapshots);
@@ -1603,6 +1632,10 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           await serveAlerts(req, res, alerts, segments);
           return;
         }
+        if (segments[1] === "push" && segments.length === 3) {
+          await servePush(req, res, push, segments[2]);
+          return;
+        }
         if (segments[1] === "flights" && segments[2] === "ryanair-time" && segments.length === 3) {
           if (req.method !== "POST") {
             res.setHeader("Allow", "POST");
@@ -1811,7 +1844,9 @@ async function main() {
   // Wizz Air timetable: the working API version is found at start and remembered in the database.
   const wizz = createWizzTimetable({ flights, toPln: createRates(), readVersion: () => readSetting(pool, "wizz-api-version").then((r) => r?.value || null), saveVersion: (v) => saveSetting(pool, "wizz-api-version", v) });
   wizz.start();
-  const alerts = createPriceAlerts({ db: createAlertDatabase(pool), flights, collector, sendEmail: (message) => auth.sendNotice(message) });
+  const push = createPush({ db: createPushDatabase(pool) });
+  push.start();
+  const alerts = createPriceAlerts({ db: createAlertDatabase(pool), flights, collector, sendEmail: (message) => auth.sendNotice(message), sendPush: push.enabled() ? push.priceAlert : null });
   alerts.start();
   const transitous = createTransitous();
   // Lines of every city with city transport are collected into the database a minute after start and every 6 hours.
@@ -1838,6 +1873,7 @@ async function main() {
   transfers.ready().catch((error) => console.warn("Airport transfers could not load:", error.message));
   const server = createServer({
     auth,
+    push,
     sharedSettings: createSharedSettings({ read: (key) => readSetting(pool, key), save: (key, value) => saveSetting(pool, key, value) }),
     adminUsers: createAdminUsers(pool),
     transfers,

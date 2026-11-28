@@ -395,3 +395,14 @@
   .explore-map-wrap .explore-style{position:static; margin-top:10px; justify-content:center}
 }
 @media (prefers-reduced-motion: reduce){ .explore-list,.el-chev{transition:none} }
+
+/* Powiadomienia push w panelu komunikatów */
+.push-box{margin:0 0 16px; padding:14px 16px; border:1px solid var(--card-border); border-radius:16px; background:var(--bg-alt); box-shadow:var(--shadow-soft)}
+.push-head{display:flex; align-items:flex-start; gap:12px}
+.push-head > i{flex:none; width:36px; height:36px; display:grid; place-items:center; border-radius:12px; background:color-mix(in srgb,#2878D0 14%,transparent); color:#2878D0}
+.push-head > div{flex:1; min-width:0; display:flex; flex-direction:column}
+.push-head small{color:var(--ink-soft)}
+.push-on{flex:none; padding:3px 10px; border-radius:999px; background:#20A995; color:#fff; font-weight:700; font-size:.78rem}
+.push-acts{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px}
+.push-acts button{min-height:44px; display:inline-flex; align-items:center; gap:8px}
+.push-note{margin:10px 0 0; color:var(--ink-soft); font-size:.86rem}

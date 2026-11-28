@@ -644,3 +644,21 @@ BEGIN
     );
 END;
 GO
+
+-- Web Push: one row per device or browser that allowed notifications (src/push.js). The endpoint is the push service
+-- URL given by the browser; p256dh and auth are its public encryption keys, not secrets of the user.
+IF OBJECT_ID(N'dbo.PushSubscription', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.PushSubscription (
+        endpoint_hash CHAR(64) NOT NULL,
+        user_id UNIQUEIDENTIFIER NOT NULL,
+        endpoint NVARCHAR(1000) NOT NULL,
+        p256dh VARCHAR(200) NOT NULL,
+        auth VARCHAR(100) NOT NULL,
+        created_at DATETIME2(0) NOT NULL CONSTRAINT DF_PushSubscription_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_PushSubscription PRIMARY KEY (endpoint_hash),
+        CONSTRAINT FK_PushSubscription_AppUser FOREIGN KEY (user_id) REFERENCES dbo.AppUser (user_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IX_PushSubscription_User ON dbo.PushSubscription (user_id);
+END;
+GO

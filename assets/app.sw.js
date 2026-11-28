@@ -1,10 +1,10 @@
 /* ON/WARD service worker (served as /sw.js): the app shell works offline, and the signed-in user's own data
    (account, favourites with saved trips and itineraries, photos, trip weather) is readable offline.
    Live data and map tiles are not kept: an old bus position or price shown as current would mislead. */
-const VERSION = 'onward-v46';
+const VERSION = 'onward-v47';
 const SHELL = `${VERSION}-shell`;
 const API = 'onward-api'; // cleared at logout by the page
-const PRECACHE = ['/plan', '/login', '/assets/app.css', '/assets/app.mobile.css', '/assets/app.js', '/assets/app.transport.js', '/assets/app.discover.js', '/assets/app.shell.css', '/assets/app.ui.js', '/assets/app.transport.css', '/assets/app.cities.js', '/assets/app.defaults.js', '/assets/i18n.js', '/assets/app.native.js', '/assets/app.photos.js', '/assets/app.tour.js', '/assets/app.welcome.css', '/assets/app.welcome.js', '/assets/onward/illustrations/welcome-journey.svg',
+const PRECACHE = ['/plan', '/login', '/assets/app.css', '/assets/app.mobile.css', '/assets/app.js', '/assets/app.transport.js', '/assets/app.discover.js', '/assets/app.push.js', '/assets/app.shell.css', '/assets/app.ui.js', '/assets/app.transport.css', '/assets/app.cities.js', '/assets/app.defaults.js', '/assets/i18n.js', '/assets/app.native.js', '/assets/app.photos.js', '/assets/app.tour.js', '/assets/app.welcome.css', '/assets/app.welcome.js', '/assets/onward/illustrations/welcome-journey.svg',
   '/assets/app.config.js', '/assets/login.css', '/assets/login.js', '/assets/manifest.webmanifest', '/assets/onward/css/tokens.css',
   '/assets/onward/logos/wordmark-on-dark.svg', '/assets/onward/logos/mark-transparent.svg', '/assets/hero.svg'];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
@@ -55,4 +55,29 @@ self.addEventListener('fetch', (event) => {
   // The app's own files change with every update: always from the server, the copy is only for offline use.
   if(same && url.pathname.startsWith('/assets/')){ event.respondWith(networkFirst(request, SHELL)); return; }
   if(CDN.includes(url.hostname)) event.respondWith(staleWhileRevalidate(request)); // versioned libraries
+});
+
+/* Web Push (src/push.js): show the notification even when Podavo is closed, and open its page when tapped. */
+self.addEventListener('push', (event) => {
+  let msg = {};
+  try { msg = event.data ? event.data.json() : {}; } catch (e) { msg = { title: 'Podavo', body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(msg.title || 'Podavo', {
+    body: msg.body || '',
+    icon: '/assets/logo-180.png',
+    tag: msg.tag || undefined,
+    renotify: !!msg.tag,
+    data: { to: msg.url || '/' },
+  }));
+});
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const raw = (event.notification.data && event.notification.data.to) || '/';
+  // Only pages of this site: a notification never opens another address.
+  const to = new URL(raw, self.location.origin);
+  const target = to.origin === self.location.origin ? to.href : self.location.origin + '/';
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    const open = list.find((c) => new URL(c.url).origin === self.location.origin);
+    if (open) return open.focus().then((c) => (c && 'navigate' in c ? c.navigate(target) : undefined));
+    return self.clients.openWindow(target);
+  }));
 });
