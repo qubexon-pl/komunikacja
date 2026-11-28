@@ -596,6 +596,7 @@ body.trip-mode .hero-right{display:none !important}
 }
 @media (min-width:1024px) and (prefers-reduced-motion:reduce){
   .bottom-nav a,.bottom-nav a::before{ transition:none; }
+}
 /* Trasa zwiedzania (app.explore.js): o mieście, moja trasa z odległościami, atrakcje z Wikipedii, pytania do AI */
 .xp-box{display:grid; grid-template-columns:minmax(0,1fr); gap:12px; margin:12px 0}
 .xp-box > *,.xp-attr .near-cats{min-width:0}
@@ -648,4 +649,30 @@ body.trip-mode .hero-right{display:none !important}
   .xp-card{grid-template-columns:64px 1fr} .xp-card > img,.xp-card-ic{width:64px; height:64px}
   .xp-city{grid-template-columns:64px 1fr} .xp-city-img{width:64px; height:64px}
   .xp-add{grid-template-columns:1fr}
+}
+
+/* ================================================================
+   Desktop (>= 1024 px): every page with a picture banner (Kierunki, Podróże, Ulubione, Komunikacja, a trip)
+   gets a compact banner and its first card rides up over the banner's lower edge, like the planner's
+   search card. Planner results keep the planner's own layout.
+   ================================================================ */
+@media (min-width:1024px){
+  body[data-banner]:not([data-banner="search-results"]) .hero{ min-height:0; padding:26px 24px 92px !important; }
+  body[data-banner]:not([data-banner="search-results"]) .hero h1{ font-size:clamp(1.8rem,2.6vw,2.4rem) !important; }
+
+  /* Kierunki: the dark panel */
+  body.explore-mode main.shell > #explore{ position:relative; z-index:5; margin-top:-64px; }
+
+  /* Podróże, Ulubione: heading, filters and list form one white card */
+  body.mytrips-mode main.shell,body.fav-mode main.shell{ position:relative; z-index:5; margin-top:-64px; }
+  body.mytrips-mode main.shell > .mytrips-part,body.fav-mode main.shell > .fav-part{
+    margin:0; padding:0 28px 18px; background:var(--bg-alt); }
+  body.mytrips-mode main.shell > .sec-head,body.fav-mode main.shell > .sec-head{
+    padding-top:24px; border-radius:24px 24px 0 0; box-shadow:0 -14px 30px -24px rgba(23,59,112,.55); }
+  body.mytrips-mode main.shell > #myTripsPage,body.fav-mode main.shell > #favPage{
+    padding-bottom:28px; border-radius:0 0 24px 24px; box-shadow:0 40px 60px -48px rgba(23,59,112,.5); }
+
+  /* Komunikacja (city, buses, trains, timetable, lines): the white switcher bar sits on the banner */
+  body:not([data-view="podroz"])[data-banner] main.shell{ position:relative; z-index:5; margin-top:-64px; }
+  body:not([data-view="podroz"])[data-banner] main.shell > #transitTabs{ min-height:64px; align-items:center; }
 }
