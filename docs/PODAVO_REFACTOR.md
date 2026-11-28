@@ -391,3 +391,29 @@ Measured with Chromium at 390px and the CPU profiler on /plan, /buses, /destinat
 - **Not changed.**
   - Bootstrap, Leaflet, JSZip and protobuf.js still load on every page, because the Rzeszów timetable and live positions start at boot.
   - The web fonts are kept, for the look.
+
+## 10d: tests per acceptance criterion
+
+`test/acceptance.test.js` lists the 15 acceptance criteria of the brief (section 18) and, for each one, the tests that prove it. Its first test fails if any of those tests is renamed or removed. Criteria that nothing covered yet got their own tests:
+
+| Criterion | Proven by |
+| --- | --- |
+| No unintended horizontal scrolling | `scripts/check-layout.mjs` (below); phone bar gutter test |
+| Same transport UI in every city | shared departure board for Transitous and Rzeszów; shared step lists and city results |
+| Existing integrations keep working | Transitous, city transit, Duffel, push tests (and the rest of the suite) |
+| Journey details don't overwhelm the main screen | journey line and costs open in a sheet; sheet is a labelled modal |
+| Save a trip without accommodation | step 4 save does not depend on a hotel; a trip without a plane is saved |
+| Recommendations use real data | discover from stored fares only; forecast only where one exists |
+| Shared attraction information is reused | DB-first lookups (`stored.js`); About and Nearby cache keys hold the place only, never the user (new) |
+| Users see when destination info was refreshed | freshness line on boards; About and Nearby show "stan na <date>" of the catalogue copy (new) |
+| Several exploration plans in one trip | multi-place trip saved as one; each city keeps its own AI plan (new) |
+| Plans respect time and commitments | plan days limited to the trip; 8b conflicts; fitted day keeps its first time |
+| Public transport where supported | city journeys and airport transfers from Transitous |
+| Plans can be changed by hand | fit endpoint; move, remove and add stops in the trip's city plan (new) |
+| Saved plans aren't changed by catalogue refreshes | a stored plan reads back unchanged after the catalogue renames and drops places (new) |
+| Polish and English | sheet labels follow the page language; typed wishes in both languages |
+| Mobile and desktop tested separately | sidebar/bottom-bar breakpoints; layout check per size |
+
+**Layout check.** `node scripts/check-layout.mjs` opens 12 pages at 320, 390, 768, 1024 and 1440 px, in light and dark mode (120 views). It fails when a page is wider than the screen, and names the element that sticks out. It needs Playwright, so it is not part of `npm test`. It serves the repo's files with the API turned off, so it checks the shell and the empty states.
+
+**New in the UI.** "O miejscu" and "W okolicy" now end their source line with the date the shared catalogue fetched the data ("stan na 2 lis 2026"). Copies are kept for days, so the date can be older than today.
