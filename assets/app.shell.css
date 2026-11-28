@@ -597,60 +597,6 @@ body.trip-mode .hero-right{display:none !important}
 @media (min-width:1024px) and (prefers-reduced-motion:reduce){
   .bottom-nav a,.bottom-nav a::before{ transition:none; }
 }
-/* Trasa zwiedzania (app.explore.js): o mieście, moja trasa z odległościami, atrakcje z Wikipedii, pytania do AI */
-.xp-box{display:grid; grid-template-columns:minmax(0,1fr); gap:12px; margin:12px 0}
-.xp-box > *,.xp-attr .near-cats{min-width:0}
-.xp-box h5{margin:0; font-size:1rem; font-weight:800} .xp-box h5 > i{color:var(--gold)} .xp-box h5 small{font-weight:500; color:var(--ink-soft); font-size:.78rem; margin-left:4px}
-.xp-city,.xp-plan,.xp-attr,.xp-ask{padding:12px 14px; border:1px solid var(--card-border); border-radius:16px; background:var(--bg-alt)}
-.xp-city{display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:start}
-.xp-city:not(:has(img)){grid-template-columns:1fr}
-.xp-city-wait{display:block; color:var(--ink-soft); font-size:.88rem}
-.xp-city-img{width:96px; height:96px; object-fit:cover; border-radius:12px; background:var(--soft)}
-.xp-city-tx{display:grid; gap:4px; min-width:0} .xp-city-tx > b{font-size:1.05rem} .xp-city-tx > small{color:var(--ink-soft)}
-.xp-city-tx p,.xp-card-tx p{margin:2px 0 0; font-size:.88rem; line-height:1.45}
-.xp-clamp{display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden}
-.xp-facts{display:flex; flex-wrap:wrap; gap:6px 12px; font-size:.8rem; color:var(--ink-soft)} .xp-facts i{color:#2878D0}
-.xp-links,.xp-card-act,.xp-total-act,.xp-add-btns{display:flex; flex-wrap:wrap; gap:6px; margin-top:4px}
-.xp-links .btn-ghost,.xp-card-act .btn-ghost,.xp-card-act .btn-grad,.xp-total-act .btn-ghost,.xp-item-act .btn-ghost,.xp-add-open,.xp-sugg .btn-ghost{min-height:40px; padding:6px 12px; font-size:.82rem; display:inline-flex; align-items:center; gap:6px}
-.xp-list{list-style:none; margin:10px 0 0; padding:0; display:grid; gap:0}
-.xp-item{display:grid; grid-template-columns:30px 1fr auto; gap:10px; align-items:center; padding:10px 12px; border:1px solid var(--card-border); border-radius:12px; background:var(--bg)}
-.xp-item.manual .xp-num{background:var(--gold); color:#1f2937}
-.xp-num{width:30px; height:30px; border-radius:50%; display:grid; place-items:center; background:var(--navy); color:#fff; font-weight:800; font-size:.85rem}
-.xp-item-tx{display:grid; gap:2px; min-width:0} .xp-item-tx b{overflow-wrap:anywhere} .xp-item-tx small{color:var(--ink-soft); font-size:.78rem}
-.xp-nogeo{color:#B45309 !important}
-.xp-item-act{display:flex; flex-wrap:wrap; gap:4px; justify-content:flex-end}
-.xp-leg{display:flex; align-items:center; gap:6px; margin-left:14px; padding:6px 0 6px 22px; border-left:2px dashed var(--card-border); font-size:.8rem; color:var(--ink-soft)}
-.xp-leg span{opacity:.85}
-.xp-total{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; padding-top:10px; border-top:1px solid var(--card-border); font-size:.88rem}
-.xp-total i{color:#2878D0}
-.xp-add-open{margin-top:10px}
-.xp-add{display:grid; grid-template-columns:2fr 1.4fr; gap:8px 10px; margin-top:10px; align-items:end}
-.xp-add .cp-field{display:grid; gap:4px; position:relative} .xp-add .cp-field span{font-size:.8rem; font-weight:700}
-.xp-add input,.xp-ask-form input{min-height:44px; padding:8px 12px; border:1.5px solid var(--card-border); border-radius:12px; background:var(--bg); color:var(--ink); width:100%}
-.xp-add-btns{grid-column:1/-1}
-.xp-cards{list-style:none; margin:6px 0 0; padding:0; display:grid; gap:10px}
-.xp-card{display:grid; grid-template-columns:88px 1fr; gap:12px; padding:10px; border:1px solid var(--card-border); border-radius:14px; background:var(--bg)}
-.xp-card > img,.xp-card-ic{width:88px; height:88px; border-radius:10px; object-fit:cover; background:var(--soft)}
-.xp-card-ic{display:grid; place-items:center; color:#2878D0; font-size:1.4rem}
-.xp-card-tx{display:grid; gap:3px; min-width:0} .xp-card-tx b{overflow-wrap:anywhere} .xp-card-tx small{color:var(--ink-soft); font-size:.78rem}
-.xp-card-act .btn-ghost.on{border-color:#16a34a; color:#15803d}
-.xp-more{justify-self:start; border:0; background:none; padding:2px 0; color:#2878D0; font-weight:700; font-size:.8rem; cursor:pointer}
-.xp-sort select{max-width:170px}
-.xp-ex{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px} .xp-ex .near-cat{white-space:normal; text-align:left}
-.xp-ask-form{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px} .xp-ask-form input{flex:1 1 220px}
-.xp-turn{margin-top:10px; display:grid; gap:6px}
-.xp-q{margin:0; justify-self:end; max-width:90%; padding:8px 12px; border-radius:14px 14px 4px 14px; background:var(--navy); color:#fff; font-size:.88rem}
-.xp-a{padding:10px 12px; border-radius:14px 14px 14px 4px; background:var(--bg); border:1px solid var(--card-border); font-size:.88rem; line-height:1.5} .xp-a p{margin:0 0 6px} .xp-a p:last-of-type{margin-bottom:0}
-.xp-sugg{list-style:none; margin:8px 0 0; padding:0; display:grid; gap:6px}
-.xp-sugg li{display:flex; justify-content:space-between; align-items:center; gap:8px; padding-top:6px; border-top:1px solid var(--card-border)} .xp-sugg small{color:var(--ink-soft)}
-.xp-in{font-size:.8rem; color:#15803d; white-space:nowrap}
-@media (max-width:767px){
-  .xp-item{grid-template-columns:30px 1fr} .xp-item-act{grid-column:2; justify-content:flex-start}
-  .xp-card{grid-template-columns:64px 1fr} .xp-card > img,.xp-card-ic{width:64px; height:64px}
-  .xp-city{grid-template-columns:64px 1fr} .xp-city-img{width:64px; height:64px}
-  .xp-add{grid-template-columns:1fr}
-}
-
 /* ================================================================
    Desktop (>= 1024 px): every page with a picture banner (Kierunki, Podróże, Ulubione, Komunikacja, a trip)
    gets a compact banner and its first card rides up over the banner's lower edge, like the planner's

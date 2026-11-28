@@ -1,0 +1,74 @@
+/* Plan zwiedzania (app.explore.js): nagłówek miasta, zakładki, lista atrakcji, okno szczegółów, mój plan, pytania do AI. */
+.xa{display:grid; grid-template-columns:minmax(0,1fr); gap:10px}
+.xa-head{display:flex; align-items:center; justify-content:space-between; gap:10px}
+.xa-head h4{margin:0; font-size:1.15rem; font-weight:800; line-height:1.2}
+.xa-head small{color:var(--ink-soft); font-size:.82rem}
+.xa-head .btn-ghost{flex:none; min-height:40px; padding:6px 12px; font-size:.82rem}
+.xa-tabs{display:flex; gap:4px; padding:4px; border-radius:999px; background:var(--soft, #eef2f7); overflow-x:auto; scrollbar-width:none}
+.xa-tab{flex:1 1 auto; min-height:40px; padding:6px 8px; border:0; border-radius:999px; background:transparent; color:var(--ink); font-weight:700; font-size:.86rem; white-space:nowrap; cursor:pointer}
+.xa-tab.on{background:var(--bg, #fff); box-shadow:0 1px 3px rgba(15,23,42,.15)}
+.xa-tab:focus-visible{outline:2px solid var(--btn, #2878D0); outline-offset:2px}
+.xa-count{display:inline-block; min-width:20px; padding:0 6px; border-radius:999px; background:var(--navy, #1e3a6e); color:#fff; font-size:.72rem; line-height:20px; text-align:center}
+.xa-panel{min-width:0}
+.xa-kinds{display:flex; gap:6px; overflow-x:auto; padding:2px 0 8px; scrollbar-width:none}
+.xa-kind{flex:0 0 auto; min-height:36px; padding:4px 12px; border:1.5px solid var(--card-border, #dbe3ee); border-radius:999px; background:transparent; color:var(--ink); font-weight:700; font-size:.8rem; cursor:pointer}
+.xa-kind.on{border-color:var(--navy, #1e3a6e); background:var(--navy, #1e3a6e); color:#fff}
+.xa-list{list-style:none; margin:0; padding:0}
+.xa-row{display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--card-border, #dbe3ee)}
+.xa-row:first-child{border-top:0}
+.xa-open{flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:12px; padding:4px; margin:-4px; border:0; border-radius:12px; background:none; color:inherit; text-align:left; cursor:pointer}
+.xa-open:hover{background:var(--soft, #eef2f7)}
+.xa-open:focus-visible{outline:2px solid var(--btn, #2878D0); outline-offset:1px}
+.xa-open img,.xa-ic{flex:none; width:56px; height:56px; border-radius:10px; object-fit:cover; background:var(--soft, #eef2f7)}
+.xa-ic{display:grid; place-items:center; color:#2878D0; font-size:1.1rem}
+.xa-tx{min-width:0; display:grid; gap:2px}
+.xa-tx b{font-size:.95rem; overflow-wrap:anywhere}
+.xa-tx small{color:var(--ink-soft); font-size:.8rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+.xa-add{flex:none; min-height:40px; padding:6px 12px; border:0; border-radius:999px; background:var(--btn, #2878D0); color:#fff; font-weight:700; font-size:.8rem; white-space:nowrap; cursor:pointer}
+.xa-add.on{background:transparent; color:#15803d; border:1.5px solid #16a34a}
+.xa-add:focus-visible{outline:2px solid var(--btn, #2878D0); outline-offset:2px}
+.xa-more{margin-top:8px; min-height:44px}
+.xa-src{display:block; margin-top:8px}
+.xa-detail{display:grid; gap:10px}
+.xa-detail-img{width:100%; max-height:220px; object-fit:cover; border-radius:12px; background:var(--soft, #eef2f7)}
+.xa-detail-meta{margin:0; color:var(--ink-soft); font-size:.85rem}
+.xa-detail-tx{margin:0; line-height:1.55}
+.xa-detail-act{display:flex; flex-wrap:wrap; gap:8px}
+.xa-detail-act .btn-ghost,.xa-detail-act .btn-grad{min-height:44px; display:inline-flex; align-items:center; gap:6px}
+.xa-plan{list-style:none; margin:0; padding:0}
+.xa-item{display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--card-border, #dbe3ee); border-radius:12px; background:var(--bg, #fff)}
+.xa-num{flex:none; width:28px; height:28px; border-radius:50%; display:grid; place-items:center; background:var(--navy, #1e3a6e); color:#fff; font-weight:800; font-size:.82rem}
+.xa-item.manual .xa-num{background:var(--gold, #f2b33d); color:#1f2937}
+.xa-item-tx{flex:1 1 auto; min-width:0; display:grid; gap:1px; padding:2px 0; border:0; background:none; color:inherit; text-align:left; cursor:pointer}
+.xa-item-tx b{overflow-wrap:anywhere} .xa-item-tx small{color:var(--ink-soft); font-size:.78rem}
+.xa-item-act{flex:none; display:flex; gap:2px}
+.xa-icon{width:36px; height:36px; display:grid; place-items:center; border:0; border-radius:50%; background:transparent; color:var(--ink); cursor:pointer}
+.xa-icon:hover{background:var(--soft, #eef2f7)} .xa-icon[disabled]{opacity:.3; cursor:default}
+.xa-icon:focus-visible{outline:2px solid var(--btn, #2878D0)}
+.xa-leg{display:flex; align-items:center; gap:6px; margin-left:13px; padding:5px 0 5px 20px; border-left:2px dashed var(--card-border, #dbe3ee); font-size:.78rem; color:var(--ink-soft)}
+.xa-total{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; padding-top:10px; border-top:1px solid var(--card-border, #dbe3ee); font-size:.88rem}
+.xa-total i{color:#2878D0}
+.xa-total-act{display:flex; flex-wrap:wrap; gap:6px} .xa-total-act .btn-ghost{min-height:40px; padding:6px 12px; font-size:.82rem}
+.xa-own{margin-top:10px; min-height:44px}
+.xa-addform{display:grid; grid-template-columns:2fr 1.4fr; gap:8px 10px; margin-top:10px; align-items:end}
+.xa-addform .cp-field{display:grid; gap:4px; position:relative} .xa-addform .cp-field span{font-size:.8rem; font-weight:700}
+.xa-addform input,.xp-ask-form input{min-height:44px; padding:8px 12px; border:1.5px solid var(--card-border, #dbe3ee); border-radius:12px; background:var(--bg, #fff); color:var(--ink); width:100%}
+.xa-addform-btns{grid-column:1/-1; display:flex; gap:6px}
+.xp-nogeo{color:#B45309 !important; margin:0}
+/* Zapytaj AI */
+.xp-ex{display:flex; flex-wrap:wrap; gap:6px}
+.xp-ex .near-cat{white-space:normal; text-align:left; min-height:40px; padding:6px 12px; border:1.5px solid var(--card-border, #dbe3ee); border-radius:999px; background:transparent; color:var(--ink); font-weight:600; font-size:.82rem; cursor:pointer}
+.xp-ask-form{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px} .xp-ask-form input{flex:1 1 220px; width:auto}
+.xp-turn{margin-bottom:10px; display:grid; gap:6px}
+.xp-q{margin:0; justify-self:end; max-width:90%; padding:8px 12px; border-radius:14px 14px 4px 14px; background:var(--navy, #1e3a6e); color:#fff; font-size:.88rem}
+.xp-a{padding:10px 12px; border-radius:14px 14px 14px 4px; background:var(--bg, #fff); border:1px solid var(--card-border, #dbe3ee); font-size:.88rem; line-height:1.5} .xp-a p{margin:0 0 6px} .xp-a p:last-of-type{margin-bottom:0}
+.xp-sugg{list-style:none; margin:8px 0 0; padding:0; display:grid; gap:6px}
+.xp-sugg li{display:flex; justify-content:space-between; align-items:center; gap:8px; padding-top:6px; border-top:1px solid var(--card-border, #dbe3ee)} .xp-sugg small{color:var(--ink-soft)}
+.xp-sugg .btn-ghost{min-height:40px; padding:6px 12px; font-size:.82rem}
+.xp-in{font-size:.8rem; color:#15803d; white-space:nowrap}
+@media (max-width:767px){
+  .xa-tab{font-size:.8rem; padding:6px 4px} .xa-count{min-width:18px; padding:0 4px; line-height:18px}
+  .xa-add{padding:6px 10px; font-size:.78rem}
+  .xa-open img,.xa-ic{width:48px; height:48px}
+  .xa-addform{grid-template-columns:1fr}
+}

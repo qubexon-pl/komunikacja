@@ -46,7 +46,7 @@ function fakeWiki() {
   const fetchSource = async (url) => {
     asked.push(url);
     if (url.includes("list=geosearch")) return ok(GEO);
-    if (url.includes("prop=pageprops")) return ok(PAGES);
+    if (url.includes("pageprops")) return ok(PAGES);
     if (url.includes("wbgetentities")) return ok(ENTITIES);
     if (url.includes("prop=extracts")) return ok(EXTRACTS);
     return { ok: false, status: 500, json: async () => ({}) };
@@ -66,7 +66,7 @@ test("attractions are Wikipedia articles near the centre that Wikidata calls a s
   assert.ok(wawel.km > 0.5 && wawel.km < 1.2);
   assert.ok(out.sources.some((s) => s.license === "CC BY-SA 4.0"));
   // The station is dropped by its coordinate type before any details are asked; nothing about the traveller is sent.
-  assert.doesNotMatch(asked.find((u) => u.includes("prop=pageprops")), /pageids=[^&]*2%7C/);
+  assert.doesNotMatch(asked.find((u) => u.includes("pageprops")), /pageids=[^&]*2%7C/);
   assert.ok(asked.every((u) => /^https:\/\/(pl\.wikipedia|www\.wikidata)\.org\//.test(u)));
 });
 
@@ -169,21 +169,67 @@ test("route helpers: distances between consecutive places, the total, and the sh
   assert.equal(X.fmtKm(2.345), "2,3 km");
 });
 
-test("route and attraction HTML: escaped names, distances between places, add buttons", () => {
+test("attraction list, details window and plan HTML: escaped names, add buttons, distances", () => {
   const X = loadPVX();
-  const html = X.planHtml({ items: [{ id: "a", name: "<b>x</b>", lat: 50, lon: 20 }, { id: "b", name: "B", lat: 50.01, lon: 20 }], start: null });
-  assert.doesNotMatch(html, /<b>x<\/b>/);
-  assert.match(html, /1,1 km/);
-  assert.match(html, /data-xp-move="b" data-dir="-1"/);
-  assert.match(html, /data-xp-add-open/);
-  const list = X.attractionsHtml({ data: { attractions: [{ id: "pl:1", title: "Wawel", kind: "castle", km: 0.8, views: 10, url: "https://pl.wikipedia.org/wiki/Wawel", extract: "Zamek." }] }, inPlan: new Set(["pl:1"]) });
+  const plan = X.planHtml({ items: [{ id: "a", name: "<b>x</b>", lat: 50, lon: 20 }, { id: "b", name: "B", lat: 50.01, lon: 20 }], start: null });
+  assert.doesNotMatch(plan, /<b>x<\/b>/);
+  assert.match(plan, /1,1 km/);
+  assert.match(plan, /data-xp-move="b" data-dir="-1"/);
+  assert.match(plan, /data-xa-plan="a"/);
+  assert.match(plan, /data-xp-add-open/);
+  const data = { attractions: [{ id: "pl:1", title: "Wawel", kind: "castle", km: 0.8, views: 10, lat: 50.054, lon: 19.935, url: "https://pl.wikipedia.org/wiki/Wawel", description: "zamek", extract: "Zamek." }, { id: "pl:2", title: "Rynek", kind: "square", km: 0.1, views: 5, url: "u", extract: "Plac. Duży." }] };
+  const list = X.attrListHtml({ data, inPlan: new Set(["pl:1"]) });
+  assert.match(list, /data-xa-open="pl:1"/);
   assert.match(list, /data-xp-unadd="pl:1"/);
+  assert.match(list, /data-xp-add="pl:2"[^>]*>.*Dodaj do planu/s);
   assert.match(list, /CC BY-SA 4\.0/);
+  const detail = X.detailHtml(data.attractions[0], { inPlan: false, fromKm: 0.8, fromLabel: "noclegu" });
+  assert.match(detail, /Zamki i pałace · zamek · 800 m od noclegu/);
+  assert.match(detail, /data-xa-m="add"/);
+  assert.match(detail, /data-xa-m="route"/);
+  assert.match(X.tabsHtml("plan", { attr: 2, plan: 1, ask: true }), /data-xa-tab="ask"/);
+  assert.match(X.headHtml("Rzym", { found: true, facts: { country: "Włochy" } }), /<h4>Rzym<\/h4><small>Włochy<\/small>/);
   assert.match(X.askHtml({ city: "Kraków" }), /data-xp-ask-form/);
+});
+
+test("the city article's sights sections are read link by link and come first", async () => {
+  const asked = [];
+  const SECTIONS = { parse: { title: "Rzym", sections: [
+    { index: "1", number: "1", line: "Historia" }, { index: "2", number: "2", line: "Zabytki" }, { index: "3", number: "2.1", line: "Starożytność" },
+    { index: "4", number: "3", line: "Transport" }, { index: "5", number: "4", line: "Przypisy" },
+  ] } };
+  const LINKS = { 2: ["Koloseum", "Starożytny Rzym"], 3: ["Panteon (Rzym)", "Fiumicino"] };
+  const fetchSource = async (url) => {
+    asked.push(url);
+    const u = new URL(url), q = u.searchParams;
+    if (q.get("action") === "parse" && q.get("prop") === "sections") return ok(SECTIONS);
+    if (q.get("action") === "parse" && q.get("prop") === "links") return ok({ parse: { links: (LINKS[q.get("section")] || []).map((title) => ({ ns: 0, title, exists: true })) } });
+    if (q.get("titles")) return ok({ query: { pages: [
+      { pageid: 11, title: "Koloseum", pageprops: { wikibase_item: "Q10285" }, coordinates: [{ lat: 41.8902, lon: 12.4922 }], pageviews: { a: 100 } },
+      { pageid: 12, title: "Starożytny Rzym", pageprops: { wikibase_item: "Q1747689" } },
+      { pageid: 13, title: "Panteon (Rzym)", pageprops: { wikibase_item: "Q99309" }, coordinates: [{ lat: 41.8986, lon: 12.4768 }], pageviews: { a: 500 } },
+      { pageid: 14, title: "Fiumicino", pageprops: { wikibase_item: "Q242902" }, coordinates: [{ lat: 41.77, lon: 12.23 }], pageviews: { a: 900 } },
+    ] } });
+    if (q.get("list") === "geosearch") return ok({ query: { geosearch: [{ pageid: 11, ns: 0, title: "Koloseum", lat: 41.8902, lon: 12.4922 }, { pageid: 20, ns: 0, title: "Fontanna di Trevi", lat: 41.9009, lon: 12.4833, type: "landmark" }] } });
+    if (q.get("pageids")?.includes("20") && q.get("prop")?.includes("pageprops")) return ok({ query: { pages: [{ pageid: 20, title: "Fontanna di Trevi", pageprops: { wikibase_item: "Q186579" }, pageviews: { a: 5000 } }] } });
+    if (u.hostname === "www.wikidata.org") return ok({ entities: {
+      Q10285: { claims: claimOf("P31", "Q54831") }, Q99309: { claims: claimOf("P31", "Q12345") }, Q242902: { claims: claimOf("P31", "Q747074") }, Q186579: { claims: claimOf("P31", "Q483453") },
+    } });
+    if (q.get("prop") === "extracts") return ok({ query: { pages: [] } });
+    return { ok: false, status: 500, json: async () => ({}) };
+  };
+  const out = await createAttractions({ fetchSource }).list({ name: "Rzym Fiumicino", title: "Rzym", lat: 41.8933, lon: 12.4829 });
+  // Panteon and Koloseum from the "Zabytki" section (by views), then Trevi from around the centre; the town of
+  // Fiumicino and the article without coordinates are dropped; "Transport" and "Przypisy" are never read.
+  assert.deepEqual(out.attractions.map((a) => [a.title, a.listed]), [["Panteon (Rzym)", true], ["Koloseum", true], ["Fontanna di Trevi", false]]);
+  assert.deepEqual(out.sections, ["Zabytki", "Starożytność"]);
+  assert.ok(!asked.some((u) => /section=(4|5)&/.test(u)));
 });
 
 test("the trip page loads the exploration helpers before app.js", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
   assert.ok(html.indexOf("/assets/app.explore.js") > 0 && html.indexOf("/assets/app.explore.js") < html.indexOf("/assets/app.js"));
   assert.match(fs.readFileSync(path.join(__dirname, "..", "assets/app.sw.js"), "utf8"), /\/assets\/app\.explore\.js/);
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "assets/app.sw.js"), "utf8"), /\/assets\/app\.explore\.css/);
+  assert.match(html, /\/assets\/app\.explore\.css/);
 });
