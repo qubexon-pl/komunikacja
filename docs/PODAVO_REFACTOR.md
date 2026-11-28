@@ -407,6 +407,11 @@ plan marks such stops in amber with a short note "(według OSM)". Service worker
   automatic as it can be.
 - **Alert names.** Price alerts show the trip's name (its title, or the cities without the street address), and the card
   wraps inside the Komunikaty window instead of running off the screen.
+- **Editing a price alert.** Each alert card has a pencil next to the ✕, and the trip page's "Alert cenowy" tile opens
+  the alert when one is set. The dialog changes the price limit and how often to check (`PUT /api/alerts/:id`,
+  `alerts.update`); the route and days stay, a different date is a new alert. A new limit clears the "already notified"
+  mark so the traveller is told again. Setting an alert for a flight that already has one opens that alert instead of
+  making a copy.
 - **Install from the browser on Android.** "Pobierz aplikację" on Android now opens a window with the browser install
   first (Chrome's install prompt, or the steps from the ⋮ menu when Chrome does not offer it), because only that version
   has Web Push; the APK stays below, marked as without push for now.
