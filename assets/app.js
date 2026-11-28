@@ -1397,7 +1397,10 @@ const TCITY={name:store('onward.city')||'Rzeszów', list:null, size:0, open:fals
 function cityList(){
   const names=railStationNames(), cities=railCities();
   if(TCITY.list && TCITY.size===names.length) return TCITY.list;
-  TCITY.list=cities.map(city=>{ const st=names.filter(n=>n===city||n.startsWith(city+' ')); return {city, main:routeStations(st).sort((a,b)=>a.length-b.length)[0]||city, stations:st.length}; }).sort((a,b)=>a.city.localeCompare(b.city,'pl'));
+  // Stacje miasta: nazwa równa miastu albo zaczynająca się od „miasto ”. Jedno przejście po stacjach zamiast filtra dla każdego miasta.
+  const own=new Map(cities.map(c=>[c,[]]));
+  for(const n of names){ for(let i=n.indexOf(' '); i>0; i=n.indexOf(' ',i+1)) own.get(n.slice(0,i))?.push(n); own.get(n)?.push(n); }
+  TCITY.list=cities.map(city=>{ const st=own.get(city); return {city, main:routeStations(st).sort((a,b)=>a.length-b.length)[0]||city, stations:st.length}; }).sort((a,b)=>PL_COLLATOR.compare(a.city,b.city));
   TCITY.size=names.length; return TCITY.list;
 }
 function stationIdOf(name){
@@ -1931,7 +1934,9 @@ document.getElementById('refreshBtn').addEventListener('click', ()=>tick(true));
    ROZKŁAD: kalendarz, indeksy, odjazdy
    ============================================================ */
 GT.cal = new Map(); GT.calDates = new Map(); GT.samples = new Map(); GT.byStop = new Map(); GT.groups = new Map(); GT.stopGroupOf = new Map(); GT.tripsByRoute = new Map();
-const natSort = (a,b)=>String(a).localeCompare(String(b),'pl',{numeric:true, sensitivity:'base'});
+// One collator for every sort: localeCompare with options builds a new one on each call (10c: ~200 ms at start-up).
+const NAT_COLLATOR=new Intl.Collator('pl',{numeric:true, sensitivity:'base'}), PL_COLLATOR=new Intl.Collator('pl');
+const natSort = (a,b)=>NAT_COLLATOR.compare(String(a),String(b));
 function dayInfo(offset){ // offset dni względem dziś (Warszawa)
   const p=zparts(nowSec()); const base0=midnightEpoch(p.year,p.month,p.day);
   const q=zparts(base0 + 12*3600 + offset*86400);

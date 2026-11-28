@@ -65,6 +65,8 @@ const MIME_TYPES = new Map([
   [".apk", "application/vnd.android.package-archive"],
 ]);
 const COMPRESSIBLE = new Set([".css", ".html", ".js", ".json", ".svg", ".webmanifest"]);
+const gzipCache = new Map(); // file path → { etag, body }: compressed static files, replaced when the file changes
+const GZIP_CACHE_MAX_FILE = 4 * 1024 * 1024;
 const acceptsGzip = (req) => /\bgzip\b/.test(req?.headers?.["accept-encoding"] || "");
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
 const MAX_AUTH_BODY_BYTES = 16 * 1024;
@@ -758,6 +760,25 @@ function serveStatic(res, pathname, root, search = "") {
       return;
     }
     const gzip = COMPRESSIBLE.has(ext) && stats.size > 1024 && acceptsGzip(res.req);
+    // 10c: a file's compressed bytes are kept in memory until it changes, instead of gzipping app.js (750 KB) on every load.
+    const packed = gzip && stats.size <= GZIP_CACHE_MAX_FILE ? gzipCache.get(filePath) : null;
+    if (packed && packed.etag === etag) {
+      res.writeHead(200, { ...base, "Content-Encoding": "gzip", "Content-Length": packed.body.length });
+      res.end(packed.body);
+      return;
+    }
+    if (gzip && stats.size <= GZIP_CACHE_MAX_FILE) {
+      fs.readFile(filePath, (readError, raw) => {
+        if (readError) { json(res, 500, { error: "Unable to serve the requested file." }); return; }
+        zlib.gzip(raw, { level: 9 }, (zipError, body) => {
+          if (zipError) { json(res, 500, { error: "Unable to serve the requested file." }); return; }
+          gzipCache.set(filePath, { etag, body });
+          res.writeHead(200, { ...base, "Content-Encoding": "gzip", "Content-Length": body.length });
+          res.end(body);
+        });
+      });
+      return;
+    }
     res.writeHead(200, gzip ? { ...base, "Content-Encoding": "gzip" } : base);
     const streams = gzip ? [fs.createReadStream(filePath), zlib.createGzip({ level: 6 }), res] : [fs.createReadStream(filePath), res];
     pipeline(...streams).catch(() => {

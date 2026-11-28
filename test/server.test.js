@@ -94,6 +94,14 @@ test("static server exposes the frontend but not project files", async (t) => {
   const script = await fetch(`${baseUrl}/assets/app.js`);
   assert.equal(script.status, 200);
   assert.match(script.headers.get("content-type"), /javascript/);
+  // Compressed once and served from memory after that: both answers carry the same complete, gzipped file.
+  const raw = require("node:fs").readFileSync(require("node:path").resolve(__dirname, "..", "assets/app.js"), "utf8");
+  for (let i = 0; i < 2; i++) {
+    const packed = await fetch(`${baseUrl}/assets/app.js`, { headers: { "Accept-Encoding": "gzip" } });
+    assert.equal(packed.headers.get("content-encoding"), "gzip");
+    assert.ok(Number(packed.headers.get("content-length")) < raw.length / 3);
+    assert.equal(await packed.text(), raw);
+  }
 
   const privateFile = await fetch(`${baseUrl}/package.json`, { headers: { Cookie: "rzbus_session=test-session" } });
   assert.equal(privateFile.status, 404);
