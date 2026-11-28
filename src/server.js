@@ -1297,7 +1297,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
   // 6a: place facts kept for 30 days; "not found" too, for a day, so a miss is not asked again at once.
   const placeInfo = knowledge?.about ? keep.wrap("know", 30 * DAY_MS, knowledge.about, (q) => [String(q.name).trim().toLowerCase(), q.lat.toFixed(2), q.lon.toFixed(2), q.lang], (v) => v?.found === true) : null;
   // Attractions of a city from Wikipedia, kept for 30 days; an empty answer is not kept.
-  const attractionList = cityAttractions?.list ? keep.wrap("wikiat", 30 * DAY_MS, cityAttractions.list, (q) => [q.lat.toFixed(2), q.lon.toFixed(2), q.radius, q.lang], (v) => v?.attractions?.length > 0) : null;
+  const attractionList = cityAttractions?.list ? keep.wrap("wikiat2", 30 * DAY_MS, cityAttractions.list, (q) => [q.lat.toFixed(2), q.lon.toFixed(2), q.radius, q.lang, String(q.title).toLowerCase()], (v) => v?.attractions?.length > 0) : null;
   const root = path.resolve(staticRoot);
   const tripAsked = new Map(); // route and day → when a trip search last asked the airlines
   return http.createServer(async (req, res) => {
@@ -1477,7 +1477,7 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           try {
             if (!attractionList) throw Object.assign(new Error("Atrakcje z Wikipedii są niedostępne."), { status: 503 });
             const p = (name) => url.searchParams.get(name) || "";
-            json(res, 200, await attractionList({ name: p("name").slice(0, 100), lat: p("lat") ? Number(p("lat")) : NaN, lon: p("lon") ? Number(p("lon")) : NaN, radius: Number(p("radius")) || 10000, lang: p("lang") === "en" ? "en" : "pl" }));
+            json(res, 200, await attractionList({ name: p("name").slice(0, 100), title: p("title").slice(0, 120), lat: p("lat") ? Number(p("lat")) : NaN, lon: p("lon") ? Number(p("lon")) : NaN, radius: Number(p("radius")) || 10000, lang: p("lang") === "en" ? "en" : "pl" }));
           } catch (error) {
             json(res, [400, 503].includes(error.status) ? error.status : 502, { error: error.status === 400 || error.status === 503 ? error.message : "Wikipedia jest chwilowo niedostępna.", attractions: [] });
           }
