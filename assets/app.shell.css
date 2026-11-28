@@ -511,6 +511,91 @@ body.trip-mode .hero-right{display:none !important}
 .install-banner .ib-x{flex:0 0 auto; width:32px; height:32px; border:0; border-radius:50%; background:transparent; color:var(--ink-soft,#5b6b80)}
 @media (min-width:1024px){ .install-banner{left:auto; right:20px; bottom:20px; width:420px} }
 
+/* ================================================================
+   Desktop sidebar, modern look (>= 1024 px). Same Podavo colours: navy, blue, amber.
+   Each icon sits on a rounded tile (a::before, so the markup stays the phone bar's); the open page gets a
+   blue tile with a white icon and a short blue bar at the edge. The weather card lives at the bottom of the
+   panel on desktop (app.js moves #wx here), so the planner's header no longer needs room for it.
+   ================================================================ */
+@media (min-width:1024px){
+  .bottom-nav{ gap:2px; padding-top:20px; }
+  .bottom-nav a{ gap:14px; min-height:48px; padding:0 12px 0 8px; font-weight:600; color:var(--ink-soft);
+    transition:background-color .15s, color .15s; }
+  .bottom-nav a::before{
+    content:""; position:absolute; left:8px; top:50%; width:34px; height:34px; margin-top:-17px; border-radius:11px;
+    background:var(--soft); transition:background-color .15s, box-shadow .15s;
+  }
+  .bottom-nav a .oi{ position:relative; z-index:1; margin-left:7px; margin-right:7px; }
+  .bottom-nav a span{ position:relative; z-index:1; }
+  .bottom-nav a:hover{ background:transparent; color:var(--ink); }
+  .bottom-nav a:hover::before{ background:color-mix(in srgb,var(--red) 14%,var(--soft)); }
+  .bottom-nav a.active{ background:color-mix(in srgb,var(--red) 8%,transparent); color:var(--ink); font-weight:700; }
+  .bottom-nav a.active::before{ background:var(--btn,#2472C8); box-shadow:0 8px 16px -8px color-mix(in srgb,var(--red) 80%,transparent); }
+  .bottom-nav a.active .oi{ color:#fff; }
+  .bottom-nav a.active::after{
+    content:""; position:absolute; left:-12px; top:12px; bottom:12px; width:4px; border-radius:0 4px 4px 0; background:var(--btn,#2472C8);
+  }
+  .bn-count{ position:relative; z-index:1; box-shadow:none; font-weight:800; }
+  .side-toggle{ min-height:40px; font-size:.82rem; font-weight:600; }
+
+  body.side-collapsed .bottom-nav a{ padding:0; }
+  body.side-collapsed .bottom-nav a::before{ left:50%; margin-left:-17px; }
+  body.side-collapsed .bottom-nav a .oi{ margin:0; }
+  body.side-collapsed .bottom-nav a.active{ background:transparent; }
+
+  /* weather card in the sidebar: a small navy card, white text as in the header */
+  .bottom-nav .wx{
+    flex:none; margin:auto 0 8px; width:100%; min-width:0 !important; max-width:none; transform:none !important;
+    padding:14px !important; border:0 !important; border-radius:16px; white-space:normal; font-size:.85rem;
+    background:linear-gradient(160deg,#1F4F92 0%,var(--onward-navy,#173B70) 70%) !important; color:#fff;
+    box-shadow:0 14px 28px -18px rgba(23,59,112,.8);
+  }
+  .bottom-nav .wx ~ .side-toggle{ margin-top:0; }
+  .bottom-nav .wx .cd-label{ font-size:.74rem; font-weight:600; letter-spacing:.02em; line-height:1.3; }
+  .bottom-nav .wx-now{ gap:8px; margin-top:8px; flex-wrap:wrap; }
+  .bottom-nav .wx-ico{ display:grid; place-items:center; width:44px; height:44px; border-radius:12px; background:rgba(255,255,255,.94); }
+  .bottom-nav .wx-ico img{ width:32px; height:32px; }
+  .bottom-nav .wx-temp{ font-size:1.9rem !important; font-weight:400; }
+  .bottom-nav .wx-desc{ flex:1 1 100%; font-size:.86rem; }
+  .bottom-nav .wx-desc small{ font-size:.72rem; }
+  .bottom-nav .wx-hours{ display:none; }
+  .bottom-nav .wx-tip{ margin-top:8px; font-size:.66rem; line-height:1.35; }
+  .bottom-nav .wx-here{ display:flex; width:100%; justify-content:center; margin-top:10px; padding:6px 10px; font-size:.74rem; white-space:normal; text-align:center; }
+  .bottom-nav .wx-alert{ margin:10px 0 0; }
+  .bottom-nav .wx-alert + .wx-here{ display:inline-flex; width:calc(100% - 44px); margin-left:6px; vertical-align:middle; }
+  .bottom-nav .wx-pick{ max-width:none; }
+  .bottom-nav .wx-pick input{ font-size:.85rem; }
+  .bottom-nav .wx-pick button{ padding:6px 12px; }
+  .bottom-nav .wx-err{ color:rgba(255,255,255,.8); }
+
+  /* collapsed panel: only the icon and the temperature */
+  body.side-collapsed .bottom-nav .wx{ padding:8px 4px !important; text-align:center; }
+  body.side-collapsed .bottom-nav .wx > :not(.wx-now){ display:none; }
+  body.side-collapsed .bottom-nav .wx-now{ flex-direction:column; gap:0; margin:0; }
+  body.side-collapsed .bottom-nav .wx-desc{ display:none; }
+  body.side-collapsed .bottom-nav .wx-ico{ width:36px; height:36px; margin:2px auto 4px; border-radius:10px; }
+  body.side-collapsed .bottom-nav .wx-ico img{ width:26px; height:26px; }
+  body.side-collapsed .bottom-nav .wx-temp{ font-size:1.05rem !important; font-weight:600; }
+
+  /* header only as tall as its text: the weather card is in the sidebar now */
+  body[data-view="podroz"]:not(.tt-mode):not(.fav-mode):not(.explore-mode):not(.mytrips-mode):not(.trip-mode) .hero{ padding:30px 24px 104px; }
+  body[data-view="podroz"]:not(.tt-mode):not(.fav-mode):not(.explore-mode):not(.mytrips-mode):not(.trip-mode) .hero h1{ font-size:clamp(2rem,3.2vw,2.9rem); }
+  body[data-view="podroz"]:not(.tt-mode) main.shell > .search-box{ margin-top:-80px; }
+  body[data-banner] .hero{ min-height:168px; }
+}
+/* laptop screens (up to ~820 px tall): a smaller header and intro picture, so the empty planner fits without scrolling */
+@media (min-width:1024px) and (max-height:820px){
+  body[data-view="podroz"]:not(.tt-mode):not(.fav-mode):not(.explore-mode):not(.mytrips-mode):not(.trip-mode) .hero{ padding:20px 24px 92px; }
+  body[data-view="podroz"]:not(.tt-mode):not(.fav-mode):not(.explore-mode):not(.mytrips-mode):not(.trip-mode) .hero h1{ font-size:clamp(1.8rem,2.6vw,2.4rem); }
+  body[data-view="podroz"]:not(.tt-mode) main.shell > .search-box{ margin-top:-76px; }
+  body[data-view="podroz"]:not(.tt-mode):not(.fav-mode):not(.explore-mode):not(.mytrips-mode):not(.trip-mode) #planResults:empty{ padding-top:8px; }
+  body[data-view="podroz"]:not(.tt-mode):not(.fav-mode):not(.explore-mode):not(.mytrips-mode):not(.trip-mode) #planResults:empty::before{ width:min(180px,50%); }
+  body[data-view="podroz"]:not(.tt-mode):not(.fav-mode):not(.explore-mode):not(.mytrips-mode):not(.trip-mode) #planResults:empty::after{ padding-bottom:22px; }
+  body[data-view="podroz"]:not(.tt-mode) main.shell{ padding-bottom:44px; }
+  .bottom-nav .wx-tip{ display:none; }
+}
+@media (min-width:1024px) and (prefers-reduced-motion:reduce){
+  .bottom-nav a,.bottom-nav a::before{ transition:none; }
 /* Trasa zwiedzania (app.explore.js): o mieście, moja trasa z odległościami, atrakcje z Wikipedii, pytania do AI */
 .xp-box{display:grid; grid-template-columns:minmax(0,1fr); gap:12px; margin:12px 0}
 .xp-box > *,.xp-attr .near-cats{min-width:0}
