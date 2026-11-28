@@ -25,6 +25,7 @@ const money = (value) => (value == null ? null : Math.round(Number(value) * 100)
 function toAlert(row) {
   return {
     id: String(row.alert_id).toLowerCase(),
+    userId: row.user_id ? String(row.user_id).toLowerCase() : undefined,
     from: String(row.from_airport).trim(),
     to: String(row.to_airport).trim(),
     day: dayValue(row.depart_day),
@@ -149,7 +150,7 @@ function noticeText(alert, found, appUrl) {
   return lines.join("\n");
 }
 
-function createPriceAlerts({ db, flights, collector = null, sendEmail = null, now = () => new Date(), tickMs = TICK_MS, appUrl = process.env.APP_URL || "" }) {
+function createPriceAlerts({ db, flights, collector = null, sendEmail = null, sendPush = null, now = () => new Date(), tickMs = TICK_MS, appUrl = process.env.APP_URL || "" }) {
   let timer = null;
   let ticking = false;
 
@@ -164,13 +165,24 @@ function createPriceAlerts({ db, flights, collector = null, sendEmail = null, no
         const found = alertPrice(flights, alert);
         const price = found?.price ?? null;
         if (price !== alert.lastPrice) await db.checked(alert.id, price);
-        if (shouldNotify(alert, price) && sendEmail && alert.email) {
-          try {
-            await sendEmail({ to: alert.email, subject: `Cena lotu ${alert.from} → ${alert.to}: ${price} zł — podavo.voyage`, text: noticeText(alert, found, appUrl) });
+        if (shouldNotify(alert, price) && ((sendEmail && alert.email) || sendPush)) {
+          // Email and, on devices that allowed it, a push notification; either one counts as the user being told.
+          let told = false;
+          if (sendEmail && alert.email) {
+            try {
+              await sendEmail({ to: alert.email, subject: `Cena lotu ${alert.from} → ${alert.to}: ${price} zł — podavo.voyage`, text: noticeText(alert, found, appUrl) });
+              told = true;
+            } catch (error) {
+              console.error("Price alert email failed:", error.message);
+            }
+          }
+          if (sendPush) {
+            const report = await sendPush(alert, price).catch(() => null);
+            if (report?.sent) told = true;
+          }
+          if (told) {
             await db.notified(alert.id, price);
             notified += 1;
-          } catch (error) {
-            console.error("Price alert email failed:", error.message);
           }
         }
       }

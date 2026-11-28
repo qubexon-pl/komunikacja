@@ -81,3 +81,14 @@ test("signed-in users list, add and remove their own alerts", async (t) => {
   assert.equal((await fetch(`${base}/api/alerts/${alert.id}`, { method: "DELETE", headers })).status, 204);
   assert.equal((await fetch(`${base}/api/alerts`, { headers: { Origin: base } })).status, 401);
 });
+
+test("a reached alert is also sent as a push, and a push alone counts as the user being told", async () => {
+  const flights = { cheapest: () => ({ pricePln: 99, departure: "2026-12-01T06:20", priceType: "exact" }), pairsFor: () => [] };
+  const pushed = [];
+  const db = memoryDb([{ id: "a1", userId: "u1", email: "", from: "KRK", to: "BGY", day: "2026-12-01", back: "", airline: "", maxPrice: 150, everyHours: 12 }]);
+  const alerts = createPriceAlerts({ db, flights, sendPush: async (alert, price) => { pushed.push([alert.id, price]); return { sent: 1 }; }, now: () => new Date(`${TODAY}T10:00:00Z`) });
+  assert.equal((await alerts.tick()).notified, 1);
+  assert.deepEqual(pushed, [["a1", 99]]);
+  assert.equal(db.rows[0].notifiedPrice, 99);
+  assert.equal((await alerts.tick()).notified, 0);
+});

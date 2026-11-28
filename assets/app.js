@@ -30,6 +30,7 @@ async function initializeUserMenu(){
   return user;
 }
 document.getElementById('logoutBtn').addEventListener('click',async()=>{
+  try{ await window.PVPUSH?.disable(false); }catch(e){}
   const response=await fetch('/api/auth/logout',{method:'POST'});
   if(response.ok){ forgetActivity(); store('rzbus.favs', []); store('onward.user', null); store('onward.favsPending', false); try{ await caches?.delete('onward-api'); }catch(e){} location.assign(ONW.loginUrl()); }
 });
@@ -152,6 +153,7 @@ async function idleSignOut(){
   if(IDLE.out) return; IDLE.out=true;
   clearInterval(IDLE.timer);
   forgetActivity(); // inaczej stary znacznik wylogowałby od razu po następnym zalogowaniu
+  try{ await window.PVPUSH?.disable(false); }catch(e){}
   try{ await fetch('/api/auth/logout',{method:'POST'}); }catch(e){}
   store('onward.user', null); store('rzbus.favs', []); try{ await caches?.delete('onward-api'); }catch(e){}
   location.assign('/login?powod=bezczynnosc&returnTo='+encodeURIComponent(location.pathname));
@@ -1203,7 +1205,46 @@ function fillAlerts(){
   const ztm = S.alerts.length ? S.alerts.map(a=>`<div class="alert-card"><b>${esc(a.header||'Komunikat')}</b>
     ${a.routes.length?`<div class="small mt-1">Linie: ${a.routes.map(r=>`<span class="chip unknown me-1" style="padding:3px 8px">${esc((GT.routes.get(r)||{}).short||r)}</span>`).join('')}</div>`:''}
     ${a.desc?`<div class="mt-1" style="white-space:pre-line">${esc(a.desc)}</div>`:''}${a.url?`<div class="mt-1"><a href="${esc(a.url)}" target="_blank" rel="noopener">Więcej</a></div>`:''}</div>`).join('') : '<div class="empty-note">Brak aktywnych komunikatów.</div>';
-  document.getElementById('alertsBody').innerHTML = inboxHtml() + myAlertsHtml() + health + (issues.length||S.alerts.length?`<h5 class="section-title mt-3 mb-2">${L2('Komunikaty ZTM Rzeszów','ZTM Rzeszów notices')}</h5>`:'') + ztm;
+  document.getElementById('alertsBody').innerHTML = pushBoxHtml() + inboxHtml() + myAlertsHtml() + health + (issues.length||S.alerts.length?`<h5 class="section-title mt-3 mb-2">${L2('Komunikaty ZTM Rzeszów','ZTM Rzeszów notices')}</h5>`:'') + ztm;
+}
+// Powiadomienia push na tym urządzeniu (assets/app.push.js): przypomnienia o podróżach i osiągnięte alerty cenowe.
+const PUSHUI={state:null, busy:false, note:''};
+async function refreshPushState(){
+  if(!window.PVPUSH || document.body.classList.contains('guest')) return;
+  PUSHUI.state=await PVPUSH.state();
+  if(alertsModalEl.classList.contains('show')) fillAlerts();
+}
+function pushBoxHtml(){
+  const st=PUSHUI.state;
+  if(!window.PVPUSH || document.body.classList.contains('guest') || !st || st==='off-server') return '';
+  const notes={
+    native:L2('W tej wersji aplikacji ze sklepu powiadomienia push jeszcze nie działają. Otwórz podavo.voyage w Chrome i zainstaluj Podavo z menu przeglądarki („Zainstaluj aplikację”), aby je dostawać.','Push notifications do not work in this store version of the app yet. Open podavo.voyage in Chrome and install Podavo from the browser menu (“Install app”) to get them.'),
+    'ios-install':L2('Na iPhonie i iPadzie dodaj Podavo do ekranu początkowego (Udostępnij → „Do ekranu początk.”), otwórz je stamtąd i włącz tu powiadomienia.','On iPhone and iPad, add Podavo to the Home Screen (Share → “Add to Home Screen”), open it from there and turn notifications on here.'),
+    unsupported:L2('Ta przeglądarka nie obsługuje powiadomień push.','This browser does not support push notifications.'),
+    blocked:L2('Powiadomienia są zablokowane w ustawieniach przeglądarki dla tej strony. Zezwól na nie, a potem włącz je tutaj.','Notifications are blocked for this site in the browser settings. Allow them, then turn them on here.'),
+  };
+  const head=`<div class="push-head"><i class="fa-solid fa-mobile-screen" aria-hidden="true"></i><div><b>${L2('Powiadomienia na tym urządzeniu','Notifications on this device')}</b><small>${L2('Dzień przed wyjazdem i powrotem oraz gdy alert cenowy osiągnie Twoją cenę.','The day before you leave and return, and when a price alert reaches your price.')}</small></div>${st==='on'?`<span class="push-on">${L2('Włączone','On')}</span>`:''}</div>`;
+  const dis=PUSHUI.busy?' disabled':'';
+  const acts=st==='on'?`<div class="push-acts"><button type="button" class="btn-ghost" data-push-test${dis}><i class="fa-solid fa-paper-plane" aria-hidden="true"></i> ${L2('Wyślij testowe','Send a test')}</button><button type="button" class="btn-ghost" data-push-off${dis}>${L2('Wyłącz','Turn off')}</button></div>`
+    :st==='off'?`<div class="push-acts"><button type="button" class="btn-grad" data-push-on${dis}><i class="fa-solid fa-bell" aria-hidden="true"></i> ${L2('Włącz powiadomienia','Turn on notifications')}</button></div>`
+    :`<p class="push-note">${esc(notes[st]||'')}</p>`;
+  return `<section class="push-box" aria-live="polite">${head}${acts}${PUSHUI.note?`<p class="push-note">${esc(PUSHUI.note)}</p>`:''}</section>`;
+}
+async function pushAction(kind){
+  if(PUSHUI.busy) return; PUSHUI.busy=true; PUSHUI.note=''; fillAlerts();
+  try{
+    if(kind==='on'){
+      const ok=await PVPUSH.enable(true);
+      const err=PVPUSH.error();
+      if(!ok) PUSHUI.note=err==='dismissed'?L2('Nie zezwolono na powiadomienia.','Notifications were not allowed.'):err==='blocked'?'':L2('Nie udało się włączyć powiadomień na tym urządzeniu. Spróbuj ponownie później.','Could not turn on notifications on this device. Try again later.');
+    }
+    if(kind==='off') await PVPUSH.disable(true);
+    if(kind==='test'){
+      const r=await PVPUSH.test();
+      PUSHUI.note=r.sent?L2(`Wysłano na ${r.sent} ${plural(r.sent,'urządzenie','urządzenia','urządzeń')}.`,`Sent to ${r.sent} device${r.sent===1?'':'s'}.`):L2('Nie udało się wysłać. Wyłącz i włącz powiadomienia ponownie.','Could not send. Turn notifications off and on again.');
+    }
+  }catch(e){ PUSHUI.note=e.message||L2('Coś poszło nie tak.','Something went wrong.'); }
+  PUSHUI.busy=false; PUSHUI.state=await PVPUSH.state(); fillAlerts();
 }
 // Moje alerty cenowe w panelu komunikatów: najpierw te, w których cena została osiągnięta.
 function myAlertsHtml(){
@@ -1216,13 +1257,16 @@ function myAlertsHtml(){
     <button type="button" class="btn-ghost my-alerts-all" data-alerts-fav><i class="fa-solid fa-star" aria-hidden="true"></i> ${L2('Zobacz w Ulubionych','See in Favourites')}</button></section>`;
 }
 document.getElementById('alertsBody').addEventListener('click', e=>{
+  if(e.target.closest('[data-push-on]')){ pushAction('on'); return; }
+  if(e.target.closest('[data-push-off]')){ pushAction('off'); return; }
+  if(e.target.closest('[data-push-test]')){ pushAction('test'); return; }
   const inv=e.target.closest('[data-invite-answer]'); if(inv){ answerInvite(inv); return; }
   const op=e.target.closest('[data-inbox-open]'); if(op){ alertsModal.hide(); openTrip(op.dataset.inboxOpen); return; }
   const rm=e.target.closest('[data-alert-remove]'); if(rm){ rm.disabled=true; removeAlert(rm.dataset.alertRemove); return; }
   if(e.target.closest('[data-alerts-fav]')){ alertsModal.hide(); goPage(S.agency, 'ulubione', 'alerts'); }
 });
 document.getElementById('alertsBtn').addEventListener('click', ()=>{
-  fillAlerts();
+  fillAlerts(); refreshPushState();
   if(!document.body.classList.contains('guest')) loadInbox().then(()=>{ markResponsesSeen(); fillAlerts(); renderAlertsBtn(); });
   if(!document.body.classList.contains('guest')) loadAlerts();
   loadDataStatus();
@@ -3087,6 +3131,8 @@ async function removeAlert(id){
   await loadAlerts();
 }
 sessionUser.then(user=>{ if(user) loadAlerts(); }).catch(()=>{});
+// Urządzenie, które wcześniej włączyło powiadomienia, odświeża swoją subskrypcję po zalogowaniu.
+sessionUser.then(user=>{ if(user) window.PVPUSH?.resume(); }).catch(()=>{});
 
 // Każdy lot ma własny przycisk: brakującą godzinę, cenę wybranej godziny albo nowszą cenę pobiera tracker tylko dla tego lotu.
 function legUpdate(f){
