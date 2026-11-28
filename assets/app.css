@@ -3201,3 +3201,10 @@ button.ctx-dep-open:focus-visible{outline:2px solid var(--btn, #2472C8); outline
 .my-alerts-list{grid-template-columns:minmax(0,1fr)}
 .fav-alert .fav-card-open b{white-space:normal; overflow-wrap:anywhere}
 .fav-alert .fav-card-open small{overflow-wrap:anywhere}
+
+/* Komunikaty: space between the data-status box and the notices below it */
+#alertsBody .data-ok{margin-bottom:16px}
+#alertsBody .data-ok + .section-title{margin-top:4px}
+/* Price alert card: edit button next to remove */
+.fav-card-edit{flex:none; width:34px; height:34px; border:0; border-radius:50%; background:none; color:var(--ink-soft)}
+.fav-card-edit:hover{background:var(--bg); color:var(--ink)}

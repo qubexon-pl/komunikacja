@@ -1272,6 +1272,7 @@ document.getElementById('alertsBody').addEventListener('click', e=>{
   if(e.target.closest('[data-push-test]')){ pushAction('test'); return; }
   const inv=e.target.closest('[data-invite-answer]'); if(inv){ answerInvite(inv); return; }
   const op=e.target.closest('[data-inbox-open]'); if(op){ alertsModal.hide(); openTrip(op.dataset.inboxOpen); return; }
+  const ed=e.target.closest('[data-alert-edit]'); if(ed){ const id=ed.dataset.alertEdit; alertsModalEl.addEventListener('hidden.bs.modal', ()=>editAlert(id), {once:true}); alertsModal.hide(); return; }
   const rm=e.target.closest('[data-alert-remove]'); if(rm){ rm.disabled=true; removeAlert(rm.dataset.alertRemove); return; }
   if(e.target.closest('[data-alerts-fav]')){ alertsModal.hide(); goPage(S.agency, 'ulubione', 'alerts'); }
 });
@@ -3144,25 +3145,48 @@ async function loadAlerts(){
 }
 function openAlertDialog(a){
   if(document.body.classList.contains('guest')){ location.href=ONW.loginUrl(location.pathname); return; }
-  ALERTS.draft=a;
-  document.getElementById('alertInfo').textContent=`${a.label||a.from+' → '+a.to} · ${fmtDay(a.day)}${a.back?' – '+fmtDay(a.back):''}${a.airline?' · '+(AIRLINES[a.airline]?.name||a.airline):''}`;
+  // Alert, który już jest dla tego lotu, otwiera się do zmiany zamiast tworzyć drugi taki sam.
+  const same=!a.id && ALERTS.list.find(x=>x.from===a.from && x.to===a.to && x.day===a.day && (x.back||'')===(a.back||''));
+  if(same){ editAlert(same.id); return; }
+  ALERTS.draft=a; alertDialogMode(false);
+  document.getElementById('alertInfo').textContent=`${alertName(a)} · ${fmtDay(a.day)}${a.back?' – '+fmtDay(a.back):''}${a.airline?' · '+(AIRLINES[a.airline]?.name||a.airline):''}`;
   document.getElementById('alertPrice').value=a.price?Math.max(1,Math.floor(a.price*0.9)):'';
   document.getElementById('alertHint').textContent=a.price?`Obecnie najtaniej: ${a.price} zł${a.back?' w obie strony':''}. Proponujemy limit o 10% niższy.`:'Nie znamy jeszcze ceny tego lotu; pierwsze sprawdzenie nastąpi w ciągu kilku minut.';
   document.getElementById('alertErr').textContent='';
   alertModal.show();
+}
+// Zmiana alertu: limit ceny i jak często sprawdzać (trasa i dni zostają; inny termin to nowy alert).
+function editAlert(id){
+  const a=ALERTS.list.find(x=>x.id===id); if(!a) return;
+  ALERTS.draft={...a}; alertDialogMode(true);
+  document.getElementById('alertInfo').textContent=`${alertName(a)} · ${fmtDay(a.day)}${a.back?' – '+fmtDay(a.back):''}${a.airline?' · '+(AIRLINES[a.airline]?.name||a.airline):''}`;
+  document.getElementById('alertPrice').value=a.maxPrice??'';
+  document.getElementById('alertEvery').value=String(a.everyHours||12);
+  document.getElementById('alertHint').textContent=a.currentPrice!=null?`Teraz najtaniej: ${Math.round(a.currentPrice)} zł${a.back?' w obie strony':''}.${a.notifiedAt?' Po zmianie limitu powiadomimy Cię ponownie, gdy cena go osiągnie.':''}`:'Nie znamy jeszcze ceny tego lotu.';
+  document.getElementById('alertErr').textContent='';
+  alertModal.show();
+}
+function alertDialogMode(edit){
+  document.getElementById('alertTitle').textContent=edit?'Zmień alert cenowy':'Powiadom o cenie';
+  document.getElementById('alertSave').innerHTML=edit?'<i class="fa-solid fa-check" aria-hidden="true"></i> Zapisz zmiany':'<i class="fa-solid fa-bell" aria-hidden="true"></i> Ustaw alert';
+  const del=document.getElementById('alertDelete'); if(del) del.hidden=!edit;
 }
 document.getElementById('alertForm').addEventListener('submit', async e=>{
   e.preventDefault();
   const a=ALERTS.draft, err=document.getElementById('alertErr'), save=document.getElementById('alertSave'); if(!a) return;
   err.textContent=''; save.disabled=true;
   try{
-    const r=await fetch('/api/alerts',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({from:a.from, to:a.to, day:a.day, back:a.back, airline:a.airline, label:a.label, maxPrice:document.getElementById('alertPrice').value, everyHours:+document.getElementById('alertEvery').value})});
+    const maxPrice=document.getElementById('alertPrice').value, everyHours=+document.getElementById('alertEvery').value;
+    const r=a.id
+      ? await fetch('/api/alerts/'+encodeURIComponent(a.id),{method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({maxPrice, everyHours})})
+      : await fetch('/api/alerts',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({from:a.from, to:a.to, day:a.day, back:a.back, airline:a.airline, label:a.label, maxPrice, everyHours})});
     const body=await r.json().catch(()=>({}));
     if(!r.ok){ err.textContent=body.error||'Nie udało się zapisać alertu.'; return; }
     alertModal.hide(); await loadAlerts();
   }catch(e2){ console.warn('Alert cenowy', e2); err.textContent='Nie udało się zapisać alertu.'; }
   finally{ save.disabled=false; }
 });
+document.getElementById('alertDelete')?.addEventListener('click', async ()=>{ const a=ALERTS.draft; if(!a?.id) return; alertModal.hide(); await removeAlert(a.id); });
 async function removeAlert(id){
   try{ await fetch('/api/alerts/'+encodeURIComponent(id),{method:'DELETE'}); }catch(e){ console.warn('Alert cenowy', e); }
   await loadAlerts();
@@ -5252,6 +5276,7 @@ function alertCard(a){
   return `<div class="fav-card fav-alert ${a.reached?'reached':''}"><span class="fav-ico"><i class="fa-solid fa-bell" aria-hidden="true"></i></span>
     <div class="fav-card-open"><b>${esc(alertName(a))}</b><small>${esc(a.from)} → ${esc(a.to)} · ${fmtDay(a.day)}${a.back?' – '+fmtDay(a.back):''} · do ${a.maxPrice} zł · ${ALERT_EVERY[a.everyHours]||''}</small>
       <small>${price}${a.reached?' · <span class="chip ok">Cena osiągnięta</span>':''}${a.notifiedAt?' · wysłano e-mail':''}</small></div>
+    <button class="fav-card-edit" type="button" data-alert-edit="${esc(a.id)}" title="Zmień alert" aria-label="Zmień alert ${esc(alertName(a))}"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>
     <button class="fav-card-remove" type="button" data-alert-remove="${esc(a.id)}" title="Usuń alert" aria-label="Usuń alert"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>`;
 }
 function favCard(f){
@@ -5358,6 +5383,7 @@ function renderFavorites(){
   }).join('');
 }
 document.getElementById('favPage').addEventListener('click', e=>{
+  const ed=e.target.closest('[data-alert-edit]'); if(ed){ editAlert(ed.dataset.alertEdit); return; }
   const rm=e.target.closest('[data-alert-remove]'); if(rm){ removeAlert(rm.dataset.alertRemove); return; }
   const item=key=>FAV.items.find(x=>favKey(x)===key);
   const rf=e.target.closest('[data-fav-refresh]'); if(rf){ const f=item(rf.dataset.favRefresh), fl=f&&savedFlight(f); if(fl) refreshSavedPrice(rf.dataset.favRefresh, fl); return; }
@@ -5982,7 +6008,7 @@ function tripTools(f, T, costs, cityBox){
   const fl=savedFlight(f);
   if(fl && !f.shared && (fl.back||fl.day)>=ymdOf(0)){
     const set=ALERTS.list.find(x=>x.from===fl.from && x.to===fl.to && x.day===fl.day);
-    out.push(`<button type="button" class="tp-tool ${set?'on':''}" data-fav-alert="${esc(favKey(f))}" aria-haspopup="dialog"><span class="tp-tool-ic"><i class="fa-solid fa-bell" aria-hidden="true"></i></span><span class="tp-tool-tx"><b>${L2('Alert cenowy','Price alert')}</b><small>${set?esc(L2(`do ${set.maxPrice} zł${set.reached?' · osiągnięta':''}`,`up to ${set.maxPrice} zł${set.reached?' · reached':''}`)):L2('Powiadom o niższej cenie','Tell me when it drops')}</small></span></button>`);
+    out.push(`<button type="button" class="tp-tool ${set?'on':''}" ${set?`data-alert-edit="${esc(set.id)}"`:`data-fav-alert="${esc(favKey(f))}"`} aria-haspopup="dialog"><span class="tp-tool-ic"><i class="fa-solid fa-bell" aria-hidden="true"></i></span><span class="tp-tool-tx"><b>${L2('Alert cenowy','Price alert')}</b><small>${set?esc(L2(`do ${set.maxPrice} zł${set.reached?' · osiągnięta':''}`,`up to ${set.maxPrice} zł${set.reached?' · reached':''}`)):L2('Powiadom o niższej cenie','Tell me when it drops')}</small></span></button>`);
   }
   const about=tripCities(T,f)[0]; if(about?.centre) out.push(`<button type="button" class="tp-tool" data-tp-about aria-haspopup="dialog"><span class="tp-tool-ic"><i class="fa-solid fa-landmark" aria-hidden="true"></i></span><span class="tp-tool-tx"><b>${L2('O miejscu','About the place')}</b><small>${esc(String(about.label).split(',')[0])}</small></span></button>`);
   if(cityBox) out.push(tool('city', planned?`${planned} ${planned===1?'punkt':planned<5?'punkty':'punktów'}`:esc(cities.map(c=>c.label).slice(0,2).join(', '))||L2('Miejsca i dojazdy','Places and rides')));
@@ -6767,6 +6793,7 @@ PEOPLE_EL.addEventListener('submit', async e=>{
     .finally(()=>{ btn.disabled=false; });
 }, true);
 document.getElementById('tripPage').addEventListener('click', e=>{
+  const ae=e.target.closest('[data-alert-edit]'); if(ae){ editAlert(ae.dataset.alertEdit); return; }
   const f=findTrip(TRIPV.id); if(!f) return;
   if(e.target.closest('[data-tp-book]')){ f.status='booked'; navCounts(); saveFavorites().catch(err=>console.warn('Nie zapisano podróży', err)); toast('Zapisano w „Moje podróże”.'); setSubpage('trip'); return; }
   if(e.target.closest('[data-tp-plan]')){ openInPlanner(f); return; }
