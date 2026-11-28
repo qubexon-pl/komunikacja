@@ -97,9 +97,9 @@ const GTFS_SOURCE_PATHS = new Map([
   ])],
 ]);
 
-function json(res, status, value) {
+function json(res, status, value, extra = {}) {
   const body = JSON.stringify(value);
-  const headers = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+  const headers = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", ...extra };
   // Larger answers (flight lists, route lists) travel compressed.
   if (body.length > 4096 && acceptsGzip(res.req)) {
     const packed = zlib.gzipSync(body, { level: 6 });
@@ -1297,7 +1297,16 @@ function createServer({ database, auth, fetchSource = fetch, geocode = createGeo
           return;
         }
         if (publicRoute === "flights" && segments[2] === "network") {
-          json(res, 200, flights ? flights.network() : { airports: [], routes: [] });
+          // The route network changes about once a week (it is refreshed and stored in the database), so browsers may keep it
+          // for an hour and then only ask whether it changed.
+          const network = flights ? flights.network() : { airports: [], routes: [] };
+          const etag = network.updatedAt ? `"net-${Date.parse(network.updatedAt) || 0}-${network.routes.length}"` : null;
+          if (etag && req.headers["if-none-match"] === etag) {
+            res.writeHead(304, { ETag: etag, "Cache-Control": "public, max-age=3600" });
+            res.end();
+            return;
+          }
+          json(res, 200, network, etag ? { ETag: etag, "Cache-Control": "public, max-age=3600" } : {});
           return;
         }
         if (publicRoute === "flights") {

@@ -339,3 +339,59 @@
 .nt-acts button{min-height:44px; display:inline-flex; align-items:center; gap:8px}
 .nt-acts .btn-ghost{color:#fff; border-color:rgba(255,255,255,.55); background:transparent}
 @media (max-width:767px){ .nt-acts button{flex:1 1 calc(50% - 8px); justify-content:center} }
+
+/* Kierunki: lista kierunków z widoku mapy. Komputer: lista po lewej, duża mapa po prawej. Telefon: mapa z wysuwanym panelem u dołu. */
+.explore-stage{position:relative}
+.explore-list{color:#fff}
+.el-head{display:flex; align-items:center; gap:10px; width:100%; padding:12px 14px; border:0; background:#0F2342; color:#fff; text-align:left; position:sticky; top:0; z-index:1}
+.el-head small{color:rgba(255,255,255,.65)}
+.el-grip,.el-chev{display:none}
+.el-items{list-style:none; margin:0; padding:0 6px 8px}
+.el-item{display:flex; align-items:center; gap:10px; width:100%; min-height:48px; padding:8px 10px; border:0; border-radius:12px; background:transparent; color:#fff; text-align:left}
+.el-item:hover{background:rgba(255,255,255,.06)}
+.el-item.on{background:rgba(255,255,255,.1); box-shadow:inset 3px 0 0 #F2B84B}
+.el-item:focus-visible{outline:2px solid #F2B84B; outline-offset:-2px}
+.el-dots{display:flex; gap:3px; flex:none}
+.el-dots i{width:8px; height:8px; border-radius:50%}
+.el-name{flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.25}
+.el-name b{font-size:.95rem}
+.el-name small{color:rgba(255,255,255,.65); font-size:.76rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.el-price{flex:none; text-align:right; white-space:nowrap}
+.el-price b{color:#F2B84B}
+.el-price small{color:rgba(255,255,255,.65)}
+.el-more{margin:8px 14px; color:rgba(255,255,255,.7); font-size:.82rem}
+.ec-about{margin:-4px 0 14px; font-size:.86rem; color:rgba(255,255,255,.85)}
+.ec-about p{margin:0 0 6px}
+.ec-more{padding:0; border:0; background:none; color:#7CC4F2; font-weight:700; font-size:.84rem}
+.ec-src{color:rgba(255,255,255,.5)}
+.explore-card .wx-chip{background:rgba(255,255,255,.14); color:#fff}
+.explore-card .wx-chip small{color:rgba(255,255,255,.75)}
+.el-legend{display:flex; flex-wrap:wrap; gap:4px 12px; padding:0 14px 10px; font-size:.76rem; color:rgba(255,255,255,.75)}
+.el-legend span{display:inline-flex; align-items:center; gap:6px}
+.el-legend i{width:9px; height:9px; border-radius:50%}
+.explore-map-wrap .explore-stats{display:none}
+@media (min-width:992px){
+  .explore-stage{display:grid; grid-template-columns:320px minmax(0,1fr); gap:14px}
+  .explore-stage #exploreMap{height:clamp(440px,66vh,700px)}
+  .explore-list{height:clamp(440px,66vh,700px); overflow:auto; border-radius:14px; background:#0F2342; border:1px solid rgba(255,255,255,.12)}
+  .explore-stage .explore-hint{left:calc(50% + 167px); top:12px; bottom:auto; max-width:calc(100% - 480px)}
+  .el-head{background:transparent}
+  .el-legend{position:sticky; top:46px; z-index:1; background:#0F2342; border-bottom:1px solid rgba(255,255,255,.1)}
+  .explore-list .el-head{background:#0F2342}
+}
+@media (max-width:991px){
+  .explore-list{position:absolute; left:8px; right:8px; bottom:8px; z-index:1010; max-height:56px; overflow:hidden; border-radius:16px; background:rgba(15,35,66,.96); border:1px solid rgba(255,255,255,.16); box-shadow:0 -10px 30px -16px rgba(0,0,0,.8); transition:max-height .2s ease}
+  .explore-list.open{max-height:62%; overflow:auto}
+  .el-head{min-height:56px; padding-top:16px; background:transparent}
+  .explore-list.open .el-head{background:rgba(15,35,66,.98)}
+  .el-grip{display:block; position:absolute; top:6px; left:50%; width:36px; height:4px; margin-left:-18px; border-radius:2px; background:rgba(255,255,255,.35)}
+  .el-chev{display:inline-block; margin-left:auto; transition:transform .2s ease}
+  .explore-list.open .el-chev{transform:rotate(180deg)}
+  .explore-stage .leaflet-bottom{bottom:64px}
+  .explore-stage .explore-card{position:absolute; left:0; right:0; top:auto; bottom:0; width:auto; max-height:88%; overflow:auto; margin:0; border-radius:18px 18px 14px 14px; z-index:1020}
+  .explore-stage .ec-art{display:none}
+  .explore-stage .explore-hint{display:none}
+  .explore-stage.card-on .explore-list{display:none}
+  .explore-map-wrap .explore-style{position:static; margin-top:10px; justify-content:center}
+}
+@media (prefers-reduced-motion: reduce){ .explore-list,.el-chev{transition:none} }

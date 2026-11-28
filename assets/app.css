@@ -1377,22 +1377,10 @@ li.on > .jl-btn{background:color-mix(in srgb,var(--red) 7%,var(--bg-alt))}
 #exploreMap .leaflet-bar a{background:#13213d; color:#fff; border-color:#22314b}
 .explore-hint{position:absolute; left:12px; bottom:12px; z-index:500; padding:6px 12px; border-radius:999px; background:rgba(8,16,34,.78); color:#fff; font-size:.8rem; backdrop-filter:blur(4px)}
 .explore.closed .explore-from,.explore.closed .explore-map-wrap{display:none}
-.explore-arc{stroke-dasharray:3 9; animation:exploreFlow 3.2s linear infinite; filter:drop-shadow(0 0 2px currentColor)}
-.explore-glow{filter:blur(2px)}
-@keyframes exploreFlow{to{stroke-dashoffset:-48}}
-@media (prefers-reduced-motion: reduce){ .explore-arc{animation:none; stroke-dasharray:none} }
-.explore-dot{filter:drop-shadow(0 0 4px rgba(255,255,255,.6)); cursor:pointer}
-.explore-origin{filter:drop-shadow(0 0 8px rgba(255,214,120,.9))}
 .leaflet-tooltip.explore-tip{background:#0B1A33; color:#fff; border:1px solid #22314b; border-radius:10px; box-shadow:0 8px 24px -8px rgba(0,0,0,.6); font-size:.8rem}
 .leaflet-tooltip.explore-tip::before{border-top-color:#0B1A33}
 body[data-view="podroz"]:not(.tt-mode):not(.fav-mode) main.shell > #explore{order:-2}
 
-.explore-arc{stroke-dasharray:none !important; animation:none !important; filter:drop-shadow(0 0 3px currentColor)}
-.explore-glow{opacity:.14}
-.explore-pulse{stroke-dasharray:2 60; stroke-linecap:round; animation:explorePulse 4.8s linear infinite; filter:drop-shadow(0 0 4px currentColor)}
-.explore-pulse.d1{animation-delay:-.8s} .explore-pulse.d2{animation-delay:-1.6s} .explore-pulse.d3{animation-delay:-2.4s} .explore-pulse.d4{animation-delay:-3.2s} .explore-pulse.d5{animation-delay:-4s}
-@keyframes explorePulse{to{stroke-dashoffset:-124}}
-@media (prefers-reduced-motion: reduce){ .explore-pulse{display:none} }
 body[data-view="podroz"]:not(.tt-mode):not(.fav-mode) main.shell > #explore{order:-3}
 
 .explore-chip.all{border-style:dashed}

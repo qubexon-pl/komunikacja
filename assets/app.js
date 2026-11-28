@@ -4566,6 +4566,7 @@ function renderExploreStats(){
     +`<div class="es-legend">${[...EXPLORE.airlines].map(x=>`<span><i style="background:${EXPLORE_COLORS[x]}" aria-hidden="true"></i>${esc(AIRLINES[x]?.name||x)} (${count(x)})</span>`).join('')}</div>`;
 }
 // Karta wybranego kierunku: skąd lecimy, najbliższy lot, szacowany czas lotu i najniższa cena z bazy.
+// Pogodę i opis miejsca pobieramy dopiero po otwarciu karty; serwer trzyma je w swojej pamięci podręcznej.
 function openExploreCard(code){
   const box=document.getElementById('exploreCard'), d=EXPLORE.dests.get(code); if(!box || !d){ closeExploreCard(); return; }
   EXPLORE.sel=code;
@@ -4574,7 +4575,7 @@ function openExploreCard(code){
   const near=origins[0]?.o, others=origins.slice(1).map(x=>x.o.code);
   const first=[...d.from].map(c=>routes.get(c+'|'+code)?.firstDay).filter(Boolean).sort()[0];
   const flightKm=near?hav([near.lat,near.lon],[a.lat,a.lon])/1000:null, minutes=flightKm?Math.round(flightKm/780*60+30):null;
-  const names=[...d.airlines].map(x=>AIRLINES[x]?.name||x).join(', ');
+  const names=[...d.airlines].map(x=>AIRLINES[x]?.name||x).join(', '), wx=wxChip([a.lat,a.lon], ymdOf(0));
   const item=(icon,html)=>`<li><i class="${icon}" aria-hidden="true"></i><span>${html}</span></li>`;
   box.innerHTML=`<div class="ec-art" aria-hidden="true"></div>
     <button type="button" class="ec-close" data-explore-close aria-label="${L2('Zamknij kartę','Close card')}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
@@ -4586,23 +4587,78 @@ function openExploreCard(code){
         ${item('oi oi-route', esc(names))}
         ${first?item('oi oi-calendar', `${L2('Najbliższy lot','Nearest flight')}: ${esc(longDay(first,{weekday:'short', day:'numeric', month:'short'}))}`):''}
         ${minutes?item('oi oi-clock', `≈ ${esc(isEn()?`${Math.floor(minutes/60)} h ${minutes%60} min`:fmtDuration(minutes))} <small>${L2('szacunek z odległości','estimated from distance')}</small>`):''}
-        ${d.price!=null?item('oi oi-price', `${L2('od','from')} <b>${d.price} zł</b>`):''}
+        ${d.price!=null?item('oi oi-price', `${L2('od','from')} <b>${d.price} zł</b> <small>${L2('najniższa cena zapisana w bazie','lowest fare stored in our database')}</small>`):''}
+        ${wx?item('fa-solid fa-cloud-sun', `${L2('Pogoda dziś','Weather today')} ${wx}`):''}
       </ul>
+      <div class="ec-about" data-ec-about="${esc(a.code)}"><span class="spin sm" aria-hidden="true"></span> <small>${L2('Wczytuję opis…','Loading the description…')}</small></div>
       <button type="button" class="ec-plan" data-explore-pick="${esc(a.code)}">${L2('Zaplanuj podróż','Plan a trip')} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
       <button type="button" class="ec-hide" data-explore-hide="${esc(a.code)}">${L2('Ukryj na mapie','Hide on the map')}</button>
     </div>`;
-  box.hidden=false;
-  EXPLORE.markers.forEach((m,c)=>m.setStyle({radius:c===code?7:4, weight:c===code?3:1.5}));
+  box.hidden=false; box.closest('.explore-stage')?.classList.add('card-on');
+  exploreMark(code); exploreRoutes({dest:code}); exploreListMark();
+  aboutInfo(a.city, a.lat, a.lon).then(info=>{
+    const el=box.querySelector(`[data-ec-about="${a.code}"]`); if(!el || EXPLORE.sel!==code) return;
+    const text=info?.found?(info.description||String(info.extract||'').split(/(?<=\.)\s/)[0]||''):'';
+    el.innerHTML=info?.found?`<p>${esc(text.length>220?text.slice(0,217)+'…':text)}</p><button type="button" class="ec-more" data-explore-about="${esc(a.code)}"><i class="fa-solid fa-landmark" aria-hidden="true"></i> ${L2('Więcej o miejscu','More about the place')}</button> <small class="ec-src">Wikipedia</small>`:'';
+  }).catch(()=>{ const el=box.querySelector(`[data-ec-about="${a.code}"]`); if(el) el.innerHTML=''; });
 }
 function closeExploreCard(){
-  const box=document.getElementById('exploreCard'); if(box) box.hidden=true;
-  if(EXPLORE.sel){ EXPLORE.markers.forEach(m=>m.setStyle({radius:4, weight:1.5})); EXPLORE.sel=null; }
+  const box=document.getElementById('exploreCard'); if(box){ box.hidden=true; box.closest('.explore-stage')?.classList.remove('card-on'); }
+  if(EXPLORE.sel){ EXPLORE.sel=null; exploreMark(null); exploreListMark(); }
+  exploreRoutes(null);
+}
+function exploreMark(code){ EXPLORE.markers.forEach((m,c)=>m.setStyle({radius:c===code?7:4, weight:c===code?3:1.5})); }
+function exploreListMark(){ document.querySelectorAll('#exploreList [data-explore-dest]').forEach(b=>b.classList.toggle('on', b.dataset.exploreDest===EXPLORE.sel)); }
+// Trasy rysujemy tylko dla wybranego kierunku albo lotniska wylotu, bez animacji, a nie całą sieć naraz.
+function exploreRoutes(focus){
+  const g=EXPLORE.routes; EXPLORE.focus=focus||null; if(!g) return; g.clearLayers(); if(!focus) return;
+  const airports=exploreAirports();
+  for(const r of EXPLORE.list||[]){
+    if(focus.dest?r.to!==focus.dest:r.from!==focus.origin) continue;
+    const a=airports.get(r.from), b=airports.get(r.to); if(!a || !b) continue;
+    const lines=r.airlines.filter(x=>EXPLORE.airlines.has(x));
+    lines.forEach((airline,i)=>L.polyline(exploreArc([a.lat,a.lon],[b.lat,b.lon], lines.length>1?(i?-1:1):1),{color:EXPLORE_COLORS[airline]||'#7FB3FF', weight:2.4, opacity:.9, interactive:false, pane:'exploreRoutes'}).addTo(g));
+  }
+}
+// Punkt kierunku tworzymy dopiero, gdy trafi w widoczny obszar mapy, i rysujemy go na jednym płótnie.
+function exploreDot(d){
+  const code=d.airport.code; let dot=EXPLORE.markers.get(code); if(dot) return dot;
+  const color=d.airlines.size>1?'#FFFFFF':EXPLORE_COLORS[[...d.airlines][0]], names=[...d.airlines].map(x=>AIRLINES[x]?.name||x).join(', ');
+  dot=L.circleMarker([d.airport.lat,d.airport.lon],{renderer:EXPLORE.canvas, radius:EXPLORE.sel===code?7:4, color, weight:EXPLORE.sel===code?3:1.5, fillColor:color, fillOpacity:0.9, bubblingMouseEvents:false})
+    .bindTooltip(`<b>${esc(d.airport.city)} (${esc(d.airport.code)})</b><br>${esc(d.airport.country||'')}<br>${esc(names)} · z ${esc([...d.from].join(', '))}${d.price!=null?`<br>od <b>${d.price} zł</b>`:''}`,{className:'explore-tip', direction:'top', sticky:true})
+    .on('click', ()=>openExploreCard(code));
+  EXPLORE.markers.set(code, dot); return dot;
+}
+// Na mapie są tylko kierunki z widocznego obszaru (z zapasem na przesuwanie), a lista obok pokazuje te same miejsca.
+function exploreViewport(){
+  const m=EXPLORE.map; if(!m || !EXPLORE.dots) return;
+  const seen=m.getBounds(), near=seen.pad(0.25), shown=[];
+  for(const d of EXPLORE.dests.values()){
+    const at=[d.airport.lat,d.airport.lon], dot=near.contains(at)?exploreDot(d):EXPLORE.markers.get(d.airport.code);
+    if(near.contains(at)){ if(!EXPLORE.dots.hasLayer(dot)) EXPLORE.dots.addLayer(dot); if(seen.contains(at)) shown.push(d); }
+    else if(dot && EXPLORE.dots.hasLayer(dot)) EXPLORE.dots.removeLayer(dot);
+  }
+  renderExploreList(shown);
+}
+const EXPLORE_LIST_MAX=60;
+function renderExploreList(shown){
+  const box=document.getElementById('exploreList'); if(!box) return;
+  const n=shown.length, list=shown.sort((x,y)=>(x.price??1e9)-(y.price??1e9) || natSort(x.airport.city||'',y.airport.city||'')).slice(0,EXPLORE_LIST_MAX);
+  box.classList.toggle('open', !!EXPLORE.sheet);
+  box.innerHTML=`<button type="button" class="el-head" data-explore-sheet aria-expanded="${!!EXPLORE.sheet}"><span class="el-grip" aria-hidden="true"></span><span><b>${n}</b> ${esc(L2(plural(n,'kierunek','kierunki','kierunków'), n===1?'destination':'destinations'))} <small>${esc(L2('w widoku mapy','in the map view'))}</small></span><i class="fa-solid fa-chevron-up el-chev" aria-hidden="true"></i></button>
+    <div class="el-legend">${[...EXPLORE.airlines].map(x=>`<span><i style="background:${EXPLORE_COLORS[x]}" aria-hidden="true"></i>${esc(AIRLINES[x]?.name||x)}</span>`).join('')}<span><i style="background:#F5A524" aria-hidden="true"></i>${esc(L2('lotnisko wylotu','departure airport'))}</span></div>
+    <ol class="el-items">${list.map(d=>`<li><button type="button" class="el-item ${EXPLORE.sel===d.airport.code?'on':''}" data-explore-dest="${esc(d.airport.code)}">
+      <span class="el-dots" aria-hidden="true">${[...d.airlines].map(x=>`<i style="background:${EXPLORE_COLORS[x]}"></i>`).join('')}</span>
+      <span class="el-name"><b>${esc(d.airport.city)}</b><small>${esc(d.airport.country||'')} · ${esc(L2('z','from'))} ${esc([...d.from].join(', '))}</small></span>
+      ${d.price!=null?`<span class="el-price"><small>${esc(L2('od','from'))}</small> <b>${d.price} zł</b></span>`:''}</button></li>`).join('')}</ol>
+    ${n>EXPLORE_LIST_MAX?`<p class="el-more">${esc(L2(`i ${n-EXPLORE_LIST_MAX} więcej. Przybliż mapę, aby je zobaczyć.`,`and ${n-EXPLORE_LIST_MAX} more. Zoom in to see them.`))}</p>`:''}
+    ${!n?`<p class="el-more">${esc(L2('Brak kierunków w tym obszarze. Oddal mapę.','No destinations in this area. Zoom out.'))}</p>`:''}`;
 }
 function ensureExploreMap(){
   if(EXPLORE.map) return EXPLORE.map;
   const el=document.getElementById('exploreMap'); if(!el || !el.offsetParent) return null;
   const world=L.latLngBounds([-60,-170],[78,180]);
-  const m=L.map(el,{zoomControl:true, attributionControl:true, worldCopyJump:false, minZoom:2, maxZoom:7, zoomSnap:0.25, preferCanvas:false, maxBounds:world, maxBoundsViscosity:1});
+  const m=L.map(el,{zoomControl:true, attributionControl:true, worldCopyJump:false, minZoom:2, maxZoom:7, zoomSnap:0.25, preferCanvas:true, maxBounds:world, maxBoundsViscosity:1});
   m.attributionControl.setPrefix(false);
   EXPLORE.tiles=L.tileLayer(exploreTileUrl(),{maxZoom:7, maxNativeZoom:7, noWrap:true, bounds:world, attribution:exploreTileCredit()}).addTo(m);
   L.control.scale({position:'bottomleft', metric:true, imperial:false, maxWidth:180}).addTo(m);
@@ -4610,7 +4666,10 @@ function ensureExploreMap(){
   new Center().addTo(m);
   m.setView([48,15],4);
   m.on('click', ()=>closeExploreCard());
-  EXPLORE.map=m; EXPLORE.layer=L.layerGroup().addTo(m);
+  m.createPane('exploreRoutes').style.zIndex=390;
+  EXPLORE.canvas=L.canvas({padding:0.3});
+  m.on('moveend', ()=>{ clearTimeout(EXPLORE.moved); EXPLORE.moved=setTimeout(exploreViewport,120); });
+  EXPLORE.map=m; EXPLORE.routes=L.layerGroup().addTo(m); EXPLORE.dots=L.layerGroup().addTo(m); EXPLORE.layer=L.layerGroup().addTo(m);
   setExploreStyle(EXPLORE.style);
   return m;
 }
@@ -4644,40 +4703,26 @@ function renderExplore(){
   const routes=FL.network.filter(r=>from.has(r.from) && airports.has(r.to) && !EXPLORE.hidden.has(r.to) && r.airlines.some(x=>EXPLORE.airlines.has(x)));
   const key=[...from].sort().join(',')+'|'+[...EXPLORE.airlines].sort().join(',')+'|'+[...EXPLORE.hidden].sort().join(',')+'|'+routes.length;
   if(EXPLORE.drawn===key){ exploreSummary(); return; }
-  EXPLORE.drawn=key; EXPLORE.layer.clearLayers(); EXPLORE.markers.clear();
+  EXPLORE.drawn=key; EXPLORE.layer.clearLayers(); EXPLORE.dots.clearLayers(); EXPLORE.markers.clear(); EXPLORE.list=routes;
   const dests=new Map(), bounds=[];
   for(const r of routes){
-    const a=airports.get(r.from), b=airports.get(r.to), pa=[a.lat,a.lon], pb=[b.lat,b.lon];
-    const lines=r.airlines.filter(x=>EXPLORE.airlines.has(x));
-    lines.forEach((airline,i)=>{
-      const pts=exploreArc(pa,pb, lines.length>1?(i?-1:1):1), color=EXPLORE_COLORS[airline]||'#7FB3FF';
-      L.polyline(pts,{color, weight:5, opacity:0.10, interactive:false, className:'explore-glow'}).addTo(EXPLORE.layer);
-      L.polyline(pts,{color, weight:1.3, opacity:0.55, interactive:false, className:'explore-arc'}).addTo(EXPLORE.layer);
-      // Jasny impuls płynący wzdłuż łuku, każdy z innym opóźnieniem, żeby mapa żyła.
-      if(routes.length<=200) L.polyline(pts,{color, weight:2.4, opacity:0.95, interactive:false, className:`explore-pulse d${(dests.size+i)%6}`}).addTo(EXPLORE.layer); // przy setkach tras same łuki, żeby mapa nie zwalniała
-    });
+    const b=airports.get(r.to), lines=r.airlines.filter(x=>EXPLORE.airlines.has(x));
     const d=dests.get(r.to)||{airport:b, airlines:new Set(), from:new Set(), price:null};
     lines.forEach(x=>d.airlines.add(x)); d.from.add(r.from);
     const p=prices.get(r.from+'|'+r.to); if(p && (d.price==null || p.cheapest<d.price)) d.price=Math.round(p.cheapest);
-    dests.set(r.to,d); bounds.push(pb);
-  }
-  for(const d of dests.values()){
-    const both=d.airlines.size>1, color=both?'#FFFFFF':EXPLORE_COLORS[[...d.airlines][0]];
-    const names=[...d.airlines].map(x=>AIRLINES[x]?.name||x).join(', ');
-    const dot=L.circleMarker([d.airport.lat,d.airport.lon],{radius:4, color, weight:1.5, fillColor:color, fillOpacity:0.9, className:'explore-dot', bubblingMouseEvents:false}); EXPLORE.markers.set(d.airport.code, dot); dot
-      .bindTooltip(`<b>${esc(d.airport.city)} (${esc(d.airport.code)})</b><br>${esc(d.airport.country||'')}<br>${esc(names)} · z ${esc([...d.from].join(', '))}${d.price!=null?`<br>od <b>${d.price} zł</b>`:''}`,{className:'explore-tip', direction:'top', sticky:true})
-      .on('click', ()=>openExploreCard(d.airport.code))
-      .addTo(EXPLORE.layer);
+    dests.set(r.to,d); bounds.push([b.lat,b.lon]);
   }
   for(const code of from){ const a=airports.get(code); if(!a) continue; bounds.push([a.lat,a.lon]);
-    L.circleMarker([a.lat,a.lon],{radius:7, color:'#FFE9A8', weight:2, fillColor:'#F5A524', fillOpacity:1, className:'explore-origin'}).bindTooltip(`<b>${esc(a.city)} (${esc(a.code)})</b><br>lotnisko wylotu`,{className:'explore-tip', direction:'top'})
-      .bindPopup(`<div class="explore-pop"><b>${esc(a.city)} (${esc(a.code)})</b><small>lotnisko wylotu</small><div class="explore-pop-btns"><button type="button" data-explore-remove="${esc(a.code)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> Usuń z mapy</button></div></div>`,{className:'explore-popup', closeButton:false}).addTo(EXPLORE.layer); }
+    L.circleMarker([a.lat,a.lon],{radius:7, color:'#FFE9A8', weight:2, fillColor:'#F5A524', fillOpacity:1, bubblingMouseEvents:false}).bindTooltip(`<b>${esc(a.city)} (${esc(a.code)})</b><br>lotnisko wylotu`,{className:'explore-tip', direction:'top'})
+      .bindPopup(`<div class="explore-pop"><b>${esc(a.city)} (${esc(a.code)})</b><small>lotnisko wylotu</small><div class="explore-pop-btns"><button type="button" data-explore-remove="${esc(a.code)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> Usuń z mapy</button></div></div>`,{className:'explore-popup', closeButton:false})
+      .on('click', ()=>{ closeExploreCard(); exploreRoutes({origin:code}); }).addTo(EXPLORE.layer); }
   EXPLORE.dests=dests; EXPLORE.bounds=bounds;
   EXPLORE.summary=`${dests.size} kierunków z ${from.size} ${from.size===1?'lotniska':'lotnisk'} · ${[...EXPLORE.airlines].map(x=>AIRLINES[x]?.name||x).join(' i ')}`;
   document.getElementById('exploreInfo').textContent=EXPLORE.summary+(EXPLORE.hidden.size+EXPLORE.removed.size?` · usunięte: ${EXPLORE.hidden.size+EXPLORE.removed.size}`:'');
   renderExploreStats(); exploreSummary();
+  exploreFit(false); exploreViewport();
   if(EXPLORE.sel){ if(dests.has(EXPLORE.sel)) openExploreCard(EXPLORE.sel); else closeExploreCard(); }
-  exploreFit(false);
+  else exploreRoutes(EXPLORE.focus?.origin && from.has(EXPLORE.focus.origin)?EXPLORE.focus:null);
 }
 // Widok mapy (lotniska wylotu, linie, ukryte kierunki) zapisany na koncie, a bez konta w tej przeglądarce.
 function exploreView(){ return {from:[...(EXPLORE.from||[])], airlines:[...EXPLORE.airlines], hidden:[...EXPLORE.hidden], removed:[...EXPLORE.removed]}; }
@@ -4729,8 +4774,8 @@ function exploreShow(text){
   if(![...d.from].some(c=>EXPLORE.from?.has(c))){ for(const c of d.from){ EXPLORE.removed.delete(c); EXPLORE.from.add(c); } toast(`Do ${d.airport.city} latamy z: ${[...d.from].join(', ')} — dodano te lotniska wylotu.`); }
   if(!EXPLORE.open){ EXPLORE.open=true; store('rzbus.explore.open', true); }
   EXPLORE.drawn=''; renderExplore();
-  const dot=EXPLORE.markers.get(code); if(!dot || !EXPLORE.map) return;
-  EXPLORE.map.setView(dot.getLatLng(), Math.max(EXPLORE.map.getZoom(),5), {animate:true});
+  const dest=EXPLORE.dests.get(code); if(!dest || !EXPLORE.map) return;
+  EXPLORE.sel=code; EXPLORE.map.setView([dest.airport.lat,dest.airport.lon], Math.max(EXPLORE.map.getZoom(),5), {animate:true});
   openExploreCard(code);
 }
 document.getElementById('exploreSearchForm').addEventListener('submit', e=>{ e.preventDefault(); exploreShow(document.getElementById('exploreSearch').value); });
@@ -4755,6 +4800,10 @@ document.getElementById('explore').addEventListener('click', e=>{
   if(fr){ const c=fr.dataset.exploreFrom; if(EXPLORE.from.has(c) && EXPLORE.from.size>1) EXPLORE.from.delete(c); else EXPLORE.from.add(c); renderExplore(); return; }
   const style=e.target.closest('[data-explore-style]'); if(style){ setExploreStyle(style.dataset.exploreStyle); return; }
   if(e.target.closest('[data-explore-close]')){ closeExploreCard(); return; }
+  const dest=e.target.closest('[data-explore-dest]');
+  if(dest){ const d=EXPLORE.dests.get(dest.dataset.exploreDest); if(d){ EXPLORE.sel=d.airport.code; if(EXPLORE.map && !EXPLORE.map.getBounds().contains([d.airport.lat,d.airport.lon])) EXPLORE.map.panTo([d.airport.lat,d.airport.lon]); openExploreCard(d.airport.code); } return; }
+  if(e.target.closest('[data-explore-sheet]')){ EXPLORE.sheet=!EXPLORE.sheet; const box=document.getElementById('exploreList'); box?.classList.toggle('open', EXPLORE.sheet); box?.querySelector('[data-explore-sheet]')?.setAttribute('aria-expanded', String(EXPLORE.sheet)); return; }
+  const ab=e.target.closest('[data-explore-about]'); if(ab){ const d=EXPLORE.dests.get(ab.dataset.exploreAbout); if(d) openAbout({name:d.airport.city, lat:d.airport.lat, lon:d.airport.lon}); return; }
   const pick=e.target.closest('[data-explore-pick]'); if(pick){ const a=exploreAirports().get(pick.dataset.explorePick); EXPLORE.map?.closePopup(); if(a) exploreChoose(a); return; }
   const hide=e.target.closest('[data-explore-hide]'); if(hide){ EXPLORE.hidden.add(hide.dataset.exploreHide); EXPLORE.map?.closePopup(); closeExploreCard(); renderExplore(); return; }
   const rm=e.target.closest('[data-explore-remove]'); if(rm){ const c=rm.dataset.exploreRemove; EXPLORE.removed.add(c); EXPLORE.from.delete(c); if(!EXPLORE.from.size){ const next=exploreOrigins().find(a=>!EXPLORE.removed.has(a.code)); if(next) EXPLORE.from.add(next.code); } EXPLORE.map?.closePopup(); renderExplore(); return; }
@@ -4856,19 +4905,21 @@ document.getElementById('exploreSearchForm')?.addEventListener('submit', e=>{ if
 
 /* ---------- O miejscu (6b): opis z Wikipedii i fakty z Wikidata, w oknie ---------- */
 const ABOUT=new Map();
+const aboutName=name=>String(name).split(',')[0].replace(/\s*\([A-Z]{3}\)$/,'').trim();
+async function aboutInfo(name, lat, lon){
+  const clean=aboutName(name), lang=isEn()?'en':'pl', key=`${clean}|${(+lat).toFixed(2)}|${(+lon).toFixed(2)}|${lang}`;
+  if(ABOUT.has(key)) return ABOUT.get(key);
+  const r=await fetch('/api/places/about?'+new URLSearchParams({name:clean, lat:(+lat).toFixed(4), lon:(+lon).toFixed(4), lang}));
+  const info=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(info.error||'');
+  ABOUT.set(key, info); return info;
+}
 async function openAbout({name, lat, lon}){
   if(!window.PVUI || !name || lat==null || lon==null) return;
-  const clean=String(name).split(',')[0].replace(/\s*\([A-Z]{3}\)$/,'').trim();
+  const clean=aboutName(name);
   const h=PVUI.sheet.open({title:L2(`O miejscu: ${clean}`,`About ${clean}`), html:`<div class="empty-note">${esc(L2('Wczytuję opis…','Loading…'))}</div>`});
-  const lang=isEn()?'en':'pl', key=`${clean}|${(+lat).toFixed(2)}|${(+lon).toFixed(2)}|${lang}`;
   try{
-    let info=ABOUT.get(key);
-    if(!info){
-      const r=await fetch('/api/places/about?'+new URLSearchParams({name:clean, lat:(+lat).toFixed(4), lon:(+lon).toFixed(4), lang}));
-      info=await r.json().catch(()=>({}));
-      if(!r.ok) throw new Error(info.error||'');
-      ABOUT.set(key, info);
-    }
+    const info=await aboutInfo(clean, lat, lon);
     h.setContent(PVD.aboutHtml(info,{t:L2}));
   }catch(e){ h.setContent(`<div class="empty-note">${esc(e.message||L2('Opis jest chwilowo niedostępny.','The description is unavailable right now.'))}</div>`); }
 }
